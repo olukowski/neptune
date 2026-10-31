@@ -20,6 +20,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptDataLessThanSign,
         State::ScriptDataEndTagOpen,
         State::ScriptDataEndTagName,
+        State::ScriptDataEscaped,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
