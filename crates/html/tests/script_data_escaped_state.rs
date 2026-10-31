@@ -402,7 +402,7 @@ fn every_two_chunk_split_and_single_point_stream_matches_closed_source_steps() {
     mixed
         .extend([0xd800, 0xdfff, 0xfdd0, 0x10ffff, 0x01, 0x7f].map(|v| CodePoint::new(v).unwrap()));
     let mut dash = mixed.clone();
-    dash.extend(points("-literal\0-a--unconsumed\0"));
+    dash.extend(points("-literal\0-a--literal\0"));
     let mut less_than = mixed.clone();
     less_than.extend(points("<unconsumed\0"));
     for input in [
@@ -416,7 +416,11 @@ fn every_two_chunk_split_and_single_point_stream_matches_closed_source_steps() {
         points("\0\r"),
         points("&"),
         points("-"),
-        points("--unconsumed\0"),
+        points("--literal\0"),
+        points("--a--\0--->\r\n\0"),
+        points("--a--\0---<\r\n\0"),
+        points("x--\0--a---\0--<tail"),
+        points("x--\0--a---><!tail"),
         points("-<unconsumed\0"),
         points("<"),
         points("\r\n<\r\n"),

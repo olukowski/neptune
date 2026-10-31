@@ -12,8 +12,9 @@ After attribute name, Before attribute value, Attribute value
 After attribute value (quoted), Self-closing start tag, Bogus comment, and
 [Script data end tag open](tokenizer-script-data-end-tag-open.md) and
 [Script data end tag name](tokenizer-script-data-end-tag-name.md) are implemented.
-[Script data escaped](tokenizer-script-data-escaped.md) and
-[Script data escaped dash](tokenizer-script-data-escaped-dash.md) are also implemented
+[Script data escaped](tokenizer-script-data-escaped.md),
+[Script data escaped dash](tokenizer-script-data-escaped-dash.md), and
+[Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md) are also implemented
 (isolated entry while escape start remains a stub).
 All other states, including Script data escape start, ordinary Comment and
 Character reference, remain `UnimplementedState` stubs.**
