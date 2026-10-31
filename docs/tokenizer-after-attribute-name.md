@@ -2,6 +2,10 @@
 
 ## Scope and immutable source
 
+The opening scope below records PR #20's historical integration. PR #21 rebases
+onto main `2983fbe809621963f8399e6e94072ccfc04937ce` and adds only Before
+attribute value; all previously merged state algorithms remain unchanged.
+
 Only `State::AfterAttributeName` is added, in
 `crates/html/src/tokenizer/after_attribute_name.rs`. Originally based on
 prerequisite PR #15 (`046565d7c033ed2bff4934b83f689284113bb1b4`), this change
@@ -28,8 +32,8 @@ Tests below are in `crates/html/tests/after_attribute_name_state.rs`.
 | Pinned branch | Code effects | Focused test |
 | --- | --- | --- |
 | TAB, LF, FF, SPACE | Consume and ignore; stay here. CR normalization belongs to cursor. | `whitespace_solidus_equals_consume_without_touching_storage_even_without_current_attribute` |
-| `/` | Consume; switch to Self-closing start tag without flag mutation or reconsumption. | Same test; `real_paths_finish_boolean_attributes_and_duplicates_but_values_still_block` exercises the implemented destination. |
-| `=` | Consume; switch to Before attribute value without modifying the current attribute. | Same test, including detached-current identity and effect-free repeated typed terminal failure on the next dispatch. |
+| `/` | Consume; switch to Self-closing start tag without flag mutation or reconsumption. | Same test; `real_paths_finish_boolean_attributes_duplicates_and_abandon_unfinished_values` exercises the implemented destination. |
+| `=` | Consume; switch to Before attribute value without modifying the current attribute. | Same source-step matrix, including detached-current identity and exact consumption; real Data tests now continue through value parsing/EOF abandonment. |
 | `>` | Consume; switch to Data and call shared `tag::emit_tag`. | `emission_and_eof_use_selected_tag_helpers_preserving_unrelated_context` |
 | EOF | Report `eof-in-tag` at conceptual EOF; call shared `tag::take_tag` to abandon the selected unfinished token; emit one terminal EOF. | Same test, plus `open_input_suspends_without_finalizing_or_losing_detached_current` |
 | Anything else | `tag::start_attribute(Attribute::default())`; reconsume unchanged input in Attribute name. | `anything_else_creates_empty_attribute_clears_detached_current_and_reconsumes_literally` exhausts ASCII and tests Unicode/non-scalars. |
@@ -62,9 +66,9 @@ CR, NUL, malformed input, duplicate names, non-scalars, EOF, and terminal stubs.
 Open exhaustion repeatedly returns NeedMoreInput without finalizing anything.
 A blocked execution is never reconstructed or resumed. Seeded value-bearing
 storage tests are isolated support evidence, not reachable value-parsing paths.
-Existing integration assertions now either inspect source effects before this
-implemented destination, assert complete output, or continue to the real
-Before attribute value stub; no matching prefix is treated as a complete pass.
+Integration assertions inspect source effects before implemented destinations,
+assert complete output or destination-state EOF abandonment, or continue to a
+real Character reference block; no matching prefix is a complete pass.
 Rebased tests for both quoted value sources preserve their pre-destination
 snapshots, then compare exact emission, end-tag diagnostics, Data continuation,
 suspension, and EOF. After quoted/unquoted whitespace recovery tests now verify
@@ -96,11 +100,10 @@ checks selected-token abandonment at EOF (CR gives line 2 column 1), uppercase
 end-tag attributes (error column 6), duplicate end attributes (both errors at
 column 8), and EOF after Before/Attribute/After attribute name (columns 4/5/6).
 
-Integration re-review against main `81eecf0` checked each of these same 160
-identities directly in the pinned fixture inputs, expected tokens, and errors.
-The merged value states admit no further upstream identities because Before
-attribute value remains a stub; the existing allowlist is retained unchanged.
-
+PR #20 re-reviewed these same 160 identities against main `81eecf0`.
+They remain protected unchanged in PR #21. Before attribute value now connects
+the value states; [PR #21 evidence](tokenizer-before-attribute-value.md) separately
+records newly admitted integration passes and a reviewed additional allowlist.
 These identities are an explicit review allowlist, not an automatic blessing of
 current output. All prior baseline files are unchanged; no exclusions or
 aggregate-count substitution is used. The runner compares complete execution,
@@ -108,11 +111,10 @@ including diagnostics and terminal EOF, against unchanged upstream expectations.
 
 ## Remaining limits
 
-Before attribute value and Character reference remain typed stubs. The three
-value states and After attribute value (quoted) execute in seeded contexts, but
-Data cannot reach value parsing: only attribute-free and boolean-attribute tag
-paths can complete. Failed destination dispatch is a terminal development
-limitation, not an HTML parse error. Many other tokenizer states and tree
+Before attribute value, all three value states, and After attribute value
+(quoted) now execute from Data. Character reference remains a terminal typed
+stub, including in a detached duplicate's value. Failed destination dispatch
+is a development limitation, not an HTML parse error. Many other tokenizer states and tree
 construction are absent. Local branch/streaming tests and fixture inventory
 checks are not upstream conformance runs. See the PR report for executed,
 passed, failed, and blocked upstream totals and the required check results;

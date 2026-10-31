@@ -16,6 +16,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::BeforeAttributeName,
         State::AttributeName,
         State::AfterAttributeName,
+        State::BeforeAttributeValue,
         State::AttributeValueDoubleQuoted,
         State::AttributeValueSingleQuoted,
         State::AttributeValueUnquoted,
@@ -37,6 +38,7 @@ fn explicit_support_inventory_matches_dispatch() {
                 if matches!(
                     state,
                     State::AttributeName
+                        | State::BeforeAttributeValue
                         | State::AttributeValueDoubleQuoted
                         | State::AttributeValueSingleQuoted
                         | State::AttributeValueUnquoted

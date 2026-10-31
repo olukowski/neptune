@@ -140,13 +140,6 @@ fn snapshot(execution: &Execution) -> Snapshot {
     }
 }
 
-fn assert_blocked(e: &mut Execution, target: State, expected: &Snapshot) {
-    for _ in 0..2 {
-        assert_eq!(e.step(), Err(UnimplementedState { state: target }));
-        assert_eq!(&snapshot(e), expected);
-    }
-}
-
 #[test]
 fn appends_each_ascii_branch_and_literal_non_ascii_with_exact_diagnostics_and_context() {
     let values = (0..=0x7f)
@@ -291,10 +284,39 @@ fn every_departure_checks_duplicates_before_destination_and_preserves_current_id
                 }
                 assert_eq!(e.step(), Ok(Progress::Continue(target)));
                 assert_eq!(snapshot(&e), expected, "{kind:?}, {text:?}, {duplicate}");
-                // No fake EOF, no eof-in-tag/end-tag-with-attributes, no output.
                 if target == State::BeforeAttributeValue {
-                    assert_blocked(&mut e, target, &expected);
+                    // '=' was consumed. Before value consumes the next Z, then
+                    // unquoted value reconsumes it and mutates the same identity.
+                    expected.state = State::AttributeValueUnquoted;
+                    expected.current = Some((
+                        Input::CodePoint('Z'.into()),
+                        Position { line: 1, column: 2 },
+                    ));
+                    assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&e), expected);
+                    let (attrs, discarded) = expected.storage(kind);
+                    discarded
+                        .as_mut()
+                        .unwrap_or_else(|| attrs.last_mut().unwrap())
+                        .value
+                        .push('Z'.into());
+                    assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&e), expected);
+                    expected.kind = None;
+                    match kind {
+                        TagKind::Start => expected.start = None,
+                        TagKind::End => expected.end = None,
+                    }
+                    expected.current = Some((Input::Eof, Position { line: 1, column: 3 }));
+                    expected.errors.push(error("eof-in-tag", 1, 3));
+                    expected.tokens.push(Token::Eof);
+                    for _ in 0..3 {
+                        assert_eq!(e.step(), Ok(Progress::Finished));
+                        assert_eq!(snapshot(&e), expected);
+                    }
+                    continue;
                 }
+                // Other branches inspect cursor reconsumption directly.
                 assert_eq!(
                     e.context_mut().input.consume(),
                     if reconsume {
@@ -308,10 +330,6 @@ fn every_departure_checks_duplicates_before_destination_and_preserves_current_id
                         e.context_mut().input.consume(),
                         Input::CodePoint('Z'.into())
                     );
-                }
-                let inspected = snapshot(&e);
-                if target == State::BeforeAttributeValue {
-                    assert_blocked(&mut e, target, &inspected); // cannot resume a terminal block
                 }
             }
         }
@@ -425,8 +443,33 @@ fn completed_names_compare_exactly_after_ascii_folding_replacement_and_diagnosti
                 .as_ref()
                 .unwrap_or_else(|| attributes.last().unwrap());
             assert_eq!(current.value, [CodePoint::new(0xd800).unwrap(), 'v'.into()]);
-            let terminal = snapshot(&e);
-            assert_blocked(&mut e, State::BeforeAttributeValue, &terminal);
+            let mut terminal = snapshot(&e);
+            assert_eq!(
+                e.step(),
+                Ok(Progress::Continue(State::AttributeValueUnquoted))
+            );
+            terminal.state = State::AttributeValueUnquoted;
+            terminal.current = Some((
+                Input::Eof,
+                Position {
+                    line: 2,
+                    column: input.chars().count() + 3,
+                },
+            ));
+            assert_eq!(snapshot(&e), terminal);
+            terminal.kind = None;
+            match kind {
+                TagKind::Start => terminal.start = None,
+                TagKind::End => terminal.end = None,
+            }
+            terminal
+                .errors
+                .push(error("eof-in-tag", 2, input.chars().count() + 3));
+            terminal.tokens.push(Token::Eof);
+            for _ in 0..3 {
+                assert_eq!(e.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&e), terminal);
+            }
         }
     }
 }
@@ -452,14 +495,14 @@ fn real_tag_name_before_attribute_name_entry_inspects_names_before_destination_e
             "<a =X=tail",
             TagKind::Start,
             "=x",
-            State::BeforeAttributeValue,
+            State::AttributeValueUnquoted,
             vec![error("unexpected-equals-sign-before-attribute-name", 1, 4)],
         ),
         (
             "😀\r\n<a A\0\"'<=tail",
             TagKind::Start,
             "a�\"'<",
-            State::BeforeAttributeValue,
+            State::AttributeValueUnquoted,
             vec![
                 error("unexpected-null-character", 2, 5),
                 error("unexpected-character-in-attribute-name", 2, 6),
@@ -488,10 +531,6 @@ fn real_tag_name_before_attribute_name_entry_inspects_names_before_destination_e
             }
         }
         assert_eq!(e.state(), target);
-        if target == State::BeforeAttributeValue {
-            let expected = snapshot(&e);
-            assert_blocked(&mut e, target, &expected);
-        }
         assert!(saw.contains(&State::TagName));
         assert!(saw.contains(&State::BeforeAttributeName));
         assert!(saw.contains(&State::AttributeName));
@@ -531,13 +570,9 @@ fn non_scalar_names_survive_before_name_reconsumption_and_exact_duplicate_compar
             .unwrap();
         c.input.finish();
         let mut e = Execution::new(State::Data, c);
-        assert!(drain(&mut e, &mut vec![], 40));
-        assert_eq!(
-            e.step(),
-            Err(UnimplementedState {
-                state: State::BeforeAttributeValue
-            })
-        );
+        while e.state() != State::BeforeAttributeValue {
+            assert!(matches!(e.step(), Ok(Progress::Continue(_))));
+        }
         assert_eq!(
             storage(e.context_mut()).0,
             &[Attribute {
@@ -555,8 +590,16 @@ fn non_scalar_names_survive_before_name_reconsumption_and_exact_duplicate_compar
         ];
         assert_eq!(e.context().input.errors(), errors); // first point was reconsumed only once
 
-        // Downstream stubs prevent a real second attribute; seed its prior name.
-        // Do NOT reconstruct the blocked execution or invent an After-name handler.
+        assert_eq!(
+            e.step(),
+            Ok(Progress::Continue(State::AttributeValueUnquoted))
+        );
+        assert_eq!(e.step(), Ok(Progress::Finished));
+        assert_eq!(e.context().tokens, [Token::Eof]);
+        assert_eq!(e.context().errors, [error("eof-in-tag", 1, column + 6)]);
+        assert_eq!(e.context().current_tag, None);
+
+        // Independently seeded exact-name comparisons preserve non-scalar identity.
         for duplicate in [false, true] {
             let mut c = seeded(kind);
             storage(&mut c).0[0].name = name.clone();
@@ -569,7 +612,9 @@ fn non_scalar_names_survive_before_name_reconsumption_and_exact_duplicate_compar
                 .unwrap();
             c.input.finish();
             let mut e = Execution::new(State::AttributeName, c);
-            assert!(drain(&mut e, &mut vec![], 20));
+            while e.state() != State::BeforeAttributeValue {
+                assert!(matches!(e.step(), Ok(Progress::Continue(_))));
+            }
             let (attributes, discarded) = storage(e.context_mut());
             assert_eq!(attributes[0].name, name);
             assert_eq!(discarded.is_some(), duplicate);
@@ -584,6 +629,14 @@ fn non_scalar_names_survive_before_name_reconsumption_and_exact_duplicate_compar
                     Some(&error("duplicate-attribute", 1, 6))
                 );
             }
+            assert_eq!(
+                e.step(),
+                Ok(Progress::Continue(State::AttributeValueUnquoted))
+            );
+            assert_eq!(e.step(), Ok(Progress::Finished));
+            assert_eq!(e.context().errors.last(), Some(&error("eof-in-tag", 1, 7)));
+            assert_eq!(e.context().tokens.last(), Some(&Token::Eof));
+            assert_eq!(e.context().current_tag, None);
         }
     }
 }

@@ -41,19 +41,20 @@ Additional focused tests:
   CRLF-normalized positions after a supplementary scalar, literal surrogates,
   noncharacters and controls, NUL replacement, and exact diagnostic multiplicity.
   Valid cursor reconsumption on seeded entry does not duplicate preprocessing.
-- `real_data_entry_still_blocks_before_value_without_falsely_passing_a_tag_prefix`:
-  start/end tags stop at Before attribute value, including after an emitted
-  matching tag prefix; no EOF, fake completion, or premature value processing.
+- `real_data_entry_completes_abandons_or_blocks_only_at_character_reference`:
+  real start/end tags emit complete values; EOF inside the value abandons the
+  selected tag, while NUL replacement followed by ampersand preserves pending
+  value/return state and terminal Character reference without consuming its tail.
 - `all_two_chunk_splits_and_single_point_chunks_match_every_closed_source_step`:
   representative values, malformed markup, whitespace, CRLF splits,
   consecutive/trailing CR, NUL, non-scalars, delimiter/stub boundaries and EOF
   compare every source-step snapshot, for both tag kinds and duplicate-current
-  variants. Separate Data traces retain their genuine earlier blocks.
+  variants. Separate Data traces now execute reachable value parsing.
 
 ## Boundaries and upstream evidence
 
 Prerequisite PR #15 supplies the existing tag/attribute storage and shared
-emission/fixture support. PR #20 integrates onto main
+emission/fixture support. Historically, PR #20 integrated onto main
 `81eecf0955187a6b9be74a1a1d68afaa4b7ba399` (merged PRs #16/#17/#18/#19),
 retaining both quoted value implementations, After attribute value (quoted),
 and the unquoted value state, and adding only After attribute name. Source
@@ -67,19 +68,18 @@ Character reference remains a terminal typed `UnimplementedState` destination.
 Repeated blocked steps are effect-free, including after direct cursor
 inspection/mutation. A blocked Execution cannot be reconstructed/resumed.
 
-Before attribute value remains a stub, so real Data
-input cannot yet reach this state. Seeded valid contexts are isolated algorithm
-tests, not reachable end-to-end attribute parsing. The upstream runner's six
-initial-state conventions do not include this state. Therefore there are **no
-newly passing upstream identities from this value state**. PR #20's separate
-[After attribute name evidence](tokenizer-after-attribute-name.md) records its
-reviewed boolean-attribute/attribute-free pass additions; no baselines are removed.
-All existing case-level regression baselines remain intact; upstream fixtures
-and revisions are unchanged.
+PR #21 adds Before attribute value onto main `2983fbe`, connecting real Data
+input to this state. Seeded contexts remain isolated source-step tests, alongside
+real Data completion, EOF abandonment, and Character reference blocking.
+The runner's initial-state conventions do not include value states; historically
+this value-state PR alone added no upstream passes. The combined integration's
+new passes and reviewed identities are recorded in
+[Before attribute value evidence](tokenizer-before-attribute-value.md).
+All prior case-level baselines (including PR #20's boolean-attribute additions)
+remain enforced unchanged. Upstream fixtures/revisions are unchanged.
 
 Run all [contributing checks](../CONTRIBUTING.md) and the
 [upstream runner](tokenizer.md#fixture-runner). The PR report records exact
 executed/passed/failed/blocked counts separately from local tests and fixture
 inventory. Local branch/streaming tests do not establish whole-tokenizer
-conformance, reachable value parsing from Data, tree-builder behavior, or browser
-security.
+conformance, tree-builder behavior, or browser security.

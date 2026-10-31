@@ -1,6 +1,6 @@
 # After attribute value (quoted)
 
-Scope: only `State::AfterAttributeValueQuoted`, implemented in
+Historical state-PR scope: only `State::AfterAttributeValueQuoted`, implemented in
 `crates/html/src/tokenizer/after_attribute_value_quoted.rs`; tests live in
 `crates/html/tests/after_attribute_value_quoted_state.rs`. Initially integrated
 on merged PRs #16 and #17, retaining both quoted value implementations and
@@ -66,18 +66,19 @@ This is state-local streaming evidence, not whole-tokenizer streaming conformanc
 
 ## Reachability, conformance, and remaining limitations
 
-Both quoted value states now execute and transition into this state. Before
-attribute value remains a stub, so no genuine Data path reaches these states yet.
-Isolated contexts deliberately supply valid selected tags/attributes, including detached duplicates. They are not evidence
-of reachable end-to-end quoted attribute parsing. Real `<a x='v'>` and end-tag
-variants remain blocked at Before attribute value, even after a matching emitted
-tag prefix. No blocked Execution is reconstructed or resumed.
+Both quoted value states execute and transition into this state. PR #21 adds
+Before attribute value onto main `2983fbe`, connecting these states from Data.
+Real `<a x='v'>`, end-tag variants, and emitted tag prefixes now complete with
+exact tokens and diagnostics. Isolated seeded contexts still provide independent
+source-step/identity evidence; they are not themselves end-to-end tests.
+No blocked Execution is reconstructed or resumed.
 
 After attribute name now executes: whitespace followed by `>`/EOF reaches that
 state, whose step emits/abandons the selected tag. Exact final snapshots also
 cover boolean-attribute/duplicate recovery and malformed solidus. Before
-attribute value remains a typed terminal `UnimplementedState` destination.
-After emission, `&` still
+attribute value now reconsumes EOF into unquoted value, whose next step abandons
+the selected tag; focused recovery tests assert both source snapshots. After
+emission, `&` still
 blocks at Character reference and `<!` at Markup declaration open. Blocks never
 become EOF, HTML parse errors, or prefix passes. Both quoted-value test suites
 retain exact source snapshots and now verify subsequent whitespace recovery to
@@ -88,13 +89,14 @@ checks both quote sources, both tag kinds, retained/detached value mutation,
 closing quotes, `>` / `/>` emission, exact end-tag diagnostics, and EOF abandonment
 one source step at a time, including unrelated-context preservation.
 
-This value state adds no upstream passes: Data entry remains blocked before it.
-PR #20's separate [After attribute name evidence](tokenizer-after-attribute-name.md)
-records reviewed boolean-attribute/attribute-free pass additions. All prior
-case-level baseline files remain unchanged. No automatic blessing, exclusions,
-fixture edits, or baseline removals. Exact integrated counts belong in the PR
-report, not in repeated state-local totals; local tests and inventory are not
-upstream conformance runs.
+Historically this state PR alone added no upstream passes because Before
+attribute value was missing. The combined PR #21 integration now admits valued
+attributes from Data; [its evidence](tokenizer-before-attribute-value.md) records
+the independent fixture review. PR #20's separate
+[After attribute name evidence](tokenizer-after-attribute-name.md) retains its
+boolean-attribute/attribute-free allowlist unchanged. No automatic blessing,
+exclusions, fixture edits, or baseline removals. Exact integrated counts belong
+in the PR report; local tests and inventory are not upstream conformance runs.
 The fixture revision remains `c777c408b61078ea2eb4acefc2535f54dbc8b28a`.
 Use the [report command and count definitions](tokenizer.md#fixture-runner)
 to reproduce. Validation on this branch (all passed):

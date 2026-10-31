@@ -170,13 +170,13 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
     // Local adapter regression tests, not additional upstream conformance cases.
     for (input, output, errors, destination) in [
         ("p&", "p", json!([]), State::CharacterReference),
-        ("p<a x =", "p", json!([]), State::BeforeAttributeValue),
+        ("p<a x =&", "p", json!([]), State::CharacterReference),
         ("p<!", "p", json!([]), State::MarkupDeclarationOpen),
         (
-            "p</A/x =",
+            "p</A/x =&",
             "p",
             json!([{"code":"unexpected-solidus-in-tag", "line":1, "col":6}]),
-            State::BeforeAttributeValue,
+            State::CharacterReference,
         ),
         (
             "p</0>&",
@@ -214,6 +214,13 @@ fn production_after_attribute_name_completion_and_abandonment_compare_full_resul
     // These formerly blocked inputs now require complete tokens and diagnostics.
     // Local adapter checks, not additional upstream conformance runs.
     for case in [
+        json!({"description":"value-entry EOF", "input":"p<a x =",
+            "output":[["Character","p"]],
+            "errors":[{"code":"eof-in-tag","line":1,"col":8}]}),
+        json!({"description":"end-tag value-entry EOF", "input":"p</A/x =",
+            "output":[["Character","p"]],
+            "errors":[{"code":"unexpected-solidus-in-tag","line":1,"col":6},
+                {"code":"eof-in-tag","line":1,"col":9}]}),
         json!({"description":"whitespace-only unfinished tag", "input":"p<a ",
             "output":[["Character","p"]],
             "errors":[{"code":"eof-in-tag","line":1,"col":5}]}),
@@ -471,13 +478,24 @@ fn production_tag_comparison_checks_kind_name_order_and_double_escaped_code_poin
         run_with(&escaped, "Data state", None, execute),
         Outcome::Passed
     );
-    // A matching emitted tag prefix still cannot turn an attribute-state block
-    // into a pass, and an EOF-abandoned tag must never compare as emitted output.
-    let prefix = json!({"description":"tag prefix", "input":"<p><A x =",
-        "output":[["StartTag","p",{}]]});
+    // EOF after '=' now completes by abandonment in unquoted value.
+    let mut prefix = json!({"description":"tag prefix then abandoned value", "input":"<p><A x =",
+        "output":[["StartTag","p",{}]],
+        "errors":[{"code":"eof-in-tag","line":1,"col":10}]});
     assert_eq!(
         run_with(&prefix, "Data state", None, execute),
-        Outcome::Blocked(Blocked::Unimplemented(State::BeforeAttributeValue))
+        Outcome::Passed
+    );
+    prefix["errors"] = json!([]);
+    assert!(matches!(
+        run_with(&prefix, "Data state", None, execute),
+        Outcome::Failed(_)
+    ));
+    // A matching prefix still cannot turn Character reference into a pass.
+    prefix["input"] = json!("<p><A x =&");
+    assert_eq!(
+        run_with(&prefix, "Data state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
     );
     let abandoned = json!({"description":"abandoned tag", "input":"<A",
         "output":[["StartTag","a",{}]],
@@ -594,13 +612,24 @@ fn production_self_closing_comparison_checks_start_flags_and_end_tag_diagnostics
         run_with(&end, "Data state", None, execute),
         Outcome::Failed(_)
     ));
-    let prefix = json!({"description":"flag prefix still blocks", "input":"<p/><a/\0 =",
+    let mut prefix = json!({"description":"flag prefix then abandoned value", "input":"<p/><a/\0 =",
         "output":[["StartTag","p",{},true]],
         "errors":[{"code":"unexpected-solidus-in-tag","line":1,"col":8},
-            {"code":"unexpected-null-character","line":1,"col":8}]});
+            {"code":"unexpected-null-character","line":1,"col":8},
+            {"code":"eof-in-tag","line":1,"col":11}]});
     assert_eq!(
         run_with(&prefix, "Data state", None, execute),
-        Outcome::Blocked(Blocked::Unimplemented(State::BeforeAttributeValue))
+        Outcome::Passed
+    );
+    prefix["errors"].as_array_mut().unwrap().pop();
+    assert!(matches!(
+        run_with(&prefix, "Data state", None, execute),
+        Outcome::Failed(_)
+    ));
+    prefix["input"] = json!("<p/><a/\0 =&");
+    assert_eq!(
+        run_with(&prefix, "Data state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
     );
 }
 

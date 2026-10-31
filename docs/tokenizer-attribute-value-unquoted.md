@@ -7,7 +7,7 @@ Only `State::AttributeValueUnquoted` is added, in
 `crates/html/tests/attribute_value_unquoted_state.rs`. Dispatch/module registration
 and the independent support inventory are the only shared code edits. Shared
 storage, detached-current identity, emission, and fixture comparison come from
-prerequisite PR #15. PR #20 integrates onto main
+prerequisite PR #15. Historically PR #20 integrated onto main
 `81eecf0955187a6b9be74a1a1d68afaa4b7ba399` (merged PRs #16/#17/#18/#19),
 preserving both quoted value states, After attribute value (quoted), and this
 unquoted state, and adding only After attribute name.
@@ -28,7 +28,7 @@ to the focused state test file.
 
 | Consumed input | Code/effects | Focused evidence |
 | --- | --- | --- |
-| TAB, LF, FF, SPACE | `0x09 \| 0x0a \| 0x0c \| 0x20`: switch to Before attribute name; no append or reconsumption. Cursor normalizes CR/CRLF to LF. | `whitespace_terminates_without_append_error_or_reconsumption` checks every separator, CR/CRLF, exact consumption/positions and all preserved context; `whitespace_recovery_executes_existing_states_and_retains_terminal_stubs` runs real destination recovery. |
+| TAB, LF, FF, SPACE | `0x09 \| 0x0a \| 0x0c \| 0x20`: switch to Before attribute name; no append or reconsumption. Cursor normalizes CR/CRLF to LF. | `whitespace_terminates_without_append_error_or_reconsumption` checks every separator, CR/CRLF, exact consumption/positions and all preserved context; `whitespace_recovery_completes_or_abandons_unfinished_values` runs real destination recovery. |
 | `&` | `0x26`: set return state to Attribute value (unquoted), switch to Character reference. Do not append, diagnose or reconsume. | `ampersand_sets_return_state_then_blocks_terminally_without_consuming_tail` checks replacement of a prior return state, exact source snapshot, open/closed input, unconsumed tail and repeated typed terminal block. |
 | `>` | `0x3e`: shared `tag::emit_tag`, switch to Data. | `greater_than_emits_only_retained_attributes_with_shared_end_tag_errors_and_bookkeeping` checks ordered retained attributes, detached exclusion (including detached-only storage), both flag values, unrelated storage, last-start-tag rules, normalized delimiter position, exact/coexisting end-tag errors, real Data continuation and one terminal EOF. |
 | NUL | `0`: `unexpected-null-character`, append U+FFFD through `tag::current_attribute_mut`. | `all_appending_ascii_and_non_scalars_preserve_current_identity_and_exact_errors` checks replacement, exact diagnostic, and detached-current identity; `normalized_positions_and_reconsumed_non_scalars_are_diagnosed_only_once` checks positions alongside malformed punctuation. |
@@ -62,29 +62,32 @@ These are local state-specific streaming checks, not upstream conformance runs.
 
 ## Reachability and remaining stubs
 
-Before attribute value remains unimplemented. Both quoted value states and
-After attribute value (quoted) are preserved by this integration. Character
-reference remains a terminal `UnimplementedState` on the dispatch after `&`.
+PR #21 adds Before attribute value onto main `2983fbe`, preserving the merged
+states and connecting unquoted value parsing from Data. Character reference
+remains a terminal `UnimplementedState` on dispatch after `&`.
 Whitespace executes Before attribute name/Attribute name/After attribute name:
-exact snapshots now check selected-tag emission, Data continuation, EOF
-abandonment, and detached-current clearing on new attribute creation. Recovery
-requiring a value still blocks at Before attribute value. A stub never emits EOF
-or a recoverable HTML parse error.
-Blocked executions cannot be reconstructed/resumed.
+exact snapshots check emission, Data continuation, EOF abandonment, and detached
+clearing on new attribute creation. Recovery requiring a value now executes
+Before attribute value and unquoted value; EOF is abandoned only in the latter.
+A stub never emits EOF or a recoverable HTML parse error; blocked executions
+cannot be reconstructed/resumed.
 
-Isolated value contexts are initialized before execution. They establish the
-state's behavior, **not** reachable end-to-end value parsing. Real
-`<a x=value>` / `</a x=value>` Data tests still block at Before attribute value,
-with no tag/EOF emission; no adjacent state is implemented to make them finish.
+Isolated value contexts inspect source behavior independently. Real
+`<a x=value>` / `</a x=value>` Data tests now complete with exact values, EOF,
+and end-tag diagnostics. Combined integration tests also distinguish literal
+solidus in an unquoted value from a structural trailing solidus after whitespace.
 There is no tree construction, self-closing acknowledgement, automatic mode
 selection, full-conformance claim or browser-security claim.
 
 ## Upstream evidence
 
-Existing case-level pass regression files remain untouched. There are **no
-newly passing identities from this value state**: none of the fixture initial
-states enters it, and real Data entry still blocks before it. PR #20's separate
-[After attribute name evidence](tokenizer-after-attribute-name.md) records its
-reviewed boolean-attribute/attribute-free pass additions. Synthetic seeded tests and fixture inventory are not additional
-upstream conformance executions. Exact check outcomes and the rerun's counts are
-reported in the PR, separately from local tests.
+Existing case-level baseline files remain untouched. Historically this
+value-state PR alone added no upstream passes because Data entry was blocked.
+The combined PR #21 integration's new passes and independently reviewed
+identities are recorded in
+[Before attribute value evidence](tokenizer-before-attribute-value.md).
+PR #20's [After attribute name evidence](tokenizer-after-attribute-name.md)
+retains its boolean-attribute/attribute-free allowlist unchanged.
+Synthetic seeded tests and fixture inventory are not additional conformance
+executions. Exact checks and counts are reported in the PR, separately from local
+tests. No full-conformance or browser-security claim is made.

@@ -8,6 +8,7 @@ mod attribute_value_double_quoted;
 mod attribute_value_single_quoted;
 mod attribute_value_unquoted;
 mod before_attribute_name;
+mod before_attribute_value;
 mod bogus_comment;
 mod data;
 mod end_tag_open;
@@ -28,7 +29,7 @@ pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
 /// Emitted tokens, with ordered retained attributes (including non-scalars).
-/// Boolean attributes are reachable; Data-to-value paths still hit typed stubs.
+/// Boolean and quoted/unquoted attributes are reachable; character references still block.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
@@ -161,6 +162,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::BeforeAttributeName => Ok(before_attribute_name::step(context)),
         State::AttributeName => Ok(attribute_name::step(context)),
         State::AfterAttributeName => Ok(after_attribute_name::step(context)),
+        State::BeforeAttributeValue => Ok(before_attribute_value::step(context)),
         State::AttributeValueDoubleQuoted => Ok(attribute_value_double_quoted::step(context)),
         State::AttributeValueSingleQuoted => Ok(attribute_value_single_quoted::step(context)),
         State::AttributeValueUnquoted => Ok(attribute_value_unquoted::step(context)),
@@ -243,16 +245,16 @@ mod tests {
                 position: context.input.position(),
             });
             context.input.reconsume().unwrap();
-            Ok(Progress::Continue(State::BeforeAttributeValue))
+            Ok(Progress::Continue(State::CharacterReference))
         });
-        assert_eq!(result, Ok(Progress::Continue(State::BeforeAttributeValue)));
-        assert_eq!(execution.state(), State::BeforeAttributeValue);
+        assert_eq!(result, Ok(Progress::Continue(State::CharacterReference)));
+        assert_eq!(execution.state(), State::CharacterReference);
         assert_eq!(execution.context().tokens, [Token::Character('!'.into())]);
         assert_eq!(execution.context().errors.len(), 1);
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::BeforeAttributeValue
+                state: State::CharacterReference
             })
         );
         assert_eq!(
@@ -262,7 +264,7 @@ mod tests {
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::BeforeAttributeValue
+                state: State::CharacterReference
             })
         );
     }

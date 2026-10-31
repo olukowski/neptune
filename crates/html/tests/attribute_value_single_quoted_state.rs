@@ -1,5 +1,5 @@
 //! Local branch evidence for the pinned Attribute value (single-quoted) state.
-//! Seeded entry is NOT a reachable Data-to-value path through the current stubs.
+//! Seeded entries inspect source effects; real Data-to-value paths are tested below.
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L144326-L144353>
 
 use neptune_html::tokenizer::{
@@ -519,27 +519,104 @@ fn an_already_preprocessed_reconsumed_point_appends_once_with_original_position(
 }
 
 #[test]
-fn real_data_entry_still_blocks_before_the_assigned_state_and_never_passes_a_prefix() {
-    for input in ["<a x='value'>", "</a x='value'>", "<a x='", "<a x='\0&"] {
-        let mut context = Context::default();
-        context.input.push(points(input)).unwrap();
-        context.input.finish();
-        let mut e = Execution::new(State::Data, context);
-        let mut trace = vec![];
-        assert!(drain(&mut e, &mut trace, input.len() * 3 + 5));
-        assert_eq!(
-            trace.last().unwrap().0,
-            Err(UnimplementedState {
-                state: State::BeforeAttributeValue
-            })
-        );
-        assert!(e.context().tokens.is_empty());
-        assert!(e.context().errors.is_empty());
-        assert_eq!(e.context().last_start_tag, None);
-        assert_eq!(
-            e.context_mut().input.consume(),
-            Input::CodePoint('\''.into())
-        );
+fn real_data_entry_completes_abandons_or_blocks_only_at_character_reference() {
+    for (input, expected_tokens, errors, blocked) in [
+        (
+            "<a x='value'>",
+            vec![
+                Token::StartTag {
+                    name: points("a"),
+                    attributes: vec![attribute("x", "value")],
+                    self_closing: false,
+                },
+                Token::Eof,
+            ],
+            vec![],
+            false,
+        ),
+        (
+            "</a x='value'>",
+            vec![
+                Token::EndTag {
+                    name: points("a"),
+                    attributes: vec![attribute("x", "value")],
+                    self_closing: false,
+                },
+                Token::Eof,
+            ],
+            vec![error("end-tag-with-attributes", 1, 14)],
+            false,
+        ),
+        (
+            "<a x='",
+            vec![Token::Eof],
+            vec![error("eof-in-tag", 1, 7)],
+            false,
+        ),
+        (
+            "<a x='\0&tail",
+            vec![],
+            vec![error("unexpected-null-character", 1, 7)],
+            true,
+        ),
+    ] {
+        let mut c = Context::default();
+        c.input.push(points(input)).unwrap();
+        c.input.finish();
+        let mut e = Execution::new(State::Data, c);
+        let mut seen = vec![];
+        loop {
+            seen.push(e.state());
+            match e.step() {
+                Ok(Progress::Continue(_)) => {}
+                result => {
+                    assert_eq!(
+                        result,
+                        if blocked {
+                            Err(UnimplementedState {
+                                state: State::CharacterReference,
+                            })
+                        } else {
+                            Ok(Progress::Finished)
+                        }
+                    );
+                    break;
+                }
+            }
+        }
+        assert!(seen.contains(&State::AttributeValueSingleQuoted));
+        assert_eq!(e.context().tokens, expected_tokens);
+        assert_eq!(e.context().errors, errors);
+        assert!(e.context().input.errors().is_empty());
+        if blocked {
+            assert_eq!(
+                e.context().return_state,
+                Some(State::AttributeValueSingleQuoted)
+            );
+            assert_eq!(
+                e.context().pending_start_tag.as_ref().unwrap().attributes,
+                [attribute("x", "\u{fffd}")]
+            );
+            let before = snapshot(&e);
+            for _ in 0..3 {
+                assert_eq!(
+                    e.step(),
+                    Err(UnimplementedState {
+                        state: State::CharacterReference
+                    })
+                );
+                assert_eq!(snapshot(&e), before);
+            }
+            assert_eq!(
+                e.context_mut().input.consume(),
+                Input::CodePoint('t'.into())
+            );
+        } else {
+            assert_eq!(e.step(), Ok(Progress::Finished));
+            assert_eq!(e.context().current_tag, None);
+            assert!(e.context().pending_start_tag.is_none());
+            assert!(e.context().pending_end_tag.is_none());
+        }
     }
 }
 

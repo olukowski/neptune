@@ -1,5 +1,5 @@
 //! Pinned Attribute value (unquoted) branch evidence; local, seeded contexts are
-//! not reachable Data paths and are never reconstructed after a terminal stub.
+//! source-step contexts; Data paths are tested too. Terminal stubs are never resumed.
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L144356-L144404>
 
 use neptune_html::tokenizer::{
@@ -504,7 +504,7 @@ fn drain(e: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
 }
 
 #[test]
-fn whitespace_recovery_executes_existing_states_and_retains_terminal_stubs() {
+fn whitespace_recovery_completes_or_abandons_unfinished_values() {
     for kind in [TagKind::Start, TagKind::End] {
         for detached in [false, true] {
             for text in [" /tail", " >tail", " ", " next=tail"] {
@@ -523,21 +523,19 @@ fn whitespace_recovery_executes_existing_states_and_retains_terminal_stubs() {
                 assert_eq!(snapshot(&e), expected);
                 assert!(drain(&mut e, &mut vec![], 30));
                 if text == " next=tail" {
-                    expected.state = State::BeforeAttributeValue;
+                    expected.state = State::AttributeValueUnquoted;
                     expected.current = Some((
-                        Input::CodePoint('='.into()),
-                        Position { line: 1, column: 6 },
+                        Input::Eof,
+                        Position {
+                            line: 1,
+                            column: 11,
+                        },
                     ));
-                    let (attributes, discarded) = expected.storage(kind);
-                    attributes.push(attribute("next", ""));
-                    *discarded = None;
+                    expected.take_selected(kind);
+                    expected.errors.push(error("eof-in-tag", 1, 11));
+                    expected.tokens.push(Token::Eof);
                     assert_eq!(snapshot(&e), expected);
-                    assert_terminal(
-                        &mut e,
-                        Err(UnimplementedState {
-                            state: State::BeforeAttributeValue,
-                        }),
-                    );
+                    assert_terminal(&mut e, Ok(Progress::Finished));
                 } else {
                     let eof = Position {
                         line: 1,
@@ -582,20 +580,39 @@ fn whitespace_recovery_executes_existing_states_and_retains_terminal_stubs() {
             }
         }
     }
-    // Real Data entry still stops BEFORE the assigned state. No false end-to-end claim.
-    for text in ["<a x=value>", "</a x=value>"] {
+    // Data now reaches unquoted parsing and emits complete retained values.
+    for (text, kind) in [
+        ("<a x=value>", TagKind::Start),
+        ("</a x=value>", TagKind::End),
+    ] {
         let mut c = Context::default();
         c.input.push(points(text)).unwrap();
         c.input.finish();
         let mut e = Execution::new(State::Data, c);
-        assert!(drain(&mut e, &mut vec![], 30));
-        assert_terminal(
-            &mut e,
-            Err(UnimplementedState {
-                state: State::BeforeAttributeValue,
-            }),
+        assert!(drain(&mut e, &mut vec![], 40));
+        assert_terminal(&mut e, Ok(Progress::Finished));
+        let token = match kind {
+            TagKind::Start => Token::StartTag {
+                name: points("a"),
+                attributes: vec![attribute("x", "value")],
+                self_closing: false,
+            },
+            TagKind::End => Token::EndTag {
+                name: points("a"),
+                attributes: vec![attribute("x", "value")],
+                self_closing: false,
+            },
+        };
+        assert_eq!(e.context().tokens, [token, Token::Eof]);
+        assert_eq!(
+            e.context().errors,
+            if kind == TagKind::End {
+                vec![error("end-tag-with-attributes", 1, 12)]
+            } else {
+                vec![]
+            }
         );
-        assert!(e.context().tokens.is_empty());
+        assert_eq!(e.context().current_tag, None);
     }
 }
 
