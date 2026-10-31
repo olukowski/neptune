@@ -50,8 +50,9 @@ Additional focused tests:
 ## Boundaries and upstream evidence
 
 Prerequisite PR #15 supplies the existing tag/attribute storage and shared
-emission/fixture support; this PR stands directly on merge commit
-`046565d7c033ed2bff4934b83f689284113bb1b4`. No adjacent state is implemented.
+emission/fixture support. This PR is rebased onto PR #16's merge commit
+`808f0e9b436511c06aa6df90bdc93ec4fcf71f29`, retaining its single-quoted value
+implementation. No adjacent state is implemented by this PR.
 After attribute value (quoted) and Character reference remain terminal typed
 `UnimplementedState` destinations on the next dispatch. Repeated blocked steps
 are effect-free, including after direct cursor inspection/mutation. A blocked
