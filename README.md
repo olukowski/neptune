@@ -27,24 +27,11 @@ The first component is a specification-first HTML tokenizer.
   to Data, with literal mismatch/EOF recovery and existing attribute/tag support.
   Basic comment-like script text (`<!--text-->`) now traverses the escape-start
   and escaped/dash/dash-dash states, including NUL recovery and escaped EOF
-  diagnostics; `-->` returns to Script data. An escaped `<` still stops terminally
-  at unimplemented Script data escaped less-than sign; escaped end tags and
-  double escaping are not reachable from Script data entry
-  ([integration evidence](docs/tokenizer-script-data-escape-start.md)).
-  Isolated [Double escape start](docs/tokenizer-script-data-double-escape-start.md)
-  entry now accumulates ASCII-normalized scratch and selects the real double-escaped
-  loop at exact `script` delimiters, or Escaped otherwise.
-  Isolated [double escaped](docs/tokenizer-script-data-double-escaped.md)
-  entry now completes the character/dash/dash-dash loop and reaches
-  [double escaped less-than sign](docs/tokenizer-script-data-double-escaped-less-than-sign.md),
-  then [Double escape end](docs/tokenizer-script-data-double-escape-end.md).
-  Matching `script` scratch returns to Escaped; `>` in double escaped dash dash
-  returns to Script data.
-  Isolated [escaped end tag name](docs/tokenizer-script-data-escaped-end-tag-name.md)
-  entry supports appropriate closing tags with initialized End/scratch context;
-  [Escaped end tag open](docs/tokenizer-script-data-escaped-end-tag-open.md) now
-  creates the candidate and enters that name state on ASCII alpha; literal fallback
-  reconsumes in Escaped. Escaped less-than sign remains the gateway stub. No
+  diagnostics; `-->` returns to Script data. The complete Script data state family
+  is now reachable from explicit Script data entry, including escaped closing tags,
+  double-escaped text and case-insensitive `script` scratch matching.
+  [Escaped less-than sign integration evidence](docs/tokenizer-script-data-escaped-less-than-sign.md)
+  maps the gateway, all destination paths and reviewed fixtures. No
   automatic mode switching, comment-token emission, or JavaScript parsing is implied; see
   [Script data integration evidence](docs/tokenizer-script-data-end-tag-name.md).
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely

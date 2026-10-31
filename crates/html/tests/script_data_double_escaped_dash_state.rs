@@ -421,7 +421,7 @@ fn split_crlf_suppresses_lf_before_source_nul_or_conceptual_eof() {
 }
 
 #[test]
-fn real_script_gateway_still_blocks_but_direct_predecessor_executes_the_hyphen_path() {
+fn real_script_gateway_and_direct_predecessor_execute_the_hyphen_path() {
     let mut context = seeded_context();
     context.input.push(points("<!--<script>-\0")).unwrap();
     context.input.finish();
@@ -442,17 +442,87 @@ fn real_script_gateway_still_blocks_but_direct_predecessor_executes_the_hyphen_p
         assert_eq!(execution.step(), Ok(Progress::Continue(target)));
         assert_eq!(snapshot(&execution), expected);
     }
-    assert_terminal(
-        &mut execution,
-        Err(UnimplementedState {
-            state: State::ScriptDataEscapedLessThanSign,
-        }),
-    );
-    assert_eq!(
-        execution.context_mut().input.consume(),
-        Input::CodePoint('s'.into())
-    );
-
+    expected.state = State::ScriptDataDoubleEscapeStart;
+    expected.current = Some((
+        Input::CodePoint('s'.into()),
+        Position { line: 1, column: 6 },
+    ));
+    expected.storage.buffer.clear();
+    expected.tokens.push(Token::Character('<'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    for (index, point) in points("script").into_iter().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point),
+            Position {
+                line: 1,
+                column: index + 6,
+            },
+        ));
+        expected.storage.buffer.push(
+            CodePoint::new(if (0x41..=0x5a).contains(&point.value()) {
+                point.value() + 0x20
+            } else {
+                point.value()
+            })
+            .unwrap(),
+        );
+        expected.tokens.push(Token::Character(point));
+        assert_eq!(
+            execution.step(),
+            Ok(Progress::Continue(State::ScriptDataDoubleEscapeStart))
+        );
+        assert_eq!(snapshot(&execution), expected);
+    }
+    expected.state = State::ScriptDataDoubleEscaped;
+    expected.current = Some((
+        Input::CodePoint('>'.into()),
+        Position {
+            line: 1,
+            column: 12,
+        },
+    ));
+    expected.tokens.push(Token::Character('>'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataDoubleEscapedDash;
+    expected.current = Some((
+        Input::CodePoint('-'.into()),
+        Position {
+            line: 1,
+            column: 13,
+        },
+    ));
+    expected.tokens.push(Token::Character('-'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataDoubleEscaped;
+    expected.current = Some((
+        Input::CodePoint('\0'.into()),
+        Position {
+            line: 1,
+            column: 14,
+        },
+    ));
+    expected.tokens.push(Token::Character('\u{fffd}'.into()));
+    expected
+        .errors
+        .push(error("unexpected-null-character", 1, 14));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 15,
+        },
+    ));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 15));
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
     // The real normative predecessor now emits '-' and reaches Dash.
     // This is independent direct entry, never reconstruction of the blocked run.
     let mut context = seeded_context();

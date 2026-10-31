@@ -1,7 +1,7 @@
 //! Local source-step evidence, not upstream conformance. Pinned HTML revision
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, source lines 144093–144108.
 //! DoubleEscapeEnd and both Dash/DashDash predecessors are implemented on the
-//! integrated base. DoubleEscaped now executes; the ordinary-entry gateway remains a stub.
+//! integrated base. Ordinary Script data entry now reaches the complete double-escaped loop.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -97,14 +97,6 @@ fn entry(mut context: Context, newline_prefix: bool) -> Execution {
     assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
     context.tokens.push(Token::Character('<'.into()));
     Execution::new(SOURCE, context)
-}
-
-fn assert_terminal(execution: &mut Execution, target: State) {
-    let before = snapshot(execution);
-    for _ in 0..3 {
-        assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-        assert_eq!(snapshot(execution), before);
-    }
 }
 
 fn finish_at(execution: &mut Execution, expected: &mut Snapshot, line: usize, column: usize) {
@@ -399,7 +391,10 @@ fn drain(
             Ok(Progress::Continue(_)) => {}
             Ok(Progress::Finished) | Err(_) => {
                 if let Err(block) = result {
-                    assert!(matches!(block.state, State::ScriptDataEscapedLessThanSign));
+                    assert!(matches!(
+                        block.state,
+                        State::CharacterReference | State::MarkupDeclarationOpen
+                    ));
                     assert_eq!(snapshot(execution), before);
                 }
                 let terminal = snapshot(execution);
@@ -725,7 +720,7 @@ fn all_three_real_predecessors_emit_less_than_before_slash_or_eof_processing() {
 }
 
 #[test]
-fn real_script_entry_stops_at_the_actual_earlier_stub_not_this_state() {
+fn real_script_entry_reaches_double_escape_end_and_returns_to_escaped() {
     let mut context = Context::default();
     context.input.push(points("<!--<script></script>")).unwrap();
     context.input.finish();
@@ -755,5 +750,35 @@ fn real_script_entry_stops_at_the_actual_earlier_stub_not_this_state() {
     );
     assert!(execution.context().errors.is_empty());
     assert!(execution.context().input.errors().is_empty());
-    assert_terminal(&mut execution, State::ScriptDataEscapedLessThanSign);
+    let mut expected = snapshot(&execution);
+    expected.state = State::ScriptDataDoubleEscapeStart;
+    expected.current = Some((
+        Input::CodePoint('s'.into()),
+        Position { line: 1, column: 6 },
+    ));
+    expected.buffer.clear();
+    expected.tokens.push(Token::Character('<'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    let mut trace = vec![];
+    assert!(drain(&mut execution, &mut trace));
+    expected.state = State::ScriptDataEscaped;
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 22,
+        },
+    ));
+    expected.tokens = points("<!--<script></script>")
+        .into_iter()
+        .map(Token::Character)
+        .chain([Token::Eof])
+        .collect();
+    expected.buffer = points("script");
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 22));
+    assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
 }

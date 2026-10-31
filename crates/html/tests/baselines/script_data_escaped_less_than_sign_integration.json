@@ -1,0 +1,22 @@
+[
+  ["domjs.test", "tests", 6, "NUL in script HTML comment - double escaped", "Script data state", 0],
+  ["domjs.test", "tests", 10, "EOF in script HTML comment double escaped after dash", "Script data state", 0],
+  ["domjs.test", "tests", 11, "EOF in script HTML comment double escaped after dash dash", "Script data state", 0],
+  ["domjs.test", "tests", 12, "EOF in script HTML comment - double escaped", "Script data state", 0],
+  ["domjs.test", "tests", 16, "</script> in script HTML comment", "Script data state", 0],
+  ["domjs.test", "tests", 17, "</script> in script HTML comment - double escaped", "Script data state", 0],
+  ["domjs.test", "tests", 18, "</script> in script HTML comment - double escaped with nested <script>", "Script data state", 0],
+  ["domjs.test", "tests", 19, "</script> in script HTML comment - double escaped with abrupt end", "Script data state", 0],
+  ["domjs.test", "tests", 20, "Incomplete start tag in script HTML comment double escaped", "Script data state", 0],
+  ["domjs.test", "tests", 21, "Unclosed start tag in script HTML comment double escaped", "Script data state", 0],
+  ["domjs.test", "tests", 22, "Incomplete end tag in script HTML comment double escaped", "Script data state", 0],
+  ["domjs.test", "tests", 23, "Unclosed end tag in script HTML comment double escaped", "Script data state", 0],
+  ["test1.test", "tests", 38, "</ in script HTML comment", "Script data state", 0],
+  ["test1.test", "tests", 39, "Start tag in script HTML comment", "Script data state", 0],
+  ["test1.test", "tests", 40, "End tag in script HTML comment", "Script data state", 0],
+  ["test1.test", "tests", 41, "- in script HTML comment double escaped", "Script data state", 0],
+  ["test1.test", "tests", 42, "-- in script HTML comment double escaped", "Script data state", 0],
+  ["test1.test", "tests", 43, "--- in script HTML comment double escaped", "Script data state", 0],
+  ["test1.test", "tests", 44, "- spaced in script HTML comment double escaped", "Script data state", 0],
+  ["test1.test", "tests", 45, "-- spaced in script HTML comment double escaped", "Script data state", 0]
+]

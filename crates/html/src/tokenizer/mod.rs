@@ -38,6 +38,7 @@ mod script_data_escaped_dash;
 mod script_data_escaped_dash_dash;
 mod script_data_escaped_end_tag_name;
 mod script_data_escaped_end_tag_open;
+mod script_data_escaped_less_than_sign;
 mod script_data_less_than_sign;
 mod self_closing_start_tag;
 mod state;
@@ -147,6 +148,7 @@ pub struct Context {
     /// Script data double escape end appends ASCII-lowercased letters here while
     /// emitting their original spelling. Direct entry supplies the prefix buffer
     /// (empty at initial entry); no selected tag is required.
+    /// Script data escaped less-than sign clears it on `/` or ASCII alpha.
     pub temporary_buffer: Vec<CodePoint>,
 }
 
@@ -211,6 +213,9 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::ScriptDataDoubleEscapeStart => Ok(script_data_double_escape_start::step(context)),
         State::ScriptDataEscapedEndTagName => Ok(script_data_escaped_end_tag_name::step(context)),
         State::ScriptDataEscapedEndTagOpen => Ok(script_data_escaped_end_tag_open::step(context)),
+        State::ScriptDataEscapedLessThanSign => {
+            Ok(script_data_escaped_less_than_sign::step(context))
+        }
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),

@@ -34,6 +34,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptDataDoubleEscapeStart,
         State::ScriptDataEscapedEndTagName,
         State::ScriptDataEscapedEndTagOpen,
+        State::ScriptDataEscapedLessThanSign,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
@@ -58,6 +59,11 @@ fn explicit_support_inventory_matches_dispatch() {
                 context.input.push(['<'.into()]).unwrap();
                 assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
                 context.tokens.push(Token::Character('<'.into()));
+            }
+            if state == State::ScriptDataEscapedLessThanSign {
+                // Direct entry follows consumption of the escaped '<'.
+                context.input.push(['<'.into()]).unwrap();
+                assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
             }
             if finished {
                 context.input.finish();

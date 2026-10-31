@@ -153,6 +153,15 @@ comment-like script runs, including all three escaped EOF states and three
 NUL replacements. All 921 prior protected identities/files remain unchanged
 (930 total). The other 22 runs stop at escaped less-than sign and are not passes.
 
+PR #45's final gateway integration adds two reviewed literal fallback identities
+in `script_data_escaped_less_than_sign.json` and twenty further reviewed identities
+in `script_data_escaped_less_than_sign_integration.json`. See the
+[individual fixture audit](../../../../docs/tokenizer-script-data-escaped-less-than-sign.md#final-integration-after-all-eight-siblings).
+The complete Script data family is now reachable from explicit Script data entry.
+All 930 pre-wave baseline identities and registrations are preserved; the
+protected union is 952. Earlier PR-local totals and script-state block descriptions
+above are historical. These identity counts are not conformance-run totals.
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an

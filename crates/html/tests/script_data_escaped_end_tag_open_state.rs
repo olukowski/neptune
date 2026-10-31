@@ -1,6 +1,6 @@
 //! Pinned HTML 404b3eb14a7a936dddefb2d78e224dbeb01d2358, lines 143895–143911.
 //! Inspect source effects before the real name destination. Predecessor less-than
-//! sign remains a terminal stub; no blocked execution is reconstructed or resumed.
+//! sign now executes; no blocked execution is reconstructed or resumed.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -248,8 +248,14 @@ fn all_non_alpha_ascii_and_non_scalars_fall_back_then_execute_real_escaped_step(
                 assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&execution), expected);
                 if value == 0x3c {
-                    assert_terminal_stub(&mut execution, State::ScriptDataEscapedLessThanSign);
-                    continue;
+                    expected.state = State::ScriptDataEscaped;
+                    expected.current = Some((
+                        Input::CodePoint('!'.into()),
+                        Position { line: 2, column: 4 },
+                    ));
+                    expected.tokens.push(Token::Character('<'.into()));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&execution), expected);
                 }
                 let tail_position = if normalized == '\n'.into() {
                     Position { line: 3, column: 1 }
@@ -419,10 +425,9 @@ fn fresh_direct_entry_can_resume_suspension_with_either_branch() {
     }
 }
 
-// Real paths cannot reach the assigned state until the immediate predecessor is
-// implemented. Assert the genuine boundary rather than injecting/resuming there.
+// Real Script data entry now reaches the source and executes its actual name destination.
 #[test]
-fn real_script_entry_stops_at_unimplemented_predecessor_without_consuming_solidus() {
+fn real_script_entry_clears_scratch_creates_candidate_and_recovers_mismatched_spelling() {
     let mut context = seeded_context();
     context.input.push(points("<!--</A>")).unwrap();
     context.input.finish();
@@ -447,7 +452,48 @@ fn real_script_entry_stops_at_unimplemented_predecessor_without_consuming_solidu
         assert_eq!(execution.step(), Ok(Progress::Continue(state)));
         assert_eq!(snapshot(&execution), expected);
     }
-    assert_terminal_stub(&mut execution, State::ScriptDataEscapedLessThanSign);
+    let mut expected = snapshot(&execution);
+    expected.state = State::ScriptDataEscapedEndTagOpen;
+    expected.current = Some((
+        Input::CodePoint('/'.into()),
+        Position { line: 1, column: 6 },
+    ));
+    expected.buffer.clear();
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataEscapedEndTagName;
+    expected.current = Some((
+        Input::CodePoint('A'.into()),
+        Position { line: 1, column: 7 },
+    ));
+    expected.current_tag = Some(TagKind::End);
+    expected.end = Some(PendingEndTag::default());
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.end.as_mut().unwrap().name = points("a");
+    expected.buffer = points("A");
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataEscaped;
+    expected.current = Some((
+        Input::CodePoint('>'.into()),
+        Position { line: 1, column: 8 },
+    ));
+    expected
+        .tokens
+        .extend(points("</A").into_iter().map(Token::Character));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.tokens.push(Token::Character('>'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.current = Some((Input::Eof, Position { line: 1, column: 9 }));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 9));
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
 }
 
 #[test]
@@ -836,9 +882,7 @@ fn drain(execution: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
             Err(UnimplementedState { state }) => {
                 assert!(matches!(
                     state,
-                    State::ScriptDataEscapedLessThanSign
-                        | State::CharacterReference
-                        | State::MarkupDeclarationOpen
+                    State::CharacterReference | State::MarkupDeclarationOpen
                 ));
                 assert_terminal_stub(execution, state);
                 return true;

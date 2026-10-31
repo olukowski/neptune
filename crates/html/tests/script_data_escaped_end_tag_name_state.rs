@@ -788,13 +788,14 @@ fn exhaustive_nonletters_fall_back_before_escaped_reconsumption_and_diagnostics(
             assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&run), expected);
             if value == 0x3c {
-                let blocked = Err(UnimplementedState {
-                    state: State::ScriptDataEscapedLessThanSign,
-                });
-                assert_eq!(run.step(), blocked);
+                expected.state = State::ScriptDataEscaped;
+                expected.current = Some((
+                    Input::CodePoint('!'.into()),
+                    Position { line: 2, column: 2 },
+                ));
+                expected.tokens.push(Token::Character('<'.into()));
+                assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&run), expected);
-                terminal(&mut run, blocked);
-                continue;
             }
             expected.state = State::ScriptDataEscaped;
             let tail_position = if normalized == '\n'.into() {
@@ -826,7 +827,13 @@ fn exhaustive_nonletters_fall_back_before_escaped_reconsumption_and_diagnostics(
 #[test]
 fn later_stub_boundaries_are_terminal_without_consuming_tails_or_faking_eof() {
     for (input, state, current, column, emitted) in [
-        ("<tail", State::ScriptDataEscapedLessThanSign, '<', 1, false),
+        (
+            "<tail></script>&tail",
+            State::CharacterReference,
+            '&',
+            16,
+            false,
+        ),
         (">&tail", State::CharacterReference, '&', 2, true),
         (" a='&tail", State::CharacterReference, '&', 5, false),
         ("><!tail", State::MarkupDeclarationOpen, '!', 3, true),
@@ -849,8 +856,11 @@ fn later_stub_boundaries_are_terminal_without_consuming_tails_or_faking_eof() {
         );
         let tokens = if emitted {
             vec![end_tag(vec![], false)]
-        } else if state == State::ScriptDataEscapedLessThanSign {
-            literal(&points("ScRiPt"))
+        } else if input == "<tail></script>&tail" {
+            let mut tokens = literal(&points("ScRiPt"));
+            tokens.extend(points("<tail>").into_iter().map(Token::Character));
+            tokens.push(end_tag(vec![], false));
+            tokens
         } else {
             vec![]
         };
@@ -865,7 +875,7 @@ fn later_stub_boundaries_are_terminal_without_consuming_tails_or_faking_eof() {
 }
 
 #[test]
-fn real_predecessor_block_traces_match_every_split_and_single_point_chunking() {
+fn real_predecessor_completion_traces_match_every_split_and_single_point_chunking() {
     for (initial, input, scratch) in [
         (State::ScriptData, "<!--</ScRiPt>tail", "stale"),
         (State::ScriptData, "<!--\r\n</ScRiPt>tail", "stale"),
@@ -884,12 +894,7 @@ fn real_predecessor_block_traces_match_every_split_and_single_point_chunking() {
         let mut closed = Execution::new(initial, closed_context);
         let mut expected = vec![];
         assert!(drain(&mut closed, &mut expected));
-        assert_eq!(
-            expected.last().unwrap().0,
-            Err(UnimplementedState {
-                state: State::ScriptDataEscapedLessThanSign,
-            })
-        );
+        assert_eq!(expected.last().unwrap().0, Ok(Progress::Finished));
         let mut chunkings: Vec<Vec<&[CodePoint]>> = (0..=input.len())
             .map(|split| vec![&input[..split], &input[split..]])
             .collect();
@@ -907,7 +912,9 @@ fn real_predecessor_block_traces_match_every_split_and_single_point_chunking() {
                 run.context_mut().input.push(chunk.iter().copied()).unwrap();
                 ended = drain(&mut run, &mut actual);
             }
-            assert!(ended);
+            assert!(!ended, "open input must suspend, not invent EOF");
+            run.context_mut().input.finish();
+            assert!(drain(&mut run, &mut actual));
             assert_eq!(actual, expected, "{initial:?}: {input:?}");
         }
     }
@@ -985,12 +992,11 @@ fn literal_fallback_follows_real_escaped_return_and_ordinary_closing_tag_into_da
     assert_eq!(run.context().return_state, expected.return_state);
 }
 
-// The six merged algorithms are inherited, not implemented here. This real
-// available entry path demonstrates that even their completed loop still stops
-// BEFORE EscapedEndTagOpen/Name at the genuine EscapedLessThanSign gateway.
+// The merged double-escape algorithms return to Escaped, then the gateway
+// reaches real EscapedEndTagOpen/Name. Inspect the loop before closing into Data.
 // Pinned source 143958–144142, then 143775–143802.
 #[test]
-fn merged_double_escaped_loop_returns_to_real_escaped_predecessor_and_blocks() {
+fn merged_double_escaped_loop_returns_to_escaped_then_closes_into_data() {
     let mut seeded = context("stale", "", Some("script"));
     seeded
         .input
@@ -1038,21 +1044,42 @@ fn merged_double_escaped_loop_returns_to_real_escaped_predecessor_and_blocks() {
         assert_eq!(run.step(), Ok(Progress::Continue(target)));
         assert_eq!(snapshot(&run), expected, "column {column}");
     }
-    let blocked = Err(UnimplementedState {
-        state: State::ScriptDataEscapedLessThanSign,
-    });
-    assert_eq!(run.step(), blocked);
+    expected.state = State::ScriptDataEscapedEndTagOpen;
+    expected.current = Some((
+        Input::CodePoint('/'.into()),
+        Position {
+            line: 1,
+            column: 21,
+        },
+    ));
+    expected.buffer.clear();
+    assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
     assert_eq!(snapshot(&run), expected);
-    assert_eq!(
-        run.context().pending_end_tag.as_ref().unwrap().name,
-        points("stale")
-    );
-    assert_eq!(run.context().temporary_buffer, points("script"));
-    terminal(&mut run, blocked);
+    let mut trace = vec![];
+    assert!(drain(&mut run, &mut trace));
+    expected.state = State::Data;
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 33,
+        },
+    ));
+    expected.tokens.push(end_tag(vec![], false));
+    expected
+        .tokens
+        .extend(points("tail").into_iter().map(Token::Character));
+    expected.tokens.push(Token::Eof);
+    expected.buffer = points("ScRiPt");
+    expected.selected = None;
+    expected.end = None;
+    assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+    assert_eq!(snapshot(&run), expected);
+    terminal(&mut run, Ok(Progress::Finished));
 }
 
 #[test]
-fn real_script_and_escaped_entries_stop_at_predecessor_not_the_implemented_name_state() {
+fn real_script_and_escaped_entries_execute_gateway_and_name_state_into_data() {
     for (initial, input, column, prefix) in [
         (State::ScriptData, "<!--</ScRiPt>tail", 5, "<!--"),
         (State::ScriptDataEscaped, "</ScRiPt>tail", 1, ""),
@@ -1061,19 +1088,38 @@ fn real_script_and_escaped_entries_stop_at_predecessor_not_the_implemented_name_
         seeded.input.push(points(input)).unwrap();
         seeded.input.finish();
         let mut run = Execution::new(initial, seeded);
-        let before = snapshot(&run);
-        let mut trace = vec![];
-        assert!(drain(&mut run, &mut trace));
-        let blocked = Err(UnimplementedState {
-            state: State::ScriptDataEscapedLessThanSign,
-        });
-        assert_eq!(trace.last().unwrap().0, blocked);
-        let mut expected = before;
+        let mut expected = snapshot(&run);
         expected.state = State::ScriptDataEscapedLessThanSign;
         expected.tokens = points(prefix).into_iter().map(Token::Character).collect();
         expected.current = Some((Input::CodePoint('<'.into()), Position { line: 1, column }));
+        for _ in 0..20 {
+            if run.state() == State::ScriptDataEscapedLessThanSign {
+                break;
+            }
+            assert!(matches!(run.step(), Ok(Progress::Continue(_))));
+        }
         assert_eq!(snapshot(&run), expected);
-        terminal(&mut run, blocked);
+        let mut trace = vec![];
+        assert!(drain(&mut run, &mut trace));
+        expected.state = State::Data;
+        expected.current = Some((
+            Input::Eof,
+            Position {
+                line: 1,
+                column: input.len() + 1,
+            },
+        ));
+        expected.tokens.push(end_tag(vec![], false));
+        expected
+            .tokens
+            .extend(points("tail").into_iter().map(Token::Character));
+        expected.tokens.push(Token::Eof);
+        expected.buffer = points("ScRiPt");
+        expected.selected = None;
+        expected.end = None;
+        assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+        assert_eq!(snapshot(&run), expected);
+        terminal(&mut run, Ok(Progress::Finished));
     }
     // The newly merged predecessor now creates the candidate before the real
     // name step. Retain unrelated storage and intentionally stale scratch to
