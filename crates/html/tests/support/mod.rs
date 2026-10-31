@@ -99,7 +99,7 @@ pub fn initial_states(case: &Value) -> Vec<String> {
 
 struct Prepared {
     run: Run,
-    tokens: Vec<CodePoint>,
+    tokens: Vec<Token>,
     errors: Vec<Diagnostic>,
 }
 
@@ -138,13 +138,33 @@ fn prepare(case: &Value, state: &str) -> Result<Prepared, Blocked> {
     for token in case["output"].as_array().expect("output array") {
         let fields = token.as_array().expect("token array");
         let kind = decode(fields[0].as_str().expect("token kind"), double_escaped);
-        if kind != decode("Character", false) {
-            // No partial comparison of tag fields, flags, IDs, or attributes.
+        if kind == decode("Character", false) {
+            assert_eq!(fields.len(), 2, "Character token shape");
+            let data = decode(fields[1].as_str().expect("character data"), double_escaped);
+            expected.extend(data.into_iter().map(Token::Character));
+        } else if kind == decode("StartTag", false) {
+            assert!(matches!(fields.len(), 3 | 4), "StartTag token shape");
+            let attributes = fields[2].as_object().expect("attributes object");
+            let self_closing = fields
+                .get(3)
+                .map(|flag| flag.as_bool().expect("flag bool"))
+                .unwrap_or(false);
+            // Production represents only creation defaults. Block the WHOLE run
+            // rather than dropping unsupported attributes or self-closing flags.
+            if !attributes.is_empty() || self_closing {
+                return Err(Blocked::TokenVariants);
+            }
+            expected.push(Token::StartTag {
+                name: decode(fields[1].as_str().expect("tag name"), double_escaped),
+            });
+        } else if kind == decode("EndTag", false) {
+            assert_eq!(fields.len(), 2, "EndTag token shape");
+            expected.push(Token::EndTag {
+                name: decode(fields[1].as_str().expect("tag name"), double_escaped),
+            });
+        } else {
             return Err(Blocked::TokenVariants);
         }
-        assert_eq!(fields.len(), 2, "Character token shape");
-        let data = decode(fields[1].as_str().expect("character data"), double_escaped);
-        expected.extend(data);
     }
     let errors = case
         .get("errors")
@@ -189,9 +209,10 @@ fn prepare(case: &Value, state: &str) -> Result<Prepared, Blocked> {
     })
 }
 
-/// Adjacent characters coalesce. Exactly one terminal EOF is required but not
-/// included in html5lib expected output. No truncated prefix can pass.
-fn output(tokens: Vec<Token>) -> Result<Vec<CodePoint>, String> {
+/// Expected character strings expand to code points, equivalent to coalescing
+/// adjacent character tokens without crossing tags. Require exactly one terminal
+/// EOF, omitted from fixture output. No truncated prefix can pass.
+fn output(tokens: Vec<Token>) -> Result<Vec<Token>, String> {
     let mut result = Vec::new();
     let mut eof = false;
     for token in tokens {
@@ -199,8 +220,8 @@ fn output(tokens: Vec<Token>) -> Result<Vec<CodePoint>, String> {
             return Err("output after EOF".into());
         }
         match token {
-            Token::Character(point) => result.push(point),
             Token::Eof => eof = true,
+            other => result.push(other),
         }
     }
     if !eof {

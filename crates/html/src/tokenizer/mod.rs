@@ -1,4 +1,4 @@
-//! Partial tokenizer: Data, PLAINTEXT, Tag open, and End tag open are implemented.
+//! Partial tokenizer: Data, PLAINTEXT, Tag open, End tag open, and Tag name.
 //! All other states remain explicit stubs.
 
 mod data;
@@ -6,23 +6,28 @@ mod end_tag_open;
 mod input;
 mod plaintext;
 mod state;
+mod tag_name;
 mod tag_open;
 
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
-/// Only emitted token variants needed by the four implemented states.
+/// Only emitted token variants needed by the five implemented states.
+/// Tag attributes are implicitly empty and self-closing flags implicitly unset.
+/// No implemented state can change these defaults (HTML Tokenization preamble).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
+    StartTag { name: Vec<CodePoint> },
+    EndTag { name: Vec<CodePoint> },
     Eof,
 }
 
 /// Unfinished start tag created by Tag open, not an emitted token.
 ///
 /// Only its name needs storage so far. The self-closing flag is implicitly unset
-/// and the attribute list implicitly empty, as required at creation. No tag
-/// mutation/emission or general attribute API is implemented yet.
+/// and the attribute list implicitly empty, as required at creation. No general
+/// attribute API is implemented yet.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PendingStartTag {
     pub name: Vec<CodePoint>,
@@ -31,10 +36,17 @@ pub struct PendingStartTag {
 /// Unfinished end tag created by End tag open, not an emitted token.
 ///
 /// As with `PendingStartTag`, the self-closing flag is implicitly unset and the
-/// attribute list implicitly empty. No tag mutation/emission API exists yet.
+/// attribute list implicitly empty.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PendingEndTag {
     pub name: Vec<CodePoint>,
+}
+
+/// Selects the current tag independently of other retained pending storage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TagKind {
+    Start,
+    End,
 }
 
 /// Unfinished comment created by End tag open's recovery branch, not emitted.
@@ -53,6 +65,9 @@ pub struct Context {
     pub last_start_tag: Option<Vec<CodePoint>>,
     /// Set by states invoking Character reference; absent before any invocation.
     pub return_state: Option<State>,
+    /// Selected by tag creation; cleared on emission or abandonment at EOF.
+    /// Direct Tag name entry requires this and its matching pending tag.
+    pub current_tag: Option<TagKind>,
     /// Created, not emitted; absent until Tag open's ASCII-alpha branch.
     pub pending_start_tag: Option<PendingStartTag>,
     /// Created, not emitted; absent until End tag open's ASCII-alpha branch.
@@ -97,6 +112,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::Plaintext => Ok(plaintext::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
+        State::TagName => Ok(tag_name::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }
@@ -159,13 +175,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_support_inventory_has_four_implemented_states_and_eighty_stubs() {
+    fn explicit_support_inventory_has_five_implemented_states_and_seventy_nine_stubs() {
         // Deliberate support inventory, independent of dispatch outcomes.
         const IMPLEMENTED: &[State] = &[
             State::Data,
             State::Plaintext,
             State::TagOpen,
             State::EndTagOpen,
+            State::TagName,
         ];
         assert_eq!(State::ALL.len(), 84);
         let stubs: Vec<_> = State::ALL
@@ -173,7 +190,7 @@ mod tests {
             .copied()
             .filter(|state| !IMPLEMENTED.contains(state))
             .collect();
-        assert_eq!(stubs.len(), 80);
+        assert_eq!(stubs.len(), 79);
         for state in stubs {
             for finished in [false, true] {
                 let mut context = Context::default();
@@ -190,6 +207,7 @@ mod tests {
                 assert_eq!(execution.context().input.current(), None);
                 assert!(execution.context().tokens.is_empty());
                 assert!(execution.context().errors.is_empty());
+                assert!(execution.context().current_tag.is_none());
                 assert!(execution.context().pending_start_tag.is_none());
                 assert!(execution.context().pending_end_tag.is_none());
                 assert!(execution.context().pending_comment.is_none());
@@ -198,10 +216,10 @@ mod tests {
         }
         assert_eq!(
             UnimplementedState {
-                state: State::TagName
+                state: State::BeforeAttributeName
             }
             .to_string(),
-            "unimplemented HTML tokenizer state: Tag name state"
+            "unimplemented HTML tokenizer state: Before attribute name state"
         );
     }
 
@@ -220,16 +238,16 @@ mod tests {
                 position: context.input.position(),
             });
             context.input.reconsume().unwrap();
-            Ok(Progress::Continue(State::TagName))
+            Ok(Progress::Continue(State::BeforeAttributeName))
         });
-        assert_eq!(result, Ok(Progress::Continue(State::TagName)));
-        assert_eq!(execution.state(), State::TagName);
+        assert_eq!(result, Ok(Progress::Continue(State::BeforeAttributeName)));
+        assert_eq!(execution.state(), State::BeforeAttributeName);
         assert_eq!(execution.context().tokens, [Token::Character('!'.into())]);
         assert_eq!(execution.context().errors.len(), 1);
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::TagName
+                state: State::BeforeAttributeName
             })
         );
         assert_eq!(
@@ -239,7 +257,7 @@ mod tests {
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::TagName
+                state: State::BeforeAttributeName
             })
         );
     }

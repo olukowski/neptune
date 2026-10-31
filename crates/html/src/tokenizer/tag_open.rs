@@ -3,7 +3,7 @@
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source>
 //! Token creation defaults follow the opening Tokenization paragraphs.
 
-use super::{Context, Input, ParseError, PendingStartTag, Progress, State, Token};
+use super::{Context, Input, ParseError, PendingStartTag, Progress, State, TagKind, Token};
 
 pub(super) fn step(context: &mut Context) -> Progress {
     match context.input.consume() {
@@ -15,6 +15,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
             // ASCII alpha: create (do not emit), with an EMPTY name.
             0x41..=0x5a | 0x61..=0x7a => {
                 context.pending_start_tag = Some(PendingStartTag::default());
+                context.current_tag = Some(TagKind::Start);
                 context
                     .input
                     .reconsume()

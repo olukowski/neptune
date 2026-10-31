@@ -2,18 +2,18 @@
 
 ## Status and source
 
-**Only Data, PLAINTEXT, Tag open, and End tag open are implemented. The other 80
-states, including Tag name, Bogus comment, and Character reference, remain
-`UnimplementedState` stubs.** This is a partial tokenizer, not a stable parsing API
+**Only Data, PLAINTEXT, Tag open, End tag open, and Tag name are implemented. The
+other 79 states, including Before attribute name, Self-closing start tag, Bogus
+comment, and Character reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a stable parsing API
 or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
 Implementation evidence is the immutable HTML Standard source in
 [docs/sources.toml](sources.toml), specifically **Preprocessing the input stream**
 and the opening **Tokenization** paragraphs (current/next input, reconsumption,
 and token creation/emission), plus **Data state** (`#data-state`), **PLAINTEXT
-state** (`#plaintext-state`), **Tag open state** (`#tag-open-state`), and **End tag
-open state** (`#end-tag-open-state`). Newline
-normalization follows the linked Infra
+state** (`#plaintext-state`), **Tag open state** (`#tag-open-state`), **End tag
+open state** (`#end-tag-open-state`), and **Tag name state** (`#tag-name-state`).
+Newline normalization follows the linked Infra
 [normalize newlines](https://infra.spec.whatwg.org/#normalize-newlines) operation.
 The test adapter follows the pinned
 [upstream format](../tests/html5lib-tests/tokenizer/README.md), not another engine.
@@ -40,21 +40,32 @@ instruction states and no separate decimal-character-reference-start state.
   specified preprocessing errors on first consumption; they are not replaced.
   NUL handling is deferred to states. Positions count normalized code points,
   one-based, with EOF just after the last point (not byte or UTF-16 offsets).
-- `Context` contains the cursor, character/EOF token outputs, state diagnostics,
-  optional last start tag, and optional character-reference return state. The
-  return-state field is the only supporting context addition for Data: its `&`
-  branch must set this to Data before transitioning, even while the destination
-  remains a stub. Tag open adds `pending_start_tag: Option<PendingStartTag>`
-  (only the unfinished name) and a code-point `temporary_buffer`. Pending start
-  tags are not emitted tokens: their self-closing flag is implicitly unset and
-  attribute list implicitly empty. No downstream mutation, general attribute API,
-  or tag-emission variant exists yet. End tag open adds matching
-  `pending_end_tag: Option<PendingEndTag>` (only an unfinished name, with the same
-  implicit unset flag/empty attributes) and
-  `pending_comment: Option<PendingComment>` (only code-point data). These record
-  creation, not emission. No comment mutation or emission is implemented. Each
-  creation replaces only its own storage; other pending storage is preserved.
-  This is inspectable scaffolding, not a general current-token API.
+- `Context` contains the cursor, emitted tokens, state diagnostics, optional last
+  emitted start-tag name, and optional character-reference return state. Data's
+  `&` sets the return state to Data even while Character reference remains a stub.
+  Tag open creates `pending_start_tag: Option<PendingStartTag>`; End tag open
+  creates `pending_end_tag: Option<PendingEndTag>` or
+  `pending_comment: Option<PendingComment>`. Tags store code-point names only;
+  their self-closing flag is implicitly unset and attributes implicitly empty,
+  as required at creation. Comments store data only, without mutation/emission.
+  Each creation replaces only its own pending storage; unrelated storage remains.
+  The code-point `temporary_buffer` is cleared by Tag open on `?`.
+- Tag creation selects `current_tag: Option<TagKind>` (Start or End), independently
+  of any unrelated retained pending storage. Tag name mutates only the selected
+  name. On `>` it takes that pending tag and emits `Token::StartTag { name }` or
+  `Token::EndTag { name }`; on EOF it discards the selected tag. Both clear the
+  selector. Direct isolated Tag name entry requires a selector and matching
+  pending tag; normal entry through Tag open / End tag open establishes this
+  invariant. This remains inspectable scaffolding, not a general current-token API.
+  The emitted variants also have implicit empty attributes/unset self-closing flag;
+  no implemented algorithm can change those fields. Thus neither end-tag emission
+  diagnostic (`end-tag-with-attributes`, `end-tag-with-trailing-solidus`) can arise
+  here, nor is self-closing acknowledgement applicable. These checks must be added
+  when those fields become representable, not simulated now.
+- Only start-tag **emission** updates `last_start_tag`, with the emitted normalized
+  name; creation, mutation, EOF abandonment, and end-tag emission do not. The
+  appropriate-end-tag definition still compares against the last emitted start tag,
+  if any. Tag name itself does not filter end tags by appropriateness.
 - `Execution::step` performs **one source step**, returning its intended target
   through `Progress::Continue`. Source effects can be inspected before the next
   step attempts the target. A handler schedules reconsumption on the cursor.
@@ -65,10 +76,10 @@ instruction states and no separate decimal-character-reference-start state.
   mutation does not clear terminal status. Reconstructing/resuming after a stub
   has **no supported semantics**.
 
-Production dispatch implements only Data, PLAINTEXT, Tag open, and End tag open
-and has no synthetic handlers. Unit tests inject private, non-algorithmic source
-steps to validate the execution shell separately. The independent support-inventory
-test explicitly lists those four as implemented and checks that the other 80 states
+Production dispatch implements only Data, PLAINTEXT, Tag open, End tag open, and
+Tag name and has no synthetic handlers. Unit tests inject private, non-algorithmic
+source steps to validate the execution shell separately. The independent support-
+inventory test explicitly lists those five and checks that the other 79 states
 block without effects at both suspension and EOF; it does not infer support from
 dispatch.
 
@@ -76,7 +87,7 @@ dispatch.
 
 The runner lives in `crates/html/tests/support` as test-only infrastructure;
 `serde_json` remains a dev dependency. It is deliberately limited to the
-character/EOF surface emitted by Data, PLAINTEXT, Tag open, and End tag open.
+character/EOF and simple-tag surface emitted by Data through Tag name.
 Run its upstream report with:
 
 ```sh
@@ -92,8 +103,10 @@ Supported conventions:
   strings. Each literal `\uHHHH` becomes its own code point, even for adjacent
   surrogate escapes; no UTF-16 pair joining or replacement. Other text is literal.
 - Raw input goes through the cursor's preprocessing, not string line helpers.
-- Adjacent character outputs coalesce. Production must finish and emit exactly
-  one terminal EOF, omitted from the fixture comparison. Truncated output,
+- Character strings are expanded to individual code points on the expected side,
+  equivalent to coalescing adjacent character outputs without crossing tag tokens.
+  Tag kind, name, and order compare exactly, including double-escaped names.
+  Production must finish and emit exactly one terminal EOF, omitted from the fixture comparison. Truncated output,
   missing/duplicate EOF, output after EOF, and need-more-input on closed fixture
   input fail, rather than pass on an output prefix.
 - Exact character values and parse-error codes, one-based line/column positions,
@@ -103,10 +116,12 @@ Supported conventions:
 
 Explicit limitations/policies (no silent skips or partial token comparisons):
 
-- Any expected non-character token blocks the **whole run** as `TokenVariants`.
-  DOCTYPE name/public/system IDs and force-quirks inversion, tag names,
-  attributes/self-closing flags, comments, and processing instructions are
-  deferred, not treated as equal or defaulted away.
+- Expected StartTag with empty attributes/unset self-closing flag, and EndTag
+  with a name, are supported. A nonempty attribute object or set self-closing
+  flag blocks the **whole run** as `TokenVariants`, not a partial field comparison.
+  Production can only represent the supported creation defaults. DOCTYPE tokens
+  (including IDs/force-quirks), comments, and processing instructions also block
+  the whole run; they are not treated as equal or defaulted away.
 - All `xmlViolationTests` runs block as `XmlCoercion`; Neptune does not apply
   DOM-to-XML-infoset coercion in this runner.
 - All `pendingSpecChanges.test` runs block as `PendingSpecReview` until individually
@@ -133,34 +148,37 @@ pair. Every run has exactly one result:
 including blocked stubs. This avoids describing attempted-but-blocked runs as
 successfully executed conformance tests. Inventory tests execute no conformance.
 
-Current pinned Data + PLAINTEXT + Tag open + End tag open baseline: 14 files,
-6,827 cases, **7,053 runs; 5,423 dispatch-attempted; 466 executed, 466 passed,
-0 failed, 6,587 blocked**:
+Current pinned Data through Tag name baseline: 14 files, 6,827 cases,
+**7,053 runs; 5,524 dispatch-attempted; 522 executed, 522 passed, 0 failed,
+6,531 blocked**:
 
 - 4,659 blocked at Character reference (including one after Tag open recovery)
-- 11 blocked at Tag name
+- 24 blocked at Before attribute name
+- 6 blocked at Self-closing start tag
 - 25 blocked at Processing instruction open
-- 262 blocked at other initial-state stubs (56 CDATA section, 61 RAWTEXT,
-  63 RCDATA, 82 Script data)
-- 1,625 unsupported-token runs
+- 288 blocked at other initial-state stubs (56 CDATA section, 70 RAWTEXT,
+  73 RCDATA, 89 Script data)
+- 1,524 unsupported-token runs
 - 4 XML-coercion runs
 - 1 pending-spec-review run
 
-Of the 5,109 Data-initial dispatch attempts, 414 complete and compare;
-4,695 are still blocked by later states, not passes. All 385 original Data passes,
-52 PLAINTEXT passes, and 24 passes added by Tag open are retained and asserted
-separately. All five previously End-tag-open-blocked runs now pass: `test1.test`
-“Empty end tag”, `test2.test` “Unescaped </” and “Empty end tag with following
-characters”, and `test3.test` “</” and “</>”. The runner asserts these case
-identities explicitly, independently of dispatch. Thus 29 of the 66 runs formerly
-blocked at Tag open now pass; 37 remain blocked (11 Tag name, 25 Processing
-instruction open, 1 Character reference after recovery). The older Data groups
-are independently identified by their first transition character. Expected
-comment/end-tag fixtures still block under the existing token-variant policy;
-there are no new comparable upstream runs reaching Bogus comment. Focused local
-tests exercise that destination without counting it as a pass. Adapter/policy
-precedence, exclusions, and dispatch-attempt counts are unchanged. No upstream
-fixture or pinned revision was modified.
+All **466 prior passes are retained**: 385 original Data, 52 PLAINTEXT, 24 Tag
+open additions, and five End tag open additions. The runner asserts these groups
+independently of dispatch, including explicit identities for the five End tag
+open cases. Of the 11 former Tag-name-blocked runs (also explicitly identified),
+only `test4.test` “EOF in tag name state ” now passes; nine block at Before
+attribute name and one at Self-closing start tag. Thus 30 of the original 66
+Tag-open-blocked runs now pass; 36 still block (9 Before attribute name, 1 Self-
+closing start tag, 25 Processing instruction open, 1 Character reference).
+
+The adapter admits **101 additional runs** with supported tag outputs: 55 pass,
+20 reach missing attribute/self-closing states, and 26 reach still-missing initial
+states. Together with the EOF-in-name pass this adds **56 passes**, all Data-
+initial: 470 Data and 52 PLAINTEXT passes in total. There are 5,184 Data-initial
+dispatch attempts, of which 4,714 remain blocked. No failed run was excluded to
+obtain these counts; policy precedence and existing exclusions are unchanged.
+Unsupported-token runs decrease from 1,625 to 1,524, while the admitted runs can
+still block at dispatch. Fixtures and pinned revisions remain unchanged.
 
 The baseline counts/reasons are asserted explicitly; widening blocking requires
 review, not an automatic skip. Synthetic executor tests independently demonstrate
@@ -228,8 +246,8 @@ The implementation follows the pinned **Tag open state** section literally:
 | Anything else | Report `invalid-first-character-of-tag-name` at the consumed point; emit `<`; reconsume in Data. |
 
 The `?` branch uses the pinned processing-instruction transition, **not** an
-older unexpected-question-mark/bogus-comment transition. End tag open now executes
-on the next step. The other three destinations report their own typed terminal
+older unexpected-question-mark/bogus-comment transition. End tag open and Tag
+name now execute on the next step. The other two destinations report their own typed terminal
 block on the next step, after the source effects are independently inspectable.
 A pending token is creation only, never emitted output or a change to
 `last_start_tag`. Other branches preserve
@@ -248,7 +266,7 @@ source-step traces, including CRLF splits, consecutive/trailing CR, EOF after
 not whole-tokenizer streaming conformance. Existing Data/PLAINTEXT tests also
 verify preservation of pending-start-tag storage and the temporary buffer.
 
-## End tag open coverage and remaining work
+## End tag open coverage
 
 The implementation follows every branch of the pinned **End tag open state**:
 
@@ -260,13 +278,11 @@ The implementation follows every branch of the pinned **End tag open state**:
 | Anything else | Report `invalid-first-character-of-tag-name`; create a comment with **empty** data; reconsume in Bogus comment. No character emission, comment append, or NUL replacement here. |
 
 Malformed closing tags are not simply discarded. Comment creation precedes the
-terminal Bogus comment block; end-tag creation precedes the terminal Tag name
-block. Both targets remain unimplemented, and neither block is an HTML parse
-error, EOF, success, or supported suspension. Other context, including pending
-start tags, the last emitted start tag, return state, and temporary buffer, is
-preserved. End-tag self-closing/attribute defaults are implicit exactly as for
-the existing pending start tag; no emitted-token variants or fixture comparisons
-were added.
+terminal Bogus comment block; end-tag creation precedes reconsumption in the now
+implemented Tag name. The Bogus comment block is not an HTML parse error, EOF,
+success, or supported suspension. Other context, including pending start tags,
+the last emitted start tag, return state, and temporary buffer, is preserved.
+End-tag self-closing/attribute defaults remain implicit exactly as for start tags.
 
 Focused tests in `crates/html/tests/end_tag_open_state.rs` cover all 52 ASCII
 letters without case conversion, ASCII boundaries, punctuation, non-ASCII
@@ -284,16 +300,61 @@ input, EOF, and blocked destinations. These are state-specific streaming checks,
 not full tokenizer conformance. A separate regression checks that every prior
 implemented state's branches preserve the new pending storage.
 
-The next state PR is **Tag name**. It will need explicit current-tag selection
-(start versus end), real name mutation, and eventually tag emission/field
-comparison support. The separate pending storage here deliberately does not
-provide that downstream API. Bogus comment, comments, markup declarations,
-processing instructions, and character references also remain stubs. Do not
-resume an execution already terminated at a stub. No neighboring-state
-algorithms, execution model changes, preprocessing changes, dependencies,
-tree-building behavior, or optimizations were added here.
+## Tag name coverage and simple-tag milestone
 
-Before claiming broader coverage, add actual token variants/field comparisons,
+The implementation follows every branch of the pinned **Tag name state**:
+
+| Consumed input | Source effects and intended destination |
+| --- | --- |
+| TAB U+0009, LF U+000A, FF U+000C, SPACE U+0020 | Switch to Before attribute name. CR is normalized to LF by the cursor, not separately matched here. |
+| `/` U+002F | Switch to Self-closing start tag. |
+| `>` U+003E | Switch to Data; emit the current tag token. |
+| ASCII upper alpha U+0041–U+005A | Append code point + 0x20 to the current name; stay in Tag name. |
+| NUL U+0000 | Report `unexpected-null-character`; append U+FFFD to the name, not the original NUL. |
+| EOF | Report `eof-in-tag`; abandon the unfinished tag and emit one terminal EOF, without emitting that tag. |
+| Anything else | Append the code point unchanged; stay in Tag name. No Unicode case folding. |
+
+Every branch consumes once and none reconsumes. Open exhausted input preserves
+pending state and returns NeedMoreInput, not EOF. Whitespace and `/` consume but
+do not append, emit, or report a state parse error. Their source effects remain
+inspectable before the next step terminates with `UnimplementedState` identifying
+Before attribute name or Self-closing start tag. Do not resume a blocked execution.
+VT and NBSP are name characters, not separators; VT also gets the cursor's
+preprocessing diagnostic. Surrogates/noncharacters are preserved as code points,
+with their original preprocessing errors, not converted through scalar strings.
+
+**Milestone:** real Data → Tag open / End tag open → Tag name → Data execution
+now completes `<p>Hello</p>` and `<DIV>world</DIV>`, emitting start tag, character
+data, end tag, and EOF. There is no tree builder, special-element mode selection,
+or DOM construction; even an unmatched simple end tag emits without tree-builder
+errors. Minimal support is the explicit selector, two name-only emitted variants,
+selected-token take/discard, and last-start-tag bookkeeping described above.
+No general emission abstraction, token-field mutation API, or dependencies were
+needed. The fixture adapter compares only representable tag defaults, without
+implementing attribute/self-closing algorithms or suppressing their stub blocks.
+
+Focused tests in `crates/html/tests/tag_name_state.rs` cover both tag kinds,
+all ASCII letters, ASCII boundaries, Unicode uppercase without folding, malformed
+name punctuation, NUL replacement/errors, actual surrogates/noncharacters/controls,
+EOF abandonment, exact emission/consumption, last-start-tag updates/preservation,
+and untouched unrelated context. All two-chunk splits plus single-code-point
+chunks compare every source-step snapshot, including name accumulation, `</` / name,
+name / `>`, CRLF and consecutive/trailing CR, NUL, final EOF, and terminal stub
+transitions. Local adapter tests deliberately mismatch tag kind/name/order,
+exercise double-escaped non-scalar tag names, and reject matching output prefixes
+at later stubs. These local passes are not additional upstream conformance runs.
+
+## Before attribute-state work
+
+Before attribute name and Self-closing start tag remain stubs; neither whitespace
+nor `/` can currently complete a tag. Attribute/flag storage, end-tag emission
+diagnostics for nondefault fields, and expanded fixture comparisons will be
+needed when implementing the relevant states. Bogus comment, comments, markup
+declarations, processing instructions, and character references also remain stubs.
+No neighboring-state algorithms, execution/input model changes, tree-building
+behavior, or optimizations were added.
+
+Before claiming broader coverage, extend token fields and comparisons,
 review pending-spec-change expectations, and decide whether XML coercion belongs
 in scope. More complex states will justify scratch buffers and context gradually.
 Tree-builder control (including foreign-content/CDATA permission), synchronous

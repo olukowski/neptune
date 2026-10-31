@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn pinned_upstream_runner_reports_data_plaintext_tag_open_and_end_tag_open_coverage() {
+fn pinned_upstream_runner_reports_through_tag_name_coverage() {
     let directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
     let mut paths: Vec<_> = fs::read_dir(directory)
@@ -25,6 +25,7 @@ fn pinned_upstream_runner_reports_data_plaintext_tag_open_and_end_tag_open_cover
     let mut reasons = BTreeMap::<String, usize>::new();
     let mut passed_by_initial = BTreeMap::<String, usize>::new();
     let mut retained_data_passes = 0;
+    let mut newly_comparable_tag_passes = 0;
     let mut retained_tag_open_passes = 0;
     let mut former_tag_open = BTreeMap::<String, usize>::new();
     // Explicit case identities from the previous five End-tag-open blocks.
@@ -36,6 +37,61 @@ fn pinned_upstream_runner_reports_data_plaintext_tag_open_and_end_tag_open_cover
         ("test3.test", "</"),
         ("test3.test", "</>"),
     ];
+    // Explicit previous Tag-name-blocked cases: only EOF-in-name can finish.
+    const FORMER_TAG_NAME: &[(&str, &str, Option<State>)] = &[
+        (
+            "test4.test",
+            "CR EOF in tag name",
+            Some(State::BeforeAttributeName),
+        ),
+        (
+            "test4.test",
+            "Slash EOF in tag name",
+            Some(State::SelfClosingStartTag),
+        ),
+        ("test4.test", "EOF in tag name state ", None),
+        (
+            "test4.test",
+            "EOF in before attribute name state",
+            Some(State::BeforeAttributeName),
+        ),
+        (
+            "test4.test",
+            "EOF in attribute name state",
+            Some(State::BeforeAttributeName),
+        ),
+        (
+            "test4.test",
+            "EOF in after attribute name state",
+            Some(State::BeforeAttributeName),
+        ),
+        (
+            "test4.test",
+            "EOF in before attribute value state",
+            Some(State::BeforeAttributeName),
+        ),
+        (
+            "test4.test",
+            "EOF in attribute value (double quoted) state",
+            Some(State::BeforeAttributeName),
+        ),
+        (
+            "test4.test",
+            "EOF in attribute value (single quoted) state",
+            Some(State::BeforeAttributeName),
+        ),
+        (
+            "test4.test",
+            "EOF in attribute value (unquoted) state",
+            Some(State::BeforeAttributeName),
+        ),
+        (
+            "test4.test",
+            "EOF in after attribute value state",
+            Some(State::BeforeAttributeName),
+        ),
+    ];
+    let mut former_tag_name_seen = 0;
     let mut newly_passed = BTreeMap::new();
     for path in paths {
         let document: serde_json::Value =
@@ -88,6 +144,15 @@ fn pinned_upstream_runner_reports_data_plaintext_tag_open_and_end_tag_open_cover
                         *newly_passed
                             .entry((identity.0.to_owned(), identity.1.to_owned()))
                             .or_insert(0) += 1;
+                    } else if let Some((_, _, destination)) = FORMER_TAG_NAME
+                        .iter()
+                        .find(|(file, description, _)| (*file, *description) == identity)
+                    {
+                        let expected = destination
+                            .map(|state| Outcome::Blocked(Blocked::Unimplemented(state)))
+                            .unwrap_or(Outcome::Passed);
+                        assert_eq!(result, expected, "{identity:?}");
+                        former_tag_name_seen += 1;
                     } else if first_transition.is_some_and(|point| point.value() == 0x3c) {
                         retained_tag_open_passes += usize::from(result == Outcome::Passed);
                     }
@@ -104,6 +169,17 @@ fn pinned_upstream_runner_reports_data_plaintext_tag_open_and_end_tag_open_cover
                 }
                 match result {
                     Outcome::Passed => {
+                        if case["output"].as_array().unwrap().iter().any(|token| {
+                            let kind = decode(
+                                token[0].as_str().unwrap(),
+                                case.get("doubleEscaped")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false),
+                            );
+                            kind == decode("StartTag", false) || kind == decode("EndTag", false)
+                        }) {
+                            newly_comparable_tag_passes += 1;
+                        }
                         passed += 1;
                         *passed_by_initial.entry(state.clone()).or_default() += 1;
                     }
@@ -133,35 +209,38 @@ fn pinned_upstream_runner_reports_data_plaintext_tag_open_and_end_tag_open_cover
         attempted > 0,
         "must reach production dispatch, not just inventory"
     );
-    assert_eq!((passed + failed + blocked, attempted), (7053, 5423));
+    assert_eq!((passed + failed + blocked, attempted), (7053, 5524));
     // Review deliberately when changing support; never silently widen blocking.
     assert_eq!(
         reasons,
         BTreeMap::from([
             ("PendingSpecReview".into(), 1),
-            ("TokenVariants".into(), 1625),
+            ("TokenVariants".into(), 1524),
+            ("Unimplemented(BeforeAttributeName)".into(), 24),
             ("Unimplemented(CdataSection)".into(), 56),
             ("Unimplemented(CharacterReference)".into(), 4659),
             ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
-            ("Unimplemented(Rawtext)".into(), 61),
-            ("Unimplemented(Rcdata)".into(), 63),
-            ("Unimplemented(ScriptData)".into(), 82),
-            ("Unimplemented(TagName)".into(), 11),
+            ("Unimplemented(Rawtext)".into(), 70),
+            ("Unimplemented(Rcdata)".into(), 73),
+            ("Unimplemented(ScriptData)".into(), 89),
+            ("Unimplemented(SelfClosingStartTag)".into(), 6),
             ("XmlCoercion".into(), 4),
         ])
     );
     assert_eq!(
         (passed, failed, blocked),
-        (466, 0, 6587),
-        "Data, PLAINTEXT, Tag open, and End tag open baseline"
+        (522, 0, 6531),
+        "Data through Tag name baseline"
     );
     assert_eq!(
         passed_by_initial,
-        BTreeMap::from([("Data state".into(), 414), ("PLAINTEXT state".into(), 52)]),
-        "retain PLAINTEXT coverage; five Data-initial runs newly compare"
+        BTreeMap::from([("Data state".into(), 470), ("PLAINTEXT state".into(), 52)]),
+        "retain PLAINTEXT coverage; 56 Data-initial runs newly compare"
     );
     assert_eq!(retained_data_passes, 385);
     assert_eq!(retained_tag_open_passes, 24);
+    assert_eq!(former_tag_name_seen, 11);
+    assert_eq!(newly_comparable_tag_passes, 55);
     assert_eq!(
         newly_passed,
         FORMER_END_TAG_OPEN
@@ -172,10 +251,11 @@ fn pinned_upstream_runner_reports_data_plaintext_tag_open_and_end_tag_open_cover
     assert_eq!(
         former_tag_open,
         BTreeMap::from([
-            ("Passed".into(), 29),
+            ("Passed".into(), 30),
+            ("Unimplemented(BeforeAttributeName)".into(), 9),
             ("Unimplemented(CharacterReference)".into(), 1),
             ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
-            ("Unimplemented(TagName)".into(), 11),
+            ("Unimplemented(SelfClosingStartTag)".into(), 1),
         ]),
         "account for all 66 formerly Tag-open-blocked runs"
     );
@@ -194,9 +274,9 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
     // Local adapter regression tests, not additional upstream conformance cases.
     for (input, output, errors, destination) in [
         ("p&", "p", json!([]), State::CharacterReference),
-        ("p<a", "p", json!([]), State::TagName),
+        ("p<a ", "p", json!([]), State::BeforeAttributeName),
         ("p<!", "p", json!([]), State::MarkupDeclarationOpen),
-        ("p</A", "p", json!([]), State::TagName),
+        ("p</A/", "p", json!([]), State::SelfClosingStartTag),
         (
             "p</0",
             "p",
@@ -245,7 +325,7 @@ fn production_plaintext_mapping_multiple_runs_and_data_default_remain_explicit()
         outcomes,
         [
             Outcome::Passed,
-            Outcome::Blocked(Blocked::Unimplemented(State::TagName)),
+            Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference)),
             Outcome::Passed,
             Outcome::Blocked(Blocked::Unimplemented(State::Rcdata)),
         ]
@@ -255,7 +335,7 @@ fn production_plaintext_mapping_multiple_runs_and_data_default_remain_explicit()
     assert_eq!(initial_states(&default), ["Data state"]);
     assert_eq!(
         run_with(&default, &initial_states(&default)[0], None, execute),
-        Outcome::Blocked(Blocked::Unimplemented(State::TagName))
+        Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
     );
 
     let null = json!({
@@ -408,6 +488,67 @@ fn synthetic_comparison_requires_exact_tokens_errors_locations_and_completion() 
 }
 
 #[test]
+fn production_tag_comparison_checks_kind_name_order_and_double_escaped_code_points() {
+    // Local adapter tests, not extra upstream conformance runs.
+    let case = json!({"description":"simple tags", "input":"<DIV>xy</DIV>",
+        "output":[["StartTag","div",{}],["Character","xy"],["EndTag","div"]]});
+    assert_eq!(
+        run_with(&case, "Data state", None, execute),
+        Outcome::Passed
+    );
+    for output in [
+        json!([
+            ["StartTag", "DIV", {}],
+            ["Character", "xy"],
+            ["EndTag", "div"]
+        ]),
+        json!([["EndTag", "div"], ["Character", "xy"], ["EndTag", "div"]]),
+        json!([
+            ["StartTag", "div", {}],
+            ["EndTag", "div"],
+            ["Character", "xy"]
+        ]),
+        json!([["StartTag", "div", {}], ["Character", "xy"]]),
+        json!([
+            ["StartTag", "div", {}],
+            ["Character", "xy"],
+            ["EndTag", "DIV"]
+        ]),
+    ] {
+        let mut wrong = case.clone();
+        wrong["output"] = output;
+        assert!(matches!(
+            run_with(&wrong, "Data state", None, execute),
+            Outcome::Failed(_)
+        ));
+    }
+    let escaped = json!({"description":"tag code points, not UTF-16 pair folding",
+        "doubleEscaped":true, "input":"<A\\uD800\\uDFFF>",
+        "output":[["\\u0053tartTag","a\\uD800\\uDFFF",{}]],
+        "errors":[{"code":"surrogate-in-input-stream","line":1,"col":3},
+            {"code":"surrogate-in-input-stream","line":1,"col":4}]});
+    assert_eq!(
+        run_with(&escaped, "Data state", None, execute),
+        Outcome::Passed
+    );
+    // A matching emitted tag prefix still cannot turn an attribute-state block
+    // into a pass, and an EOF-abandoned tag must never compare as emitted output.
+    let prefix = json!({"description":"tag prefix", "input":"<p><A ",
+        "output":[["StartTag","p",{}]]});
+    assert_eq!(
+        run_with(&prefix, "Data state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::BeforeAttributeName))
+    );
+    let abandoned = json!({"description":"abandoned tag", "input":"<A",
+        "output":[["StartTag","a",{}]],
+        "errors":[{"code":"eof-in-tag","line":1,"col":3}]});
+    assert!(matches!(
+        run_with(&abandoned, "Data state", None, execute),
+        Outcome::Failed(_)
+    ));
+}
+
+#[test]
 fn unsupported_capabilities_never_invoke_executor_or_compare_a_partial_token() {
     let case = json!({"description":"synthetic", "input":"", "output":[["StartTag","p",{},true]]});
     for reason in [Blocked::XmlCoercion, Blocked::PendingSpecReview] {
@@ -420,7 +561,7 @@ fn unsupported_capabilities_never_invoke_executor_or_compare_a_partial_token() {
     }
     for token in [
         json!(["StartTag", "p", {}, true]),
-        json!(["EndTag", "p"]),
+        json!(["StartTag", "p", {"id":"x"}]),
         json!(["DOCTYPE", null, "", "id", false]),
         json!(["Comment", "x"]),
         json!(["ProcessingInstruction", "x"]),

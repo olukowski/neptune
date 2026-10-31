@@ -93,7 +93,7 @@ fn position(initial: State, next: bool) -> Position {
 }
 
 #[test]
-fn end_tag_open_letters_create_empty_end_tags_without_lowercasing_then_block_at_tag_name() {
+fn end_tag_open_letters_create_empty_end_tags_without_lowercasing_then_reconsume_in_tag_name() {
     for matched in ('A'..='Z').chain('a'..='z') {
         for initial in [State::Data, State::TagOpen, State::EndTagOpen] {
             for closed in [false, true] {
@@ -105,24 +105,29 @@ fn end_tag_open_letters_create_empty_end_tags_without_lowercasing_then_block_at_
                     Some((Input::CodePoint(matched.into()), position(initial, true)));
                 expected.end = Some(PendingEndTag::default());
                 assert_eq!(snapshot(&execution), expected);
-                assert_terminal_stub(&mut execution, State::TagName);
-                // Cursor inspection only, NOT resumption after a terminal stub.
+                // The next source step reconsumes and appends exactly once.
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::TagName)));
                 assert_eq!(
-                    execution.context_mut().input.consume(),
+                    execution.context().pending_end_tag.as_ref().unwrap().name,
+                    points(&matched.to_ascii_lowercase().to_string())
+                );
+                assert_eq!(
+                    execution.context().input.current().unwrap().0,
                     Input::CodePoint(matched.into())
                 );
                 assert_eq!(
                     execution.context().input.position(),
                     position(initial, true)
                 );
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::Data)));
                 assert_eq!(
-                    execution.context_mut().input.consume(),
+                    execution.context().input.current().unwrap().0,
                     Input::CodePoint('>'.into())
                 );
                 assert_eq!(
-                    execution.step(),
-                    Err(UnimplementedState {
-                        state: State::TagName
+                    execution.context().tokens.last(),
+                    Some(&Token::EndTag {
+                        name: points(&matched.to_ascii_lowercase().to_string())
                     })
                 );
             }
@@ -292,7 +297,15 @@ fn end_tag_open_greater_than_reports_missing_name_consumes_once_and_recovers_to_
             assert_eq!(execution.step(), Ok(Progress::Continue(State::TagOpen)));
             assert_eq!(execution.step(), Ok(Progress::Continue(State::TagName)));
         }
-        assert_terminal_stub(&mut execution, target);
+        if target == State::TagName {
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::TagName)));
+            assert_eq!(
+                execution.context().pending_start_tag.as_ref().unwrap().name,
+                points("a")
+            );
+        } else {
+            assert_terminal_stub(&mut execution, target);
+        }
     }
 }
 
