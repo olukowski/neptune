@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn pinned_upstream_runner_reports_data_only_coverage() {
+fn pinned_upstream_runner_reports_data_and_plaintext_coverage() {
     let directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
     let mut paths: Vec<_> = fs::read_dir(directory)
@@ -23,6 +23,7 @@ fn pinned_upstream_runner_reports_data_only_coverage() {
     assert_eq!(paths.len(), 14);
     let (mut passed, mut failed, mut blocked, mut cases, mut attempted) = (0, 0, 0, 0, 0);
     let mut reasons = BTreeMap::<String, usize>::new();
+    let mut passed_by_initial = BTreeMap::<String, usize>::new();
     for path in paths {
         let document: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -46,7 +47,10 @@ fn pinned_upstream_runner_reports_data_only_coverage() {
                     execute(run)
                 });
                 match result {
-                    Outcome::Passed => passed += 1,
+                    Outcome::Passed => {
+                        passed += 1;
+                        *passed_by_initial.entry(state.clone()).or_default() += 1;
+                    }
                     Outcome::Failed(message) => {
                         failed += 1;
                         eprintln!(
@@ -82,7 +86,6 @@ fn pinned_upstream_runner_reports_data_only_coverage() {
             ("TokenVariants".into(), 1625),
             ("Unimplemented(CdataSection)".into(), 56),
             ("Unimplemented(CharacterReference)".into(), 4658),
-            ("Unimplemented(Plaintext)".into(), 52),
             ("Unimplemented(Rawtext)".into(), 61),
             ("Unimplemented(Rcdata)".into(), 63),
             ("Unimplemented(ScriptData)".into(), 82),
@@ -92,8 +95,13 @@ fn pinned_upstream_runner_reports_data_only_coverage() {
     );
     assert_eq!(
         (passed, failed, blocked),
-        (385, 0, 6668),
-        "Data-only baseline"
+        (437, 0, 6616),
+        "Data and PLAINTEXT baseline"
+    );
+    assert_eq!(
+        passed_by_initial,
+        BTreeMap::from([("Data state".into(), 385), ("PLAINTEXT state".into(), 52)]),
+        "retain Data coverage; only PLAINTEXT is newly comparable"
     );
     assert!(
         !reasons.contains_key("FixtureCapability"),
@@ -127,6 +135,56 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
             Outcome::Blocked(Blocked::Unimplemented(destination))
         );
     }
+}
+
+#[test]
+fn production_plaintext_mapping_multiple_runs_and_data_default_remain_explicit() {
+    // Local adapter regressions, not additional upstream conformance cases.
+    let case = json!({
+        "description": "same literal output, independent initial-state runs",
+        "input": "<plaintext>&amp;", "output": [["Character", "<plaintext>&amp;"]],
+        "initialStates": ["PLAINTEXT state", "Data state", "PLAINTEXT state", "RCDATA state"],
+        "lastStartTag": "plaintext"
+    });
+    let outcomes: Vec<_> = initial_states(&case)
+        .iter()
+        .map(|state| run_with(&case, state, None, execute))
+        .collect();
+    assert_eq!(
+        outcomes,
+        [
+            Outcome::Passed,
+            Outcome::Blocked(Blocked::Unimplemented(State::TagOpen)),
+            Outcome::Passed,
+            Outcome::Blocked(Blocked::Unimplemented(State::Rcdata)),
+        ]
+    );
+    let mut default = case.clone();
+    default.as_object_mut().unwrap().remove("initialStates");
+    assert_eq!(initial_states(&default), ["Data state"]);
+    assert_eq!(
+        run_with(&default, &initial_states(&default)[0], None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::TagOpen))
+    );
+
+    let null = json!({
+        "description": "PLAINTEXT replacement and preprocessing through production adapter",
+        "input": "\\u0000\r\n\\uD800&<", "doubleEscaped": true,
+        "output": [["Character", "\\uFFFD\n\\uD800&<"]],
+        "errors": [
+            {"code": "unexpected-null-character", "line": 1, "col": 1},
+            {"code": "surrogate-in-input-stream", "line": 2, "col": 1}
+        ]
+    });
+    assert_eq!(
+        run_with(&null, "PLAINTEXT state", None, execute),
+        Outcome::Passed
+    );
+    let empty = json!({"description": "PLAINTEXT empty", "input": "", "output": []});
+    assert_eq!(
+        run_with(&empty, "PLAINTEXT state", None, execute),
+        Outcome::Passed
+    );
 }
 
 #[test]
