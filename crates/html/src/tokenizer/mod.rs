@@ -24,6 +24,7 @@ mod rcdata_end_tag_open;
 mod rcdata_less_than_sign;
 mod script_data;
 mod script_data_double_escape_end;
+mod script_data_double_escaped_less_than_sign;
 mod script_data_end_tag_name;
 mod script_data_end_tag_open;
 mod script_data_escape_start;
@@ -135,7 +136,8 @@ pub struct Context {
     /// Direct Bogus comment entry requires an initialized pending comment.
     pub pending_comment: Option<PendingComment>,
     /// Code-point scratch storage; Tag open clears it on `?`,
-    /// RCDATA, RAWTEXT, and Script data less-than sign on `/`.
+    /// RCDATA, RAWTEXT, Script data less-than sign, and
+    /// Script data double escaped less-than sign on `/`.
     /// Script data double escape end appends ASCII-lowercased letters here while
     /// emitting their original spelling. Direct entry supplies the prefix buffer
     /// (empty at initial entry); no selected tag is required.
@@ -183,6 +185,9 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::RawtextEndTagOpen => Ok(rawtext_end_tag_open::step(context)),
         State::RawtextEndTagName => Ok(rawtext_end_tag_name::step(context)),
         State::ScriptData => Ok(script_data::step(context)),
+        State::ScriptDataDoubleEscapedLessThanSign => {
+            Ok(script_data_double_escaped_less_than_sign::step(context))
+        }
         State::ScriptDataLessThanSign => Ok(script_data_less_than_sign::step(context)),
         State::ScriptDataEndTagOpen => Ok(script_data_end_tag_open::step(context)),
         State::ScriptDataEndTagName => Ok(script_data_end_tag_name::step(context)),

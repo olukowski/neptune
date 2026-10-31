@@ -16,7 +16,8 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data escape start dash](tokenizer-script-data-escape-start-dash.md),
 [Script data escaped](tokenizer-script-data-escaped.md),
 [Script data escaped dash](tokenizer-script-data-escaped-dash.md),
-[Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md), and isolated-entry
+[Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md), isolated-entry
+[Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md), and
 [Script data double escape end](tokenizer-script-data-double-escape-end.md) are implemented.
 All other states, including Script data escaped less-than sign, ordinary Comment and
 Character reference, remain `UnimplementedState` stubs.**
@@ -27,11 +28,13 @@ Explicit Script data entry now reaches basic comment-like text through
 handles literal characters, hyphen cycles, NUL replacement and
 `eof-in-script-html-comment-like-text`; `>` in escaped dash dash returns to
 Script data. This emits character tokens, not Comment tokens. An escaped `<`
-still reaches terminal Script data escaped less-than sign: escaped end tags,
-double escaping and their later states are not reachable from Script data entry.
-Double escape end is implemented only for explicit entry with temporary-buffer
-context; its double-escaped destination and immediate predecessor remain terminal
-stubs. Ordinary Script data closing-tag support remains separate. No tree builder or automatic element-based
+still reaches terminal Script data escaped less-than sign: escaped end tags and
+end-to-end double escaping are not reachable from Script data entry.
+Isolated double escaped less-than sign entry now reaches Double escape end on
+`/`; the double-escaped predecessors and fallback destination remain terminal
+stubs. Double escape end uses explicit temporary-buffer context and can return
+to real Escaped on a matching `script` delimiter. Ordinary Script data closing-tag
+support remains separate. No tree builder or automatic element-based
 mode switching is implied. See the [integrated branch/fixture audit](tokenizer-script-data-escape-start.md).
 
 Implementation evidence is the immutable HTML Standard source in
@@ -121,7 +124,8 @@ instruction states and no separate decimal-character-reference-start state.
   pending-comment storage; existing data is preserved literally, not preprocessed again.
   Each creation replaces only its own pending storage; unrelated storage remains.
   The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA,
-  RAWTEXT, and Script data less-than sign on `/`.
+  RAWTEXT, Script data less-than sign, and Script data double escaped less-than
+  sign on `/`.
 - Tag creation selects `current_tag: Option<TagKind>` (Start or End), independently
   of any unrelated retained pending storage. Tag name mutates only the selected
   name. Before attribute name appends only to the selected tag's attribute list.

@@ -25,6 +25,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptDataEscaped,
         State::ScriptDataEscapedDash,
         State::ScriptDataEscapedDashDash,
+        State::ScriptDataDoubleEscapedLessThanSign,
         State::ScriptDataDoubleEscapeEnd,
         State::TagOpen,
         State::EndTagOpen,
@@ -44,6 +45,13 @@ fn explicit_support_inventory_matches_dispatch() {
     for &state in State::ALL {
         for finished in [false, true] {
             let mut context = Context::default();
+            if state == State::ScriptDataDoubleEscapedLessThanSign {
+                // Direct entry follows an already consumed AND emitted '<'.
+                // No selected tag or initialized scratch string is required.
+                context.input.push(['<'.into()]).unwrap();
+                assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
+                context.tokens.push(Token::Character('<'.into()));
+            }
             if finished {
                 context.input.finish();
             }
