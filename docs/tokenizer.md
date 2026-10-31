@@ -314,7 +314,8 @@ every source-step snapshot, including `<`, CRLF, consecutive/trailing CR, NUL,
 and terminal blocks. State-local adapter tests in
 `crates/html/tests/support/rawtext.rs` check explicit initial-state mapping,
 Data defaults, no automatic style handling,
-exact output/diagnostics, and matching-prefix rejection at the end-tag-open stub.
+exact output/diagnostics, and matching-prefix rejection at the RAWTEXT end tag
+name stub after ASCII-alpha input to RAWTEXT end tag open.
 These are state-specific checks, not full tokenizer streaming conformance.
 
 ## Tag open coverage
