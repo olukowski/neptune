@@ -39,7 +39,10 @@ The first component is a specification-first HTML tokenizer.
   [double escaped less-than sign](docs/tokenizer-script-data-double-escaped-less-than-sign.md),
   then [Double escape end](docs/tokenizer-script-data-double-escape-end.md).
   Matching `script` scratch returns to Escaped; `>` in double escaped dash dash
-  returns to Script data. No
+  returns to Script data.
+  Isolated [escaped end tag name](docs/tokenizer-script-data-escaped-end-tag-name.md)
+  entry supports appropriate closing tags with initialized End/scratch context;
+  its escaped-less-than-sign and escaped-end-tag-open predecessors remain stubs. No
   automatic mode switching, comment-token emission, or JavaScript parsing is implied; see
   [Script data integration evidence](docs/tokenizer-script-data-end-tag-name.md).
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
