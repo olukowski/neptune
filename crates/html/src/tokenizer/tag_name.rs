@@ -4,7 +4,7 @@
 //! Creation, abandonment, emission, and last-start-tag semantics follow the
 //! opening Tokenization paragraphs. Reachable emission paths have no attributes.
 
-use super::{CodePoint, Context, Input, ParseError, Progress, State, TagKind, Token};
+use super::{CodePoint, Context, Input, ParseError, Progress, State, TagKind, Token, tag};
 
 // Tag open / End tag open establish the current-tag invariant before entry.
 fn name(context: &mut Context) -> &mut Vec<CodePoint> {
@@ -29,53 +29,6 @@ fn name(context: &mut Context) -> &mut Vec<CodePoint> {
     }
 }
 
-// Take only the selected storage; unrelated pending storage is inspectable scaffolding.
-pub(super) fn take_tag(context: &mut Context) -> Token {
-    let kind = context
-        .current_tag
-        .take()
-        .expect("tag state requires a current tag");
-    match kind {
-        TagKind::Start => {
-            let tag = context.pending_start_tag.take().expect("current start tag");
-            Token::StartTag {
-                name: tag.name,
-                self_closing: tag.self_closing,
-            }
-        }
-        TagKind::End => {
-            let tag = context.pending_end_tag.take().expect("current end tag");
-            Token::EndTag {
-                name: tag.name,
-                self_closing: tag.self_closing,
-            }
-        }
-    }
-}
-
-// Shared by Tag name and Self-closing start tag: Tokenization emission rules.
-// Attribute creation reaches stubs before emission; emitting an attribute-bearing
-// context via manual redirection remains unsupported.
-pub(super) fn emit_tag(context: &mut Context) {
-    let token = take_tag(context);
-    match &token {
-        Token::StartTag { name, .. } => {
-            // Appropriate-end-tag context tracks EMITTED start tags only.
-            context.last_start_tag = Some(name.clone());
-        }
-        Token::EndTag {
-            self_closing: true, ..
-        } => {
-            context.errors.push(ParseError {
-                code: "end-tag-with-trailing-solidus",
-                position: context.input.position(),
-            });
-        }
-        _ => {}
-    }
-    context.tokens.push(token);
-}
-
 pub(super) fn step(context: &mut Context) -> Progress {
     match context.input.consume() {
         Input::CodePoint(point) => match point.value() {
@@ -85,7 +38,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
             0x2f => Progress::Continue(State::SelfClosingStartTag),
             // U+003E GREATER-THAN SIGN: switch to Data and emit the current tag.
             0x3e => {
-                emit_tag(context);
+                tag::emit_tag(context);
                 Progress::Continue(State::Data)
             }
             // ASCII upper alpha: add exactly 0x20; never Unicode case-fold.
@@ -114,7 +67,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
                 position: context.input.position(),
             });
             // The unfinished tag is abandoned, never emitted (Tokenization note).
-            take_tag(context);
+            tag::take_tag(context);
             context.tokens.push(Token::Eof);
             Progress::Finished
         }

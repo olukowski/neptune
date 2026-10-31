@@ -26,8 +26,7 @@ fn seeded() -> Context {
         return_state: Some(State::Rcdata),
         pending_start_tag: Some(PendingStartTag {
             name: points("old"),
-            attributes: vec![],
-            self_closing: false,
+            ..PendingStartTag::default()
         }),
         temporary_buffer: vec![CodePoint::new(0xd800).unwrap(), 'x'.into()],
         ..Context::default()

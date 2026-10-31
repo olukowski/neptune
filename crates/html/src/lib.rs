@@ -1,7 +1,6 @@
 //! Specification-first HTML parsing foundations.
 //!
-//! Only Data, PLAINTEXT, Tag open, End tag open, Tag name, Before attribute name,
-//! and Bogus comment are implemented. The cursor, execution shell, and 77 stubs
-//! are not a usable parser.
+//! The partial tokenizer, cursor, and execution shell are not a usable parser.
+//! See docs/tokenizer.md for current scope and pinned specification provenance.
 
 pub mod tokenizer;

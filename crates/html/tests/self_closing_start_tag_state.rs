@@ -25,12 +25,12 @@ fn seeded(kind: TagKind, flag: bool) -> Context {
         pending_start_tag: Some(PendingStartTag {
             name: points("start"),
             self_closing: flag,
-            attributes: vec![],
+            ..PendingStartTag::default()
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("end"),
             self_closing: flag,
-            attributes: vec![],
+            ..PendingEndTag::default()
         }),
         pending_comment: Some(PendingComment {
             data: points("comment"),
@@ -336,27 +336,48 @@ fn slash_is_consumed_by_tag_name_and_need_more_input_does_not_set_flag() {
 }
 
 #[test]
-fn creation_resets_selected_flag_without_touching_unrelated_storage() {
+fn creation_resets_selected_tag_defaults_without_touching_unrelated_storage() {
     for (initial, kind) in [
         (State::TagOpen, TagKind::Start),
         (State::EndTagOpen, TagKind::End),
     ] {
         let mut c = seeded(TagKind::End, true);
+        c.pending_start_tag
+            .as_mut()
+            .unwrap()
+            .attributes
+            .push(Attribute {
+                name: points("old-start"),
+                value: points("value"),
+            });
+        c.pending_end_tag
+            .as_mut()
+            .unwrap()
+            .attributes
+            .push(Attribute {
+                name: points("old-end"),
+                value: points("value"),
+            });
+        let old_start = c.pending_start_tag.clone();
+        let old_end = c.pending_end_tag.clone();
         c.input.push(points("A")).unwrap();
         let mut e = Execution::new(initial, c);
         assert_eq!(e.step(), Ok(Progress::Continue(State::TagName)));
         assert_eq!(e.context().current_tag, Some(kind));
         match kind {
             TagKind::Start => {
-                assert_eq!(
-                    e.context().pending_start_tag,
-                    Some(PendingStartTag::default())
-                );
-                assert!(e.context().pending_end_tag.as_ref().unwrap().self_closing);
+                let tag = e.context().pending_start_tag.as_ref().unwrap();
+                assert!(tag.name.is_empty());
+                assert!(!tag.self_closing);
+                assert!(tag.attributes.is_empty());
+                assert_eq!(e.context().pending_end_tag, old_end);
             }
             TagKind::End => {
-                assert_eq!(e.context().pending_end_tag, Some(PendingEndTag::default()));
-                assert!(e.context().pending_start_tag.as_ref().unwrap().self_closing);
+                let tag = e.context().pending_end_tag.as_ref().unwrap();
+                assert!(tag.name.is_empty());
+                assert!(!tag.self_closing);
+                assert!(tag.attributes.is_empty());
+                assert_eq!(e.context().pending_start_tag, old_start);
             }
         }
     }

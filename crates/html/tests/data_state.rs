@@ -32,8 +32,7 @@ fn data_ampersand_and_less_than_complete_source_effects_before_destination_entry
             let mut context = Context {
                 pending_start_tag: Some(PendingStartTag {
                     name: points("pending"),
-                    attributes: vec![],
-                    self_closing: false,
+                    ..PendingStartTag::default()
                 }),
                 temporary_buffer: points("scratch"),
                 return_state: Some(State::Rcdata),
@@ -55,8 +54,7 @@ fn data_ampersand_and_less_than_complete_source_effects_before_destination_entry
                 execution.context().pending_start_tag,
                 Some(PendingStartTag {
                     name: points("pending"),
-                    attributes: vec![],
-                    self_closing: false
+                    ..PendingStartTag::default()
                 })
             );
             assert_eq!(execution.context().temporary_buffer, points("scratch"));
