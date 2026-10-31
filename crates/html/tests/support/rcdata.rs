@@ -37,7 +37,7 @@ fn rcdata_runner_uses_existing_explicit_mapping_and_keeps_prefixes_blocked() {
     );
     for (input, target) in [
         ("p&", State::CharacterReference),
-        ("p</", State::RcdataEndTagOpen),
+        ("p</p>", State::RcdataEndTagName),
     ] {
         let prefix = json!({"description":"local matching prefix is not completion", "input":input,
             "output":[["Character","p"]], "lastStartTag":"p"});

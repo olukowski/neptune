@@ -6,7 +6,17 @@ use serde_json::json;
 
 #[test]
 fn rcdata_less_than_sign_adapter_requires_complete_literal_recovery_and_exact_errors() {
-    for input in ["<", "p<", "<<", "<!", "<title>", "<!--x--><?x>"] {
+    for input in [
+        "<",
+        "p<",
+        "<<",
+        "<!",
+        "<title>",
+        "<!--x--><?x>",
+        "p</",
+        "</0>",
+        "</>",
+    ] {
         let case = json!({"description":"local literal less-than recovery",
             "input":input, "output":[["Character",input]]});
         assert_eq!(
@@ -42,8 +52,8 @@ fn rcdata_less_than_sign_adapter_requires_complete_literal_recovery_and_exact_er
 #[test]
 fn rcdata_less_than_sign_adapter_preserves_terminal_blocks_after_literal_prefixes() {
     for (input, output, target) in [
-        ("p</", "p", State::RcdataEndTagOpen),
-        ("p<!</title>", "p<!", State::RcdataEndTagOpen),
+        ("p</title>", "p", State::RcdataEndTagName),
+        ("p<!</title>", "p<!", State::RcdataEndTagName),
         ("p<&", "p<", State::CharacterReference),
     ] {
         let case = json!({"description":"local blocked prefix is not completion",

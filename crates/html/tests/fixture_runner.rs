@@ -7,6 +7,8 @@ mod rawtext;
 mod rawtext_less_than_sign;
 #[path = "support/rcdata.rs"]
 mod rcdata;
+#[path = "support/rcdata_end_tag_open.rs"]
+mod rcdata_end_tag_open;
 #[path = "support/rcdata_less_than_sign.rs"]
 mod rcdata_less_than_sign;
 #[path = "support/regression.rs"]
