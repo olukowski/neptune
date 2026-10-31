@@ -533,62 +533,79 @@ fn real_predecessor_entry_clears_scratch_while_ordinary_script_entry_still_block
     );
     assert_stub(&mut execution, State::ScriptDataEscapedLessThanSign);
 
-    // Isolated entry with a real immediate predecessor: inspect its effects
-    // before executing DoubleEscapeEnd, without reconstructing any terminal run.
-    let mut context = seeded_context();
-    context.temporary_buffer = points("preserved");
-    context.input.push(points("<")).unwrap();
-    assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
-    context.tokens.push(Token::Character('<'.into()));
-    context.input.push(points("/script>")).unwrap();
-    context.input.finish();
-    let mut execution = Execution::new(State::ScriptDataDoubleEscapedLessThanSign, context);
-    let mut expected = snapshot(&execution);
-    expected.state = State::ScriptDataDoubleEscapeEnd;
-    expected.current = Some((
-        Input::CodePoint('/'.into()),
-        Position { line: 1, column: 2 },
-    ));
-    expected.tokens.push(Token::Character('/'.into()));
-    expected.buffer.clear();
-    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
-    assert_eq!(snapshot(&execution), expected);
-    for (index, point) in points("script").into_iter().enumerate() {
+    // Retain immediate-predecessor assertions and also execute the new Dash
+    // source before LessThanSign, without reconstructing any terminal run.
+    for initial in [
+        State::ScriptDataDoubleEscapedLessThanSign,
+        State::ScriptDataDoubleEscapedDash,
+    ] {
+        let mut context = seeded_context();
+        context.temporary_buffer = points("preserved");
+        context.input.push(points("<")).unwrap();
+        if initial == State::ScriptDataDoubleEscapedLessThanSign {
+            assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
+            context.tokens.push(Token::Character('<'.into()));
+        }
+        context.input.push(points("/script>")).unwrap();
+        context.input.finish();
+        let mut execution = Execution::new(initial, context);
+        let mut expected = snapshot(&execution);
+        if initial == State::ScriptDataDoubleEscapedDash {
+            expected.state = State::ScriptDataDoubleEscapedLessThanSign;
+            expected.current = Some((
+                Input::CodePoint('<'.into()),
+                Position { line: 1, column: 1 },
+            ));
+            expected.tokens.push(Token::Character('<'.into()));
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        expected.state = State::ScriptDataDoubleEscapeEnd;
         expected.current = Some((
-            Input::CodePoint(point),
-            Position {
-                line: 1,
-                column: index + 3,
-            },
+            Input::CodePoint('/'.into()),
+            Position { line: 1, column: 2 },
         ));
-        expected.tokens.push(Token::Character(point));
-        expected.buffer.push(point);
+        expected.tokens.push(Token::Character('/'.into()));
+        expected.buffer.clear();
         assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
         assert_eq!(snapshot(&execution), expected);
+        for (index, point) in points("script").into_iter().enumerate() {
+            expected.current = Some((
+                Input::CodePoint(point),
+                Position {
+                    line: 1,
+                    column: index + 3,
+                },
+            ));
+            expected.tokens.push(Token::Character(point));
+            expected.buffer.push(point);
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        expected.state = State::ScriptDataEscaped;
+        expected.current = Some((
+            Input::CodePoint('>'.into()),
+            Position { line: 1, column: 9 },
+        ));
+        expected.tokens.push(Token::Character('>'.into()));
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&execution), expected);
+        expected.current = Some((
+            Input::Eof,
+            Position {
+                line: 1,
+                column: 10,
+            },
+        ));
+        expected.tokens.push(Token::Eof);
+        expected
+            .errors
+            .push(error("eof-in-script-html-comment-like-text", 1, 10));
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&execution), expected);
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&execution), expected);
     }
-    expected.state = State::ScriptDataEscaped;
-    expected.current = Some((
-        Input::CodePoint('>'.into()),
-        Position { line: 1, column: 9 },
-    ));
-    expected.tokens.push(Token::Character('>'.into()));
-    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
-    assert_eq!(snapshot(&execution), expected);
-    expected.current = Some((
-        Input::Eof,
-        Position {
-            line: 1,
-            column: 10,
-        },
-    ));
-    expected.tokens.push(Token::Eof);
-    expected
-        .errors
-        .push(error("eof-in-script-html-comment-like-text", 1, 10));
-    assert_eq!(execution.step(), Ok(Progress::Finished));
-    assert_eq!(snapshot(&execution), expected);
-    assert_eq!(execution.step(), Ok(Progress::Finished));
-    assert_eq!(snapshot(&execution), expected);
 }
 
 // Collect every real source step, never output-prefix comparisons or dynamic

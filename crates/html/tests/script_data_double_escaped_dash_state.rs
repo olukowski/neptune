@@ -110,7 +110,7 @@ fn assert_terminal(execution: &mut Execution, result: Result<Progress, Unimpleme
 }
 
 #[test]
-fn every_ascii_branch_and_non_scalar_has_exact_source_effects_before_destination_stub() {
+fn every_ascii_branch_and_non_scalar_has_exact_source_effects_before_destination_execution() {
     // Every ASCII value plus non-ASCII letters, hyphen lookalikes and malformed points.
     let values = (0..=0x7f).chain([
         0x80, 0x9f, 0xa0, 0xc9, 0x3a9, 0x2010, 0x2212, 0xfeff, 0x1f600, 0xd800, 0xdfff, 0xfdd0,
@@ -165,23 +165,56 @@ fn every_ascii_branch_and_non_scalar_has_exact_source_effects_before_destination
                     .collect();
                 assert_eq!(execution.step(), Ok(Progress::Continue(target)));
                 assert_eq!(snapshot(&execution), expected, "U+{value:04X}");
-                // Destination dispatch cannot consume even on closed/exhausted input.
-                assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
-                // Inspect the cursor only; never resume the terminal execution.
-                assert_eq!(
-                    execution.context_mut().input.consume(),
-                    Input::CodePoint(tail)
-                );
                 let tail_position = if normalized == '\n'.into() {
                     Position { line: 3, column: 1 }
                 } else {
                     Position { line: 2, column: 3 }
                 };
-                assert_eq!(execution.context().input.position(), tail_position);
                 expected.input_errors.push(ParseError {
                     code: "surrogate-in-input-stream",
                     position: tail_position,
                 });
+                if matches!(value, 0x2d | 0x3c) {
+                    // Real DashDash emits the tail; real LessThanSign instead
+                    // reconsumes it. Both reach the genuine DoubleEscaped stub.
+                    expected.state = State::ScriptDataDoubleEscaped;
+                    expected.current = Some((Input::CodePoint(tail), tail_position));
+                    if value == 0x2d {
+                        expected.tokens.push(Token::Character(tail));
+                    }
+                    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&execution), expected);
+                    if value == 0x3c {
+                        assert_eq!(
+                            execution.context_mut().input.reconsume(),
+                            Err(CursorError::AlreadyReconsuming)
+                        );
+                    }
+                    assert_terminal(
+                        &mut execution,
+                        Err(UnimplementedState {
+                            state: expected.state,
+                        }),
+                    );
+                    // Inspect only; no terminal execution is resumed.
+                    assert_eq!(
+                        execution.context_mut().input.consume(),
+                        if value == 0x3c {
+                            Input::CodePoint(tail)
+                        } else if finished {
+                            Input::Eof
+                        } else {
+                            Input::NeedMoreInput
+                        }
+                    );
+                } else {
+                    assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
+                    assert_eq!(
+                        execution.context_mut().input.consume(),
+                        Input::CodePoint(tail)
+                    );
+                    assert_eq!(execution.context().input.position(), tail_position);
+                }
                 assert_eq!(execution.context().input.errors(), expected.input_errors);
             }
         }
@@ -189,7 +222,7 @@ fn every_ascii_branch_and_non_scalar_has_exact_source_effects_before_destination
 }
 
 #[test]
-fn default_direct_entry_needs_no_tag_or_scratch_setup_and_all_destinations_remain_terminal() {
+fn default_entry_executes_real_destinations_and_preserves_genuine_double_escaped_stub() {
     for (text, target, output) in [
         ("-", State::ScriptDataDoubleEscapedDashDash, "-"),
         ("<", State::ScriptDataDoubleEscapedLessThanSign, "<"),
@@ -225,9 +258,44 @@ fn default_direct_entry_needs_no_tag_or_scratch_setup_and_all_destinations_remai
                 }
             );
             assert!(execution.context().input.errors().is_empty());
-            assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
-            // In particular, neither an exhausted open destination nor closed EOF
-            // substitutes NeedMoreInput or Finished for the typed development block.
+            if text != "-" && text != "<" {
+                assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
+                continue;
+            }
+            let mut expected = snapshot(&execution);
+            if !finished {
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                    assert_eq!(snapshot(&execution), expected);
+                }
+                execution.context_mut().input.finish();
+            }
+            expected.current = Some((Input::Eof, Position { line: 1, column: 2 }));
+            if text == "-" {
+                // DashDash, not Dash, emits/diagnoses this conceptual EOF.
+                expected.tokens.push(Token::Eof);
+                expected
+                    .errors
+                    .push(error("eof-in-script-html-comment-like-text", 1, 2));
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&execution), expected);
+                assert_terminal(&mut execution, Ok(Progress::Finished));
+            } else {
+                // LessThanSign reconsumes EOF without emitting or diagnosing it.
+                expected.state = State::ScriptDataDoubleEscaped;
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+                assert_eq!(
+                    execution.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
+                );
+                assert_terminal(
+                    &mut execution,
+                    Err(UnimplementedState {
+                        state: expected.state,
+                    }),
+                );
+            }
         }
     }
 }
@@ -429,6 +497,227 @@ fn real_script_path_and_direct_predecessor_are_still_blocked_before_assigned_sta
     );
 }
 
+#[test]
+fn real_neighbors_clear_scratch_preserve_spelling_and_return_through_hyphen_cycles() {
+    // Pinned source 144024–144142 supplies the Dash/DashDash/< / slash / name
+    // steps; 143741–143869 supplies the later real escaped hyphen cycles.
+    for prefix in ["-</", "</"] {
+        let mut context = seeded_context();
+        context
+            .input
+            .push(points(&format!("{prefix}ScRiPt>\r\n\0\0")))
+            .unwrap();
+        context
+            .input
+            .push([0xd800, 0xfdd0, 0x0b].map(|v| CodePoint::new(v).unwrap()))
+            .unwrap();
+        context.input.push(points("-a---><!--x-y-->")).unwrap();
+        context.input.finish();
+        let mut execution = Execution::new(State::ScriptDataDoubleEscapedDash, context);
+        let mut expected = snapshot(&execution);
+        for (index, point) in prefix.chars().enumerate() {
+            expected.state = match point {
+                '-' => State::ScriptDataDoubleEscapedDashDash,
+                '<' => State::ScriptDataDoubleEscapedLessThanSign,
+                '/' => State::ScriptDataDoubleEscapeEnd,
+                _ => unreachable!(),
+            };
+            expected.current = Some((
+                Input::CodePoint(point.into()),
+                Position {
+                    line: 1,
+                    column: index + 1,
+                },
+            ));
+            expected.tokens.push(Token::Character(point.into()));
+            if point == '/' {
+                expected.storage.buffer.clear();
+            }
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        for (index, point) in "ScRiPt".chars().enumerate() {
+            expected.current = Some((
+                Input::CodePoint(point.into()),
+                Position {
+                    line: 1,
+                    column: prefix.len() + index + 1,
+                },
+            ));
+            expected.tokens.push(Token::Character(point.into()));
+            expected
+                .storage
+                .buffer
+                .push(point.to_ascii_lowercase().into());
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        expected.state = State::ScriptDataEscaped;
+        expected.current = Some((
+            Input::CodePoint('>'.into()),
+            Position {
+                line: 1,
+                column: prefix.len() + 7,
+            },
+        ));
+        expected.tokens.push(Token::Character('>'.into()));
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&execution), expected);
+        expected.current = Some((
+            Input::CodePoint('\n'.into()),
+            Position {
+                line: 1,
+                column: prefix.len() + 8,
+            },
+        ));
+        expected.tokens.push(Token::Character('\n'.into()));
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&execution), expected);
+        for (index, value) in [0, 0, 0xd800, 0xfdd0, 0x0b].into_iter().enumerate() {
+            let point = CodePoint::new(value).unwrap();
+            let column = index + 1;
+            expected.current = Some((Input::CodePoint(point), Position { line: 2, column }));
+            expected.tokens.push(Token::Character(if value == 0 {
+                '\u{fffd}'.into()
+            } else {
+                point
+            }));
+            match value {
+                0 => expected
+                    .errors
+                    .push(error("unexpected-null-character", 2, column)),
+                0xd800 => expected
+                    .input_errors
+                    .push(error("surrogate-in-input-stream", 2, column)),
+                0xfdd0 => {
+                    expected
+                        .input_errors
+                        .push(error("noncharacter-in-input-stream", 2, column))
+                }
+                0x0b => expected.input_errors.push(error(
+                    "control-character-in-input-stream",
+                    2,
+                    column,
+                )),
+                _ => unreachable!(),
+            }
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        for (index, (point, state, output)) in [
+            ('-', State::ScriptDataEscapedDash, "-"),
+            ('a', State::ScriptDataEscaped, "a"),
+            ('-', State::ScriptDataEscapedDash, "-"),
+            ('-', State::ScriptDataEscapedDashDash, "-"),
+            ('-', State::ScriptDataEscapedDashDash, "-"),
+            ('>', State::ScriptData, ">"),
+            ('<', State::ScriptDataLessThanSign, ""),
+            ('!', State::ScriptDataEscapeStart, "<!"),
+            ('-', State::ScriptDataEscapeStartDash, "-"),
+            ('-', State::ScriptDataEscapedDashDash, "-"),
+            ('x', State::ScriptDataEscaped, "x"),
+            ('-', State::ScriptDataEscapedDash, "-"),
+            ('y', State::ScriptDataEscaped, "y"),
+            ('-', State::ScriptDataEscapedDash, "-"),
+            ('-', State::ScriptDataEscapedDashDash, "-"),
+            ('>', State::ScriptData, ">"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            expected.state = state;
+            expected.current = Some((
+                Input::CodePoint(point.into()),
+                Position {
+                    line: 2,
+                    column: index + 6,
+                },
+            ));
+            expected
+                .tokens
+                .extend(points(output).into_iter().map(Token::Character));
+            assert_eq!(execution.step(), Ok(Progress::Continue(state)));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        expected.current = Some((
+            Input::Eof,
+            Position {
+                line: 2,
+                column: 22,
+            },
+        ));
+        expected.tokens.push(Token::Eof);
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&execution), expected);
+        assert_eq!(execution.context().temporary_buffer, points("script"));
+        assert_terminal(&mut execution, Ok(Progress::Finished));
+    }
+}
+
+#[test]
+fn real_name_state_suspends_then_reconsumes_eof_without_inventing_a_pass() {
+    for prefix in ["-</", "</"] {
+        for name in ["", "ScRiPt", "scrip"] {
+            let text = format!("{prefix}{name}");
+            let mut context = seeded_context();
+            context.input.push(points(&text)).unwrap();
+            let mut execution = Execution::new(State::ScriptDataDoubleEscapedDash, context);
+            let mut expected = snapshot(&execution);
+            for (index, point) in text.chars().enumerate() {
+                expected.state = match point {
+                    '-' => State::ScriptDataDoubleEscapedDashDash,
+                    '<' => State::ScriptDataDoubleEscapedLessThanSign,
+                    _ => State::ScriptDataDoubleEscapeEnd,
+                };
+                expected.current = Some((
+                    Input::CodePoint(point.into()),
+                    Position {
+                        line: 1,
+                        column: index + 1,
+                    },
+                ));
+                expected.tokens.push(Token::Character(point.into()));
+                if point == '/' {
+                    expected.storage.buffer.clear();
+                }
+                if point.is_ascii_alphabetic() {
+                    expected
+                        .storage
+                        .buffer
+                        .push(point.to_ascii_lowercase().into());
+                }
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            execution.context_mut().input.finish();
+            expected.state = State::ScriptDataDoubleEscaped;
+            expected.current = Some((
+                Input::Eof,
+                Position {
+                    line: 1,
+                    column: text.len() + 1,
+                },
+            ));
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
+            assert_terminal(
+                &mut execution,
+                Err(UnimplementedState {
+                    state: expected.state,
+                }),
+            );
+        }
+    }
+}
+
 type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;
 
 fn drain(execution: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
@@ -500,6 +789,15 @@ fn every_two_chunk_split_and_single_point_chunking_match_closed_source_step_trac
         "<!--<script>--",
         "<!--<script>-<",
         "<!--<script>-\r\n",
+        "-</ScRiPt>\r\n\0\0-a---><!--a-b-->",
+        "</script>\r\r\n-->",
+        "-</scrip>\0",
+        "-</script",
+        "-</script\0",
+        "-</script>-a---b--><!---->",
+        "--><!--<tail",
+        "--></script>&",
+        "-<\0tail",
     ]
     .into_iter()
     .map(points)
@@ -510,6 +808,12 @@ fn every_two_chunk_split_and_single_point_chunking_match_closed_source_step_trac
         '\n'.into(),
     ]);
     inputs.push(vec![CodePoint::new(0x10ffff).unwrap(), '\0'.into()]);
+    for prefix in ["-<", "-</script", "-</ScRiPt>\r\n"] {
+        let mut input = points(prefix);
+        input.extend([0xd800, 0xfdd0, 0x0b].map(|value| CodePoint::new(value).unwrap()));
+        input.extend(points("\0\0-a---><!--a-b-->"));
+        inputs.push(input);
+    }
     for initial in [State::ScriptDataDoubleEscapedDash, State::ScriptData] {
         for input in &inputs {
             for prefix in ["", "\r", "\r\n-"] {

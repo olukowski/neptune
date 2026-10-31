@@ -1,7 +1,7 @@
 //! Local source-step evidence, not upstream conformance. Pinned HTML revision
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, source lines 144093–144108.
-//! DoubleEscapeEnd and the DashDash predecessor are implemented on the integrated
-//! base. DoubleEscaped and DoubleEscapedDash remain terminal stubs.
+//! DoubleEscapeEnd and both Dash/DashDash predecessors are implemented on the
+//! integrated base. DoubleEscaped and the ordinary-entry gateway remain stubs.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -614,52 +614,57 @@ fn integrated_malformed_suffix_has_exact_once_only_destination_diagnostics() {
 }
 
 #[test]
-fn real_dash_dash_predecessor_emits_less_than_before_slash_or_eof_processing() {
-    for slash in [false, true] {
-        let mut context = seeded_context();
-        context
-            .input
-            .push(points(if slash { "</" } else { "<" }))
-            .unwrap();
-        let mut execution = Execution::new(State::ScriptDataDoubleEscapedDashDash, context);
-        let mut expected = snapshot(&execution);
-        expected.state = SOURCE;
-        expected.current = Some((
-            Input::CodePoint('<'.into()),
-            Position { line: 1, column: 1 },
-        ));
-        expected.tokens.push(Token::Character('<'.into()));
-        assert_eq!(execution.step(), Ok(Progress::Continue(SOURCE)));
-        assert_eq!(snapshot(&execution), expected);
-        if slash {
-            expected.state = State::ScriptDataDoubleEscapeEnd;
+fn real_dash_and_dash_dash_predecessors_emit_less_than_before_slash_or_eof_processing() {
+    for initial in [
+        State::ScriptDataDoubleEscapedDash,
+        State::ScriptDataDoubleEscapedDashDash,
+    ] {
+        for slash in [false, true] {
+            let mut context = seeded_context();
+            context
+                .input
+                .push(points(if slash { "</" } else { "<" }))
+                .unwrap();
+            let mut execution = Execution::new(initial, context);
+            let mut expected = snapshot(&execution);
+            expected.state = SOURCE;
             expected.current = Some((
-                Input::CodePoint('/'.into()),
-                Position { line: 1, column: 2 },
+                Input::CodePoint('<'.into()),
+                Position { line: 1, column: 1 },
             ));
-            expected.tokens.push(Token::Character('/'.into()));
-            expected.buffer.clear();
+            expected.tokens.push(Token::Character('<'.into()));
+            assert_eq!(execution.step(), Ok(Progress::Continue(SOURCE)));
+            assert_eq!(snapshot(&execution), expected);
+            if slash {
+                expected.state = State::ScriptDataDoubleEscapeEnd;
+                expected.current = Some((
+                    Input::CodePoint('/'.into()),
+                    Position { line: 1, column: 2 },
+                ));
+                expected.tokens.push(Token::Character('/'.into()));
+                expected.buffer.clear();
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&execution), expected);
+            execution.context_mut().input.finish();
+            expected.state = State::ScriptDataDoubleEscaped;
+            expected.current = Some((
+                Input::Eof,
+                Position {
+                    line: 1,
+                    column: if slash { 3 } else { 2 },
+                },
+            ));
             assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&execution), expected);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
+            assert_terminal(&mut execution, State::ScriptDataDoubleEscaped);
         }
-        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
-        assert_eq!(snapshot(&execution), expected);
-        execution.context_mut().input.finish();
-        expected.state = State::ScriptDataDoubleEscaped;
-        expected.current = Some((
-            Input::Eof,
-            Position {
-                line: 1,
-                column: if slash { 3 } else { 2 },
-            },
-        ));
-        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
-        assert_eq!(snapshot(&execution), expected);
-        assert_eq!(
-            execution.context_mut().input.reconsume(),
-            Err(CursorError::AlreadyReconsuming)
-        );
-        assert_terminal(&mut execution, State::ScriptDataDoubleEscaped);
     }
 }
 

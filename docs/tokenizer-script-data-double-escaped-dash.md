@@ -1,5 +1,108 @@
 # Script data double escaped dash state
 
+## Current integration after PRs #43, #38 and #39
+
+The user authorized sequential integration. PR #40 is rebased onto exact main
+**`eecf0a3992d820f95990dcdca9201e1378e52a8f`**, containing merged #43
+(DoubleEscapeEnd), #38 (DoubleEscapedLessThanSign), and #39
+(DoubleEscapedDashDash). The original standalone head
+`61f97b257ee856a9116e15105d4d3941e7034877` and its common-base support/counts below
+are historical. The final review head is recorded in
+[PR #40](https://github.com/olukowski/neptune/pull/40)'s body. Only `origin/main`
+was fetched; no unmerged sibling was imported. All merged production algorithms
+and this state's original algorithm are unchanged. Module/dispatch/inventory/docs
+conflicts were resolved additively, retaining merged scratch-entry setup.
+
+### Actual integrated paths and source boundaries
+
+The immutable branch evidence below remains normative. Dash emits `-` and now
+executes real DashDash, or emits `<` and executes real LessThanSign. DashDash
+emits repeated hyphens, returns to real ScriptData on `>`, and reaches real
+LessThanSign on `<`. LessThanSign emits `/` and clears scratch before real
+DoubleEscapeEnd. That neighbor accumulates lowercase ASCII scratch while emitting
+original spelling, then enters real Escaped on exactly `script` plus a delimiter.
+Mismatch and fallback (including conceptual EOF) still reach terminal
+DoubleEscaped. No DoubleEscaped implementation or gateway is supplied.
+
+`>`/NUL/literals in Dash still transition to terminal DoubleEscaped after their
+own exact source effects; `>` is not DashDash's ScriptData-return branch. With
+EOF after Dash's `-`, real DashDash reports/emits the escaped EOF. With EOF after
+Dash's `<` or a subsequent `</ScRiPt`, the actual neighbor reconsumes EOF into
+DoubleEscaped **without** emission or a fabricated escaped EOF error. Ordinary
+ScriptData still blocks earlier at EscapedLessThanSign. Terminal runs are never
+reconstructed/resumed and blocked output prefixes never pass comparison.
+
+### Updated tests, including affected merged-state suites
+
+All original Dash source snapshots are retained before destination execution.
+Its exhaustive ASCII/Unicode/non-scalar test now checks the actual destination:
+DashDash emits a surrogate tail once, whereas LessThanSign reconsumes it without
+emission; both stop at genuine DoubleEscaped with exactly one preprocessing error.
+Default entry now tests real destination suspension and the differing EOF paths.
+The direct NUL/literal DoubleEscaped blocks remain literal typed assertions.
+
+Dash has **nine focused tests**, including two added integration tests:
+
+- Full source snapshots from both `-</ScRiPt>` and `</ScRiPt>`: scratch remains
+  intact through Dash/DashDash/less-than emission, slash alone clears it, each
+  name letter emits its original spelling while appending normalized scratch,
+  and matching `>` reaches real Escaped. CRLF suppression, two NUL replacements,
+  surrogate/noncharacter/control errors at 2:3–2:5, exact multiplicity, unrelated
+  context, escaped single-/multi-hyphen cycles, return to ScriptData, re-entry
+  through `<!--x-y-->`, and one ordinary EOF at 2:22 are all explicit snapshots.
+  Scratch remains exactly `script`; ordinary EOF adds no escaped EOF diagnostic.
+- Real name-state suspension after `</`, `</ScRiPt`, and `</scrip`, with/without
+  the preceding DashDash hop. Explicit EOF is reconsumed into the remaining stub;
+  even exact `script` scratch alone does not authorize an Escaped transition.
+
+Every two-chunk split and single-point chunking now follows real destinations,
+including matched/mismatched names, cycles, name EOF/NUL/non-scalars, CRLF,
+consecutive/trailing CR, and later genuine blocks. Source checks are not replaced
+by streaming self-comparisons or dynamic support detection.
+
+Affected merged suites also execute the new predecessor without losing their
+existing source assertions:
+
+- DashDash's `>`/CRLF/malformed-input continuation runs from both original
+  DashDash and new Dash entry, with exact initial source snapshots. Its full
+  streaming suite runs from both entry states, including slash/name/scratch,
+  escaped cycles, name EOF and later blocks. Normal-entry gateway assertions stay.
+- LessThanSign's predecessor test now runs from both Dash and DashDash, checking
+  one `<` emission, slash reset/emission, suspension and EOF reconsumption.
+- DoubleEscapeEnd retains its isolated immediate-predecessor checks and adds
+  actual Dash → LessThanSign → slash reset → per-letter `script` → matched
+  delimiter → real Escaped EOF snapshots in the same test.
+
+### Current validation and upstream result
+
+All CONTRIBUTING checks plus the separate pinned upstream runner pass (exit 0):
+fmt, warning-denying Clippy, workspace tests, warning-denying rustdoc, and
+`git diff --check`. **319 Rust tests pass, 0 failed, 0 ignored** (nine Dash,
+nine DashDash, nine LessThanSign, eight DoubleEscapeEnd). Local/inventory tests
+are not upstream conformance cases.
+
+Upstream: **6,827 fixture cases; 7,053 runs; 6,190 dispatch-attempted;
+1,126 executed = 1,126 passed + 0 failed; 5,927 blocked**. Zero new upstream
+passes; the unchanged gateway still prevents double-escaped fixture execution.
+Blocked reasons: CharacterReference 4,692; MarkupDeclarationOpen 242;
+ProcessingInstructionOpen 52; CdataSection 56; EscapedLessThanSign 22;
+TokenVariants 858; XmlCoercion 4; PendingSpecReview 1. All previous baseline
+files/registrations and the 930 protected identities, fixtures and pins are
+preserved. No validation/shared-prerequisite blocker remains. This is still
+partial support, not full conformance or a browser-security claim.
+
+Coordinator gets an independent review of the final pushed base/head before any
+merge. This thread does not merge, enable auto-merge, or start subagents. Later
+integration must extend only genuine remaining blocks, preserve source effects
+and registrations, independently review any new fixture identities, and rerun all
+checks/report.
+
+## Historical standalone evidence
+
+**Everything below records the original common-base support and validation,
+not current destination support, test names or counts.** The pinned assigned
+algorithm and specification branch effects remain unchanged.
+
 ## Scope and immutable source
 
 Implements exactly `State::ScriptDataDoubleEscapedDash` in

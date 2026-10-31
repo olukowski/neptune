@@ -1,6 +1,28 @@
 # Script data double escaped less-than sign state
 
-## PR #39 integration update
+## Current PR #40 integration update
+
+On exact main **`eecf0a3992d820f95990dcdca9201e1378e52a8f`** (merged #43/#38/#39)
+plus #40, Dash is implemented without changing any merged production algorithm
+or removing source-step assertions.
+
+Both Dash and DashDash are now real immediate predecessors. The existing
+predecessor source test runs both, preserving `<` emission, slash scratch reset,
+suspension and EOF reconsumption snapshots. The Dash suite additionally checks
+per-letter normalized scratch versus original output, malformed-input positions,
+cycles and name-state EOF through this state's real algorithm.
+
+DoubleEscaped and the ordinary-entry EscapedLessThanSign gateway remain genuine
+stubs. All required checks pass: **319 Rust tests, 0 failed, 0 ignored**; upstream
+**1,126 executed/passed, 0 failed, 5,927 blocked**, zero new passes. Fixtures,
+pins and all baseline files/registrations remain unchanged. See
+[#40's current integration evidence](tokenizer-script-data-double-escaped-dash.md#current-integration-after-prs-43-38-and-39)
+for exact paths, tests, counts and final-head location. Coordinator final-head
+review is separate; this thread does not merge or start reviewers.
+
+**The #39 and older reports below are historical for support and test totals.**
+
+## Historical PR #39 integration update
 
 On main `98607c3a282cc8336c41312db042e8f87b8c2bcf` (merged #43/#38) plus #39,
 DoubleEscapedDashDash is now a real immediate predecessor: it consumes/emits `<`
@@ -10,7 +32,7 @@ remaining DoubleEscaped stub. Existing source tests and both merged production
 algorithms are unchanged. Ordinary ScriptData still blocks at EscapedLessThanSign.
 All checks pass: **310 Rust tests, 0 failed, 0 ignored**; upstream remains
 **1,126 executed/passed, 0 failed, 5,927 blocked**, zero new passes/baselines.
-See [#39's integrated evidence](tokenizer-script-data-double-escaped-dash-dash.md#current-integrated-evidence-after-prs-43-and-38)
+See [#39's integrated evidence](tokenizer-script-data-double-escaped-dash-dash.md#historical-pr-39-report)
 for exact integrated base, final-head location, current chain and test evidence.
 The PR #38 report below is historical for predecessor support and test totals.
 
