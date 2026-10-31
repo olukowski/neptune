@@ -92,7 +92,7 @@ fn snapshot(execution: &Execution) -> Snapshot {
 }
 
 #[test]
-fn rcdata_transitions_consume_once_preserve_context_and_block_at_the_named_target() {
+fn rcdata_transitions_consume_once_preserve_context_and_keep_character_reference_blocked() {
     for (point, destination) in [
         ('&', State::CharacterReference),
         ('<', State::RcdataLessThanSign),
@@ -126,6 +126,10 @@ fn rcdata_transitions_consume_once_preserve_context_and_block_at_the_named_targe
                     }
                     assert_eq!(execution.step(), Ok(Progress::Continue(destination)));
                     assert_eq!(snapshot(&execution), expected);
+                    // Less-than-sign destination effects have their own state-local suite.
+                    if point == '<' {
+                        continue;
+                    }
                     for _ in 0..3 {
                         assert_eq!(
                             execution.step(),
@@ -337,8 +341,7 @@ fn rcdata_every_chunk_boundary_preserves_steps_context_output_errors_and_transit
             let mut sample = prefix;
             sample.push(delimiter.into());
             samples.push(sample.clone());
-            // Stop at the stub even if additional input is available. No claim
-            // is made about unsupported resumption or destination streaming.
+            // Follow implemented destinations, but never resume after a stub.
             sample.extend([
                 CodePoint::new(0xd800).unwrap(),
                 '\0'.into(),
@@ -366,7 +369,7 @@ fn rcdata_every_chunk_boundary_preserves_steps_context_output_errors_and_transit
                         .input
                         .push(chunk.iter().copied())
                         .unwrap();
-                    if drain(&mut execution, &mut trace, input.len() + 3) {
+                    if drain(&mut execution, &mut trace, input.len() * 2 + 4) {
                         return trace;
                     }
                     execution.context_mut().input.push([]).unwrap();
@@ -374,7 +377,7 @@ fn rcdata_every_chunk_boundary_preserves_steps_context_output_errors_and_transit
                 }
                 execution.context_mut().input.finish();
             }
-            assert!(drain(&mut execution, &mut trace, input.len() + 3));
+            assert!(drain(&mut execution, &mut trace, input.len() * 2 + 4));
             trace
         };
         let expected = run(vec![], true);

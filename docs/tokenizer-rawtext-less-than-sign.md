@@ -47,7 +47,8 @@ Repeated open exhaustion has no effects. Repeated terminal EOF/stub steps have
 no additional effects. The `/` destination remains explicitly terminal
 `UnimplementedState(RawtextEndTagOpen)`, including with open input, closed input,
 and an unconsumed malformed tail. No blocked execution is reconstructed or
-resumed. RAWTEXT end tag name and all adjacent RCDATA states remain stubs too.
+resumed. RAWTEXT end tag name and RCDATA end tag open/name remain stubs too.
+RCDATA less-than sign is implemented separately in merged PR #26.
 
 Every two-chunk split and single-code-point chunking of representative isolated
 and real RAWTEXT-entry inputs compares every non-suspension source-step snapshot,
@@ -74,6 +75,13 @@ contains `</` and cannot complete while end tag open remains a stub. Literal
 fallback can progress before that terminal block, but a matching prefix is not
 a pass. There are **zero new upstream passes**, so no baseline file is added or
 changed. Existing protected passing identities remain intact.
+
+Integration with main `aef33450e9f4cb3b243a17c588d00700f3bdad14` (PR #26)
+preserves both less-than-sign algorithms, state-local tests/evidence, and their
+independent module/dispatch/inventory/adapter registrations. The documentation
+status conflict is resolved additively. With both states, counts above remain
+unchanged; the 19 former RCDATA less-than-sign blocks additionally move to RCDATA
+end tag open. All fixture pins and passing-run baseline files remain unchanged.
 
 These are partial conformance counts, not inventory counts or a full-conformance
 claim. Rebase after neighboring state merges and rerun all checks plus the

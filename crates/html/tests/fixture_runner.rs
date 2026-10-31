@@ -7,6 +7,8 @@ mod rawtext;
 mod rawtext_less_than_sign;
 #[path = "support/rcdata.rs"]
 mod rcdata;
+#[path = "support/rcdata_less_than_sign.rs"]
+mod rcdata_less_than_sign;
 #[path = "support/regression.rs"]
 mod regression;
 mod support;
@@ -276,7 +278,7 @@ fn production_plaintext_mapping_multiple_runs_and_data_default_remain_explicit()
             Outcome::Passed,
             Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference)),
             Outcome::Passed,
-            Outcome::Blocked(Blocked::Unimplemented(State::RcdataLessThanSign)),
+            Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference)),
         ]
     );
     let mut default = case.clone();

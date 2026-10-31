@@ -2,7 +2,8 @@
 
 ## Status and source
 
-**Only Data, RCDATA, PLAINTEXT, RAWTEXT, RAWTEXT less-than sign, Tag open, End tag open, Tag name, Before
+**Only Data, RCDATA, RCDATA less-than sign, PLAINTEXT, RAWTEXT, RAWTEXT less-than
+sign, Tag open, End tag open, Tag name, Before
 attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, and Bogus comment are
@@ -33,7 +34,9 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 [state-local evidence](tokenizer-before-attribute-value.md)),
 **Self-closing start tag state** (`#self-closing-start-tag-state`),
 **Bogus comment state** (`#bogus-comment-state`), and **RCDATA state**
-(`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)).
+(`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)), plus
+**RCDATA less-than sign state** (`#rcdata-less-than-sign-state`;
+[state-local branch evidence](tokenizer-rcdata-less-than-sign.md)).
 [Attribute value (single-quoted) branch evidence](tokenizer-attribute-value-single-quoted.md)
 cites its exact pinned source lines.
 Newline normalization follows the linked Infra
@@ -83,8 +86,8 @@ instruction states and no separate decimal-character-reference-start state.
   `Token::Comment { data }`. Isolated Bogus comment entry requires initialized
   pending-comment storage; existing data is preserved literally, not preprocessed again.
   Each creation replaces only its own pending storage; unrelated storage remains.
-  The code-point `temporary_buffer` is cleared by Tag open on `?` and RAWTEXT
-  less-than sign on `/`.
+  The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA
+  and RAWTEXT less-than sign on `/`.
 - Tag creation selects `current_tag: Option<TagKind>` (Start or End), independently
   of any unrelated retained pending storage. Tag name mutates only the selected
   name. Before attribute name appends only to the selected tag's attribute list.

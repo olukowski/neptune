@@ -17,6 +17,7 @@ mod plaintext;
 mod rawtext;
 mod rawtext_less_than_sign;
 mod rcdata;
+mod rcdata_less_than_sign;
 mod self_closing_start_tag;
 mod state;
 mod tag;
@@ -120,7 +121,7 @@ pub struct Context {
     /// Direct Bogus comment entry requires an initialized pending comment.
     pub pending_comment: Option<PendingComment>,
     /// Code-point scratch storage; Tag open clears it on `?`,
-    /// RAWTEXT less-than sign on `/`.
+    /// RCDATA and RAWTEXT less-than sign on `/`.
     pub temporary_buffer: Vec<CodePoint>,
 }
 
@@ -156,6 +157,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
     match state {
         State::Data => Ok(data::step(context)),
         State::Rcdata => Ok(rcdata::step(context)),
+        State::RcdataLessThanSign => Ok(rcdata_less_than_sign::step(context)),
         State::Plaintext => Ok(plaintext::step(context)),
         State::Rawtext => Ok(rawtext::step(context)),
         State::RawtextLessThanSign => Ok(rawtext_less_than_sign::step(context)),
