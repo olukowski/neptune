@@ -352,7 +352,16 @@ fn anything_else_recovers_literally_without_source_errors_or_name_mutation() {
         }
         assert_eq!(snapshot(&execution), expected);
         if target == State::RawtextLessThanSign {
-            terminal(&mut execution, Err(UnimplementedState { state: target }));
+            // The implemented less-than-sign destination consumes '!' but
+            // emits only '<' and schedules reconsumption of the tail.
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::Rawtext)));
+            expected.state = State::Rawtext;
+            expected.current = Some((
+                Input::CodePoint('!'.into()),
+                Position { line: 1, column: 2 },
+            ));
+            expected.tokens.push(Token::Character('<'.into()));
+            assert_eq!(snapshot(&execution), expected);
         }
         assert_eq!(
             execution.context_mut().input.consume(),
@@ -550,7 +559,7 @@ fn implemented_destinations_apply_their_own_errors_and_remaining_stubs_are_termi
         assert!(execution.context().current_tag.is_none());
     }
     for (input, state, current, column) in [
-        ("StYlE<tail", State::RawtextLessThanSign, '<', 6),
+        ("StYlE><!tail", State::MarkupDeclarationOpen, '!', 8),
         ("StYlE a='&tail", State::CharacterReference, '&', 10),
         ("StYlE>&tail", State::CharacterReference, '&', 7),
     ] {
@@ -575,8 +584,8 @@ fn implemented_destinations_apply_their_own_errors_and_remaining_stubs_are_termi
             Input::CodePoint('t'.into())
         );
     }
-    // Adjacent entries remain stubs even with initialized tag storage.
-    for state in [State::RawtextLessThanSign, State::RawtextEndTagOpen] {
+    // Genuine remaining stubs stay terminal even with initialized storage.
+    for state in [State::CharacterReference, State::MarkupDeclarationOpen] {
         for finished in [false, true] {
             let mut context = context("", "", Some("style"));
             if finished {
@@ -635,6 +644,385 @@ fn fallback_keeps_seeded_buffer_literal_and_diagnostics_use_normalized_positions
     );
     assert!(execution.context().input.errors().is_empty());
     terminal(&mut execution, Ok(Progress::Finished));
+}
+
+fn characters(text: &str) -> Vec<Token> {
+    points(text).into_iter().map(Token::Character).collect()
+}
+
+fn end_tag(attributes: Vec<Attribute>, self_closing: bool) -> Token {
+    Token::EndTag {
+        name: points("style"),
+        attributes,
+        self_closing,
+    }
+}
+
+#[test]
+fn real_rawtext_entry_preserves_source_boundaries_creation_and_original_spelling() {
+    let mut context = context("stale-end", "stale-scratch", Some("style"));
+    context.input.push(points("p</StYlE>\0")).unwrap();
+    context.input.finish();
+    let mut execution = Execution::new(State::Rawtext, context);
+    let mut expected = snapshot(&execution);
+    for (state, point, column) in [
+        (State::Rawtext, 'p', 1),
+        (State::RawtextLessThanSign, '<', 2),
+        (State::RawtextEndTagOpen, '/', 3),
+        (State::RawtextEndTagName, 'S', 4),
+    ] {
+        assert_eq!(execution.step(), Ok(Progress::Continue(state)));
+        expected.state = state;
+        expected.current = Some((Input::CodePoint(point.into()), Position { line: 1, column }));
+        if column == 1 {
+            expected.tokens.push(Token::Character('p'.into()));
+        }
+        if column == 3 {
+            expected.buffer.clear();
+        }
+        if column == 4 {
+            expected.current_tag = Some(TagKind::End);
+            expected.end = Some(PendingEndTag {
+                name: vec![],
+                self_closing: false,
+                attributes: vec![],
+                discarded_current_attribute: None,
+            });
+        }
+        assert_eq!(snapshot(&execution), expected);
+    }
+    // End tag open creates but does not append; name consumes the same S.
+    assert_eq!(
+        execution.context_mut().input.reconsume(),
+        Err(CursorError::AlreadyReconsuming)
+    );
+    for (index, (original, normalized)) in "StYlE".chars().zip("style".chars()).enumerate() {
+        assert_eq!(
+            execution.step(),
+            Ok(Progress::Continue(State::RawtextEndTagName))
+        );
+        expected.current = Some((
+            Input::CodePoint(original.into()),
+            Position {
+                line: 1,
+                column: index + 4,
+            },
+        ));
+        expected.end.as_mut().unwrap().name.push(normalized.into());
+        expected.buffer.push(original.into());
+        assert_eq!(snapshot(&execution), expected);
+    }
+    assert_eq!(execution.step(), Ok(Progress::Continue(State::Data)));
+    expected.state = State::Data;
+    expected.current = Some((
+        Input::CodePoint('>'.into()),
+        Position { line: 1, column: 9 },
+    ));
+    expected.current_tag = None;
+    expected.end = None;
+    expected.tokens.push(end_tag(vec![], false));
+    assert_eq!(snapshot(&execution), expected);
+    // Successful close selected Data: its original NUL output is not RAWTEXT's replacement.
+    assert_eq!(execution.step(), Ok(Progress::Continue(State::Data)));
+    expected.current = Some((
+        Input::CodePoint('\0'.into()),
+        Position {
+            line: 1,
+            column: 10,
+        },
+    ));
+    expected.tokens.push(Token::Character('\0'.into()));
+    expected
+        .errors
+        .push(error("unexpected-null-character", 1, 10));
+    assert_eq!(snapshot(&execution), expected);
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    terminal(&mut execution, Ok(Progress::Finished));
+}
+
+#[test]
+fn real_rawtext_matching_mismatch_eof_attributes_and_literal_ampersands_complete_exactly() {
+    for (input, last, output, errors) in [
+        (
+            "&amp;</StYlE>",
+            Some("style"),
+            [characters("&amp;"), vec![end_tag(vec![], false)]].concat(),
+            vec![],
+        ),
+        ("</StYlE>", None, characters("</StYlE>"), vec![]),
+        ("</StYlE>", Some("STYLE"), characters("</StYlE>"), vec![]),
+        (
+            "</Other>&amp;</style>",
+            Some("style"),
+            [characters("</Other>&amp;"), vec![end_tag(vec![], false)]].concat(),
+            vec![],
+        ),
+        ("</StYlEx>", Some("style"), characters("</StYlEx>"), vec![]),
+        ("</StYlEÉ>", Some("style"), characters("</StYlEÉ>"), vec![]),
+        (
+            "</StYlE</style>",
+            Some("style"),
+            [characters("</StYlE"), vec![end_tag(vec![], false)]].concat(),
+            vec![],
+        ),
+        (
+            "&amp;</StYlE&tail",
+            Some("style"),
+            characters("&amp;</StYlE&tail"),
+            vec![],
+        ),
+        (
+            "</StYlE\0>",
+            Some("style"),
+            characters("</StYlE\u{fffd}>"),
+            vec![error("unexpected-null-character", 1, 8)],
+        ),
+        ("</StYlE", Some("style"), characters("</StYlE"), vec![]),
+        ("</StYlE<", Some("style"), characters("</StYlE<"), vec![]),
+        ("</Other ", Some("style"), characters("</Other "), vec![]),
+        ("</Other/", Some("style"), characters("</Other/"), vec![]),
+        (
+            "</StYlE ",
+            Some("style"),
+            vec![],
+            vec![error("eof-in-tag", 1, 9)],
+        ),
+        (
+            "</StYlE/",
+            Some("style"),
+            vec![],
+            vec![error("eof-in-tag", 1, 9)],
+        ),
+        (
+            "</StYlE/>",
+            Some("style"),
+            vec![end_tag(vec![], true)],
+            vec![error("end-tag-with-trailing-solidus", 1, 9)],
+        ),
+        (
+            "</StYlE a='x'>",
+            Some("style"),
+            vec![end_tag(vec![attribute("a", "x")], false)],
+            vec![error("end-tag-with-attributes", 1, 14)],
+        ),
+        (
+            "</StYlE\r\n a='x'/>",
+            Some("style"),
+            vec![end_tag(vec![attribute("a", "x")], true)],
+            vec![
+                error("end-tag-with-attributes", 2, 8),
+                error("end-tag-with-trailing-solidus", 2, 8),
+            ],
+        ),
+        (
+            "</StYlE A=one a=two>",
+            Some("style"),
+            vec![end_tag(vec![attribute("a", "one")], false)],
+            vec![
+                error("duplicate-attribute", 1, 16),
+                error("end-tag-with-attributes", 1, 20),
+            ],
+        ),
+    ] {
+        let mut context = context("old", "old scratch", last);
+        let start = context.pending_start_tag.clone();
+        let comment = context.pending_comment.clone();
+        context.input.push(points(input)).unwrap();
+        context.input.finish();
+        let mut execution = Execution::new(State::Rawtext, context);
+        let mut trace = vec![];
+        assert!(drain(&mut execution, &mut trace));
+        assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished), "{input}");
+        assert_eq!(
+            execution.context().tokens,
+            [output, vec![Token::Eof]].concat(),
+            "{input}"
+        );
+        assert_eq!(execution.context().errors, errors, "{input}");
+        assert!(execution.context().input.errors().is_empty());
+        assert_eq!(execution.context().last_start_tag, last.map(points));
+        assert_eq!(execution.context().return_state, Some(State::Rcdata));
+        assert_eq!(execution.context().pending_start_tag, start);
+        assert_eq!(execution.context().pending_comment, comment);
+    }
+}
+
+#[test]
+fn explicit_modes_do_not_switch_automatically_and_real_later_stubs_stay_terminal() {
+    let start_tag = |name| Token::StartTag {
+        name: points(name),
+        attributes: vec![],
+        self_closing: false,
+    };
+    for (initial, input, last, output, final_last) in [
+        (
+            State::Data,
+            "<style><b></style>",
+            None,
+            vec![start_tag("style"), start_tag("b"), end_tag(vec![], false)],
+            Some("b"),
+        ),
+        (
+            State::Rawtext,
+            "<style><b></style>",
+            None,
+            characters("<style><b></style>"),
+            None,
+        ),
+        (
+            State::Rawtext,
+            "</StYlE><style><b></style>",
+            Some("style"),
+            vec![
+                end_tag(vec![], false),
+                start_tag("style"),
+                start_tag("b"),
+                end_tag(vec![], false),
+            ],
+            Some("b"),
+        ),
+    ] {
+        let mut context = Context {
+            last_start_tag: last.map(points),
+            ..Default::default()
+        };
+        context.input.push(points(input)).unwrap();
+        context.input.finish();
+        let mut execution = Execution::new(initial, context);
+        let mut trace = vec![];
+        assert!(drain(&mut execution, &mut trace));
+        assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+        assert_eq!(
+            execution.context().tokens,
+            [output, vec![Token::Eof]].concat()
+        );
+        assert_eq!(execution.context().last_start_tag, final_last.map(points));
+        assert!(execution.context().errors.is_empty());
+    }
+    for (input, target, output, return_state) in [
+        (
+            "&amp;</StYlE>&tail",
+            State::CharacterReference,
+            [characters("&amp;"), vec![end_tag(vec![], false)]].concat(),
+            State::Data,
+        ),
+        (
+            "</StYlE a='&tail",
+            State::CharacterReference,
+            vec![],
+            State::AttributeValueSingleQuoted,
+        ),
+        (
+            "</StYlE><!tail",
+            State::MarkupDeclarationOpen,
+            vec![end_tag(vec![], false)],
+            State::Rcdata,
+        ),
+    ] {
+        let mut context = context("old", "old scratch", Some("style"));
+        context.input.push(points(input)).unwrap();
+        let mut execution = Execution::new(State::Rawtext, context);
+        let mut trace = vec![];
+        assert!(drain(&mut execution, &mut trace));
+        assert_eq!(
+            trace.last().unwrap().0,
+            Err(UnimplementedState { state: target })
+        );
+        assert_eq!(execution.context().tokens, output);
+        assert_eq!(execution.context().return_state, Some(return_state));
+        assert!(execution.context().errors.is_empty());
+        execution.context_mut().input.push(points("more")).unwrap();
+        execution.context_mut().input.finish();
+        terminal(&mut execution, Err(UnimplementedState { state: target }));
+    }
+}
+
+#[test]
+fn real_rawtext_entry_all_splits_and_single_code_point_chunks_preserve_every_step() {
+    let mut inputs: Vec<_> = [
+        "",
+        "<",
+        "</",
+        "</StYlE",
+        "</StYlE>",
+        "</StYlE ",
+        "</StYlE/",
+        "</StYlE/>",
+        "&amp;</Other>&amp;</StYlE>",
+        "</StYlE&tail",
+        "</StYlE<",
+        "</StYlE</StYlE>",
+        "</StYlE a='x'/>",
+        "</StYlE A=one a=two>",
+        "</StYlE/x>",
+        "</StYlEx>",
+        "</StYlE\0\r\r\n>",
+        "</StYlE\r\n a=\"x\">\0",
+        "\r\n</StYlE\r\n",
+        "</Other\r\n>",
+        "<style></style>",
+        "</StYlE><style><b></style>",
+        "</StYlE a='&tail",
+        "</StYlE>&tail",
+        "</StYlE><!tail",
+    ]
+    .map(points)
+    .into();
+    inputs.push(
+        [
+            points("</St"),
+            vec![
+                CodePoint::new(0xd800).unwrap(),
+                CodePoint::new(0xfdd0).unwrap(),
+                '\u{b}'.into(),
+            ],
+            points("\r\n</StYlE>"),
+        ]
+        .concat(),
+    );
+    for last in [None, Some("style"), Some("STYLE")] {
+        for input in &inputs {
+            let run = |chunks: Vec<&[CodePoint]>, closed: bool| {
+                let mut execution =
+                    Execution::new(State::Rawtext, context("old", "old scratch", last));
+                let mut trace = vec![];
+                if closed {
+                    execution
+                        .context_mut()
+                        .input
+                        .push(input.iter().copied())
+                        .unwrap();
+                    execution.context_mut().input.finish();
+                } else {
+                    assert!(!drain(&mut execution, &mut trace));
+                    for chunk in chunks {
+                        execution
+                            .context_mut()
+                            .input
+                            .push(chunk.iter().copied())
+                            .unwrap();
+                        if drain(&mut execution, &mut trace) {
+                            return trace;
+                        }
+                        execution.context_mut().input.push([]).unwrap();
+                        assert!(!drain(&mut execution, &mut trace));
+                    }
+                    execution.context_mut().input.finish();
+                }
+                assert!(drain(&mut execution, &mut trace));
+                trace
+            };
+            let expected = run(vec![], true);
+            for split in 0..=input.len() {
+                assert_eq!(
+                    run(vec![&input[..split], &input[split..]], false),
+                    expected,
+                    "split {split} of {input:?}, last {last:?}"
+                );
+            }
+            assert_eq!(run(input.chunks(1).collect(), false), expected);
+        }
+    }
 }
 
 fn chunk_trace(input: &[CodePoint], chunks: Vec<&[CodePoint]>, closed: bool) -> Trace {

@@ -50,22 +50,109 @@ CR, NUL, non-scalars, explicit EOF, and later terminal blocks compare complete
 source-step traces. Repeated suspension, completion and terminal errors are
 asserted. These are local state checks, not full tokenizer conformance.
 
-## Remaining blocks and integration
+## Connected RAWTEXT evidence
 
-RAWTEXT less-than sign and RAWTEXT end tag open remain terminal
-`UnimplementedState` stubs. RAWTEXT therefore cannot yet reach this implementation
-from normal mode entry. Tests retain explicit adjacent-stub assertions and later
-blocks at RAWTEXT less-than sign / Character reference; no output prefix is
-accepted as completion and no blocked execution is reconstructed/resumed.
+The original isolated PR began at common baseline
+`bcae7e5c916470319ef0838dc72dfd71a95b8181`, with zero new upstream passes because
+its entry states were stubs. Integration merges main
+`cebd054f5410bc1f929bf39b9ad37efe4ac0a73f` after PRs #26, #25, #24, #23 and #27.
+All five sibling production algorithms and all 886 protected identities are
+preserved exactly; only obsolete RAWTEXT name-stub expectations are migrated.
+RCDATA end tag name is not reimplemented or generalized.
 
-The upstream runner needs no registration change: it already recognizes RAWTEXT
-initial entry and discovers production dispatch outcomes. This state adds no
-reachable upstream passes on this baseline, so no pass-identity file is added or
-changed. All existing passing-run baselines remain enforced. Inventory is not
-conformance; exact executed/passed/failed/blocked counts belong in the PR report.
+Thirteen state-local tests now include four integrated RAWTEXT-entry tests:
 
-Sibling PRs may conflict in module/dispatch, support inventory and status docs.
-Rebase after their merges and rerun every check and the upstream report. A newly
-implemented entry/destination can legitimately change terminal-block assertions
-and upstream reachability; review those integration effects rather than importing
-neighbor states here or weakening regression policy.
+- `real_rawtext_entry_preserves_source_boundaries_creation_and_original_spelling`
+  inspects RAWTEXT `<`, less-than sign `/` (only scratch clearing), end-tag-open
+  empty creation/reconsumption, each original/normalized name point, existing
+  emission into Data, and Data's subsequent literal NUL/error.
+- `real_rawtext_matching_mismatch_eof_attributes_and_literal_ampersands_complete_exactly`
+  independently specifies matching/mismatching/absent/case-distinct context,
+  prefix and non-ASCII mismatches, repeated partial candidates, NUL, name-state
+  literal EOF versus destination `eof-in-tag`, retained attributes/duplicate
+  removal, flag errors, normalized locations, and literal RAWTEXT ampersands.
+- `explicit_modes_do_not_switch_automatically_and_real_later_stubs_stay_terminal`
+  verifies Data `<style>` does not choose RAWTEXT, RAWTEXT tag-like starts stay
+  literal, and a matching closing tag explicitly chooses Data. Later Data start
+  tags update last-start context normally. Character reference still blocks in
+  attributes or Data, and Markup declaration open still blocks after a close,
+  including after more input/finish. RAWTEXT ampersands do not invoke references.
+- `real_rawtext_entry_all_splits_and_single_code_point_chunks_preserve_every_step`
+  compares every productive source step from real RAWTEXT entry across all
+  two-chunk splits and single-point chunks, absent/matching/case-distinct last
+  context, preprocessing/non-scalars, EOF, attributes, literal fallback, and
+  genuine later terminal blocks. Repeated suspension is effect-free.
+
+Sibling source-state snapshots still inspect empty creation before destination
+normalization and original-spelling append. Adapter tests require complete
+matching/mismatching/EOF output and reject deliberately truncated results instead
+of retaining obsolete name-state blocks. RCDATA tests retain all RCDATA branch
+assertions; only their RAWTEXT-stub assumptions now use real later blocks.
+No output prefix is accepted as completion, and no blocked execution is resumed.
+
+## Integrated fixture review
+
+The existing RAWTEXT initial-state mapping needs no change. All 18 previously
+name-blocked RAWTEXT runs were inspected directly in the unchanged pinned
+fixtures; expectations below come from those fixtures and the pinned algorithm,
+not tokenizer output. Last start tag is `xmp` throughout. `C(text)` denotes
+Character output and `E(name)` an EndTag. The following **17** identities are
+manually recorded in `crates/html/tests/baselines/rawtext_end_tag_name.json`,
+all in group `tests`, state `RAWTEXT state`, initial-state index **1**.
+No errors are expected except the two explicitly listed EOF diagnostics.
+
+| File / case | Unchanged input → expected output | Pinned branch reasoning |
+| --- | --- | --- |
+| `contentModelFlags.test` 2 | `foo</xmp>` → C(`foo`), E(`xmp`) | Appropriate `>` emits and chooses Data. |
+| same, 3 | `foo</xMp>` → C(`foo`), E(`xmp`) | ASCII `M` lowercases only in the name, not scratch. |
+| same, 4 | `foo</xmp ` → C(`foo`); `eof-in-tag` at (1,10) | Appropriate SPACE hands off; destination EOF abandons tag. |
+| same, 5 | `foo</xmp` → C(`foo</xmp`) | Name-state EOF takes literal fallback even for matching name; no tag error. |
+| same, 6 | `foo</xmp/` → C(`foo`); `eof-in-tag` at (1,10) | Appropriate `/` hands off; Self-closing start tag diagnoses EOF without setting flag. |
+| same, 7 | `foo</xmp<` → C(`foo</xmp<`) | Name fallback reconsumes `<` in RAWTEXT; less-than-sign EOF emits delayed `<`, then RAWTEXT emits EOF. |
+| same, 8 | `</foo>bar</xmp>` → C(`</foo>bar`), E(`xmp`) | Inappropriate `>` reconsumes literally; later slash clears scratch for matching candidate. |
+| same, 9 | `</xmp</xmp</xmp>` → C(`</xmp</xmp`), E(`xmp`) | Partial names fall back on `<`; final matching `>` emits. |
+| same, 10 | `</foo>bar</xmpaar>` → C(`</foo>bar</xmpaar>`) | Prefix matches are insufficient; both delimiters fall back literally. |
+| same, 11 | `foo</xmp></baz>` → C(`foo`), E(`xmp`), E(`baz`) | Matching close chooses Data; Data's end tags need not be appropriate. |
+| `domjs.test` 27 | `</XMP>` → E(`xmp`) | ASCII-only normalization enables exact name match. |
+| same, 29 | `</xm>` → C(`</xm>`) | Shorter name is inappropriate; literal delimiter reconsumption. |
+| same, 30 | `</xm ` → C(`</xm `) | Inappropriate SPACE falls back; RAWTEXT EOF is not tag abandonment. |
+| same, 31 | `</xm/` → C(`</xm/`) | Inappropriate `/` is literal, not a flag-state handoff. |
+| `escapeFlag.test` 0 | `foo<!--</xmp>--></xmp>` → C(`foo<!--`), E(`xmp`), C(`-->`), E(`xmp`) | No comment mode in RAWTEXT; first close chooses Data, which handles the second end tag. |
+| same, 1 | `foo<!-->baz</xmp>` → C(`foo<!-->baz`), E(`xmp`) | Literal RAWTEXT markup-like prefix followed by matching close. |
+| same, 4 | `foo<!-- x --x>x-- >x--!>x--<></xmp>` → C(`foo<!-- x --x>x-- >x--!>x--<>`), E(`xmp`) | Non-solidus less-than fallback stays literal until the final matching candidate. |
+
+The eighteenth affected run, `escapeFlag.test` **2**, input
+`foo<!--></xmp><!-->baz</xmp>`, now closes the first tag and switches to Data,
+then blocks at **Markup declaration open** on the second `<!`. Its expected
+comment and `abrupt-closing-of-empty-comment` diagnostic at (1,19) require an
+unimplemented chain: this run is not comparable, not passed, and not added.
+No blocked run is reconstructed to simulate continuation. Case 3 contains no
+RAWTEXT initial state (its RCDATA counterpart still blocks at Character reference).
+The 17 RCDATA pass identities from PR #27 and every other existing baseline are
+unchanged; no fixture, expectation, pin, comparison or policy is modified.
+
+The protected union grows from **886 to 903** identities with only these 17
+reviewed additions, without result-derived generation or automatic blessing.
+Historical integrated main had 1,042 executed/passed, 0 failed, 6,011 blocked.
+This integrated RAWTEXT state reports:
+
+- 6,827 fixture cases; 7,053 runs; 6,190 dispatch-attempted.
+- **1,059 executed = 1,059 passed + 0 failed; 5,994 blocked**.
+- Blocked reasons: CharacterReference 4,692; TokenVariants 858;
+  MarkupDeclarationOpen 242; ScriptData 89; CdataSection 56;
+  ProcessingInstructionOpen 52; XmlCoercion 4; PendingSpecReview 1.
+
+Inventory/local tests are not upstream conformance runs. This remains partial
+standalone tokenization, not full conformance or browser-security evidence.
+Use the [central runner command/count definitions](tokenizer.md#fixture-runner).
+
+## Remaining blocks and integration caveats
+
+Character reference, ordinary comments/markup declarations, script states and
+other unsupported states remain terminal `UnimplementedState` errors. RAWTEXT and
+RCDATA closing-tag recognition now execute, with no automatic tree-builder mode
+switching. All CONTRIBUTING checks and the pinned runner must pass after conflict
+resolution. Shared module/dispatch, support inventory, docs and baseline-list
+edits are additive. Preserve sibling algorithms/identities and review any future
+reachability changes rather than hiding newly admitted mismatches or resuming
+blocked execution.

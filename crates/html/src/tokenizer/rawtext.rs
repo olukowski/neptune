@@ -1,7 +1,8 @@
 //! RAWTEXT state only. Normative baseline: HTML Standard source at
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, "RAWTEXT state" (#rawtext-state).
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source>
-//! See docs/sources.toml; the less-than/end-tag destinations remain stubs.
+//! See docs/sources.toml; the complete RAWTEXT end-tag chain executes.
+//! Appropriate closing tags return to Data; there is no automatic mode selection.
 
 use super::{Context, Input, ParseError, Progress, State, Token};
 

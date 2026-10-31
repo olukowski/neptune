@@ -1,0 +1,72 @@
+//! RAWTEXT less-than sign adapter evidence; synthetic, not upstream counts.
+
+use crate::support::*;
+use neptune_html::tokenizer::State;
+use serde_json::json;
+
+#[test]
+fn literal_recovery_including_eof_compares_complete_output_and_exact_diagnostics() {
+    for input in ["<", "<<", "<!", "<A", "<&amp;", "<\r\n<\0"] {
+        let normalized = input.replace("\r\n", "\n").replace('\0', "\u{fffd}");
+        let case = json!({
+            "description": "literal less-than recovery",
+            "input": input, "output": [["Character", normalized]],
+            "errors": if input.contains('\0') {
+                json!([{"code":"unexpected-null-character", "line":2, "col":2}])
+            } else { json!([]) }
+        });
+        assert_eq!(
+            run_with(&case, "RAWTEXT state", None, execute),
+            Outcome::Passed
+        );
+        let mut wrong = case;
+        wrong["output"] = json!([["Character", ""]]);
+        assert!(matches!(
+            run_with(&wrong, "RAWTEXT state", None, execute),
+            Outcome::Failed(_)
+        ));
+    }
+    let case = json!({
+        "description": "reconsumption does not duplicate preprocessing diagnostics",
+        "doubleEscaped": true, "input": "<\\uD800<\\uFFFF<\\u000B",
+        "output": [["Character", "<\\uD800<\\uFFFF<\\u000B"]],
+        "errors": [
+            {"code":"surrogate-in-input-stream", "line":1, "col":2},
+            {"code":"noncharacter-in-input-stream", "line":1, "col":4},
+            {"code":"control-character-in-input-stream", "line":1, "col":6}
+        ]
+    });
+    assert_eq!(
+        run_with(&case, "RAWTEXT state", None, execute),
+        Outcome::Passed
+    );
+}
+
+#[test]
+fn name_completion_after_less_than_recovery_requires_full_comparison() {
+    for (input, output) in [
+        (
+            "<x</style>",
+            json!([["Character", "<x"], ["EndTag", "style"]]),
+        ),
+        ("<x</A", json!([["Character", "<x</A"]])),
+    ] {
+        let mut case = json!({"description":"complete RAWTEXT alpha recovery",
+            "input":input, "output":output, "lastStartTag":"style"});
+        assert_eq!(
+            run_with(&case, "RAWTEXT state", None, execute),
+            Outcome::Passed
+        );
+        case["output"] = json!([]);
+        assert!(matches!(
+            run_with(&case, "RAWTEXT state", None, execute),
+            Outcome::Failed(_)
+        ));
+    }
+    let case = json!({"description":"matching prefix before a genuine later stub",
+        "input":"</style>&tail", "output":[["EndTag","style"]], "lastStartTag":"style"});
+    assert_eq!(
+        run_with(&case, "RAWTEXT state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
+    );
+}

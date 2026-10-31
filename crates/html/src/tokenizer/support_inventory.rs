@@ -8,8 +8,13 @@ fn explicit_support_inventory_matches_dispatch() {
     const IMPLEMENTED: &[State] = &[
         State::Data,
         State::Rcdata,
+        State::RcdataLessThanSign,
+        State::RcdataEndTagOpen,
+        State::RcdataEndTagName,
         State::Plaintext,
         State::Rawtext,
+        State::RawtextLessThanSign,
+        State::RawtextEndTagOpen,
         State::RawtextEndTagName,
         State::TagOpen,
         State::EndTagOpen,
@@ -36,6 +41,10 @@ fn explicit_support_inventory_matches_dispatch() {
                 // Supply invariants for isolated tag/comment entry at EOF.
                 context.current_tag = Some(TagKind::Start);
                 context.pending_start_tag = Some(PendingStartTag::default());
+                if state == State::RcdataEndTagName {
+                    context.current_tag = Some(TagKind::End);
+                    context.pending_end_tag = Some(PendingEndTag::default());
+                }
                 if matches!(
                     state,
                     State::AttributeName

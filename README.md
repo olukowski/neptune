@@ -19,6 +19,10 @@ The first component is a specification-first HTML tokenizer.
   and unquoted attributes, including duplicate removal and malformed recovery.
   Character reference remains a terminal stub, including inside attribute values.
   Shared tag emission and the test adapter preserve/compare attributes and diagnostics.
+- Explicit RCDATA and RAWTEXT entry now recognizes appropriate closing tags,
+  handles literal mismatches/EOF, and returns to Data through existing tag support.
+  RAWTEXT ampersands stay literal. No automatic element-based mode switching or
+  tree-builder behavior is implied; see [RAWTEXT integration evidence](docs/tokenizer-rawtext-end-tag-name.md).
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.
