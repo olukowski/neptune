@@ -3,7 +3,8 @@
 //! These focused tests are not upstream conformance counts.
 
 use neptune_html::tokenizer::{
-    CodePoint, Context, CursorError, Execution, Input, ParseError, Position, Progress, State, Token,
+    CodePoint, Context, CursorError, Execution, Input, ParseError, PendingStartTag, Position,
+    Progress, State, Token,
 };
 
 fn points(text: &str) -> Vec<CodePoint> {
@@ -20,6 +21,10 @@ fn error(code: &'static str, line: usize, column: usize) -> ParseError {
 #[test]
 fn plaintext_null_replaces_output_not_current_input_and_reports_each_location() {
     let mut context = Context {
+        pending_start_tag: Some(PendingStartTag {
+            name: points("pending"),
+        }),
+        temporary_buffer: points("scratch"),
         return_state: Some(State::Rcdata),
         last_start_tag: Some(points("p")),
         tokens: vec![Token::Character('p'.into())],
@@ -49,6 +54,13 @@ fn plaintext_null_replaces_output_not_current_input_and_reports_each_location() 
         assert_eq!(execution.context().errors.len(), errors);
         assert_eq!(execution.context().return_state, Some(State::Rcdata));
         assert_eq!(execution.context().last_start_tag, Some(points("p")));
+        assert_eq!(
+            execution.context().pending_start_tag,
+            Some(PendingStartTag {
+                name: points("pending")
+            })
+        );
+        assert_eq!(execution.context().temporary_buffer, points("scratch"));
     }
     assert_eq!(
         execution.context().errors,
@@ -186,6 +198,8 @@ struct Snapshot {
     input_errors: Vec<ParseError>,
     return_state: Option<State>,
     last_start_tag: Option<Vec<CodePoint>>,
+    pending_start_tag: Option<PendingStartTag>,
+    temporary_buffer: Vec<CodePoint>,
 }
 
 fn snapshot(execution: &Execution) -> Snapshot {
@@ -198,6 +212,8 @@ fn snapshot(execution: &Execution) -> Snapshot {
         input_errors: context.input.errors().to_vec(),
         return_state: context.return_state,
         last_start_tag: context.last_start_tag.clone(),
+        pending_start_tag: context.pending_start_tag.clone(),
+        temporary_buffer: context.temporary_buffer.clone(),
     }
 }
 

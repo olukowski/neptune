@@ -3,8 +3,8 @@
 //! These focused tests are not upstream conformance counts.
 
 use neptune_html::tokenizer::{
-    CodePoint, Context, Execution, Input, ParseError, Position, Progress, State, Token,
-    UnimplementedState,
+    CodePoint, Context, Execution, Input, ParseError, PendingStartTag, Position, Progress, State,
+    Token, UnimplementedState,
 };
 
 fn points(text: &str) -> Vec<CodePoint> {
@@ -19,7 +19,7 @@ fn error(code: &'static str, line: usize, column: usize) -> ParseError {
 }
 
 #[test]
-fn data_ampersand_and_less_than_complete_source_effects_before_destination_blocks() {
+fn data_ampersand_and_less_than_complete_source_effects_before_destination_entry() {
     for (point, destination, return_state) in [
         ('&', State::CharacterReference, Some(State::Data)),
         ('<', State::TagOpen, Some(State::Rcdata)),
@@ -30,6 +30,10 @@ fn data_ampersand_and_less_than_complete_source_effects_before_destination_block
         // The source transition is the same with open input or final input.
         for finished in [false, true] {
             let mut context = Context {
+                pending_start_tag: Some(PendingStartTag {
+                    name: points("pending"),
+                }),
+                temporary_buffer: points("scratch"),
                 return_state: Some(State::Rcdata),
                 last_start_tag: Some(points("title")),
                 tokens: vec![Token::Character('p'.into())],
@@ -45,6 +49,13 @@ fn data_ampersand_and_less_than_complete_source_effects_before_destination_block
             assert_eq!(execution.state(), destination);
             assert_eq!(execution.context().return_state, return_state);
             assert_eq!(execution.context().last_start_tag, Some(points("title")));
+            assert_eq!(
+                execution.context().pending_start_tag,
+                Some(PendingStartTag {
+                    name: points("pending")
+                })
+            );
+            assert_eq!(execution.context().temporary_buffer, points("scratch"));
             assert_eq!(execution.context().tokens, [Token::Character('p'.into())]);
             assert_eq!(
                 execution.context().errors,
@@ -59,15 +70,17 @@ fn data_ampersand_and_less_than_complete_source_effects_before_destination_block
                 ))
             );
             let source_effects = snapshot(&execution);
-            for _ in 0..2 {
-                assert_eq!(
-                    execution.step(),
-                    Err(UnimplementedState { state: destination })
-                );
-                assert_eq!(snapshot(&execution), source_effects);
+            if destination == State::CharacterReference {
+                for _ in 0..2 {
+                    assert_eq!(
+                        execution.step(),
+                        Err(UnimplementedState { state: destination })
+                    );
+                    assert_eq!(snapshot(&execution), source_effects);
+                }
             }
-            // Inspection only, not an attempt to resume blocked execution:
-            // neither source nor stub consumed the tail, nor scheduled reconsume.
+            // Cursor inspection only: Data did not consume the tail or schedule
+            // reconsumption. Tag open integration is covered in tag_open_state.rs.
             assert_eq!(
                 execution.context_mut().input.consume(),
                 Input::CodePoint(tail)
@@ -240,6 +253,8 @@ struct Snapshot {
     input_errors: Vec<ParseError>,
     return_state: Option<State>,
     last_start_tag: Option<Vec<CodePoint>>,
+    pending_start_tag: Option<PendingStartTag>,
+    temporary_buffer: Vec<CodePoint>,
 }
 
 fn snapshot(execution: &Execution) -> Snapshot {
@@ -252,6 +267,8 @@ fn snapshot(execution: &Execution) -> Snapshot {
         input_errors: context.input.errors().to_vec(),
         return_state: context.return_state,
         last_start_tag: context.last_start_tag.clone(),
+        pending_start_tag: context.pending_start_tag.clone(),
+        temporary_buffer: context.temporary_buffer.clone(),
     }
 }
 

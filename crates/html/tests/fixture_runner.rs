@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn pinned_upstream_runner_reports_data_and_plaintext_coverage() {
+fn pinned_upstream_runner_reports_data_plaintext_and_tag_open_coverage() {
     let directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
     let mut paths: Vec<_> = fs::read_dir(directory)
@@ -24,6 +24,8 @@ fn pinned_upstream_runner_reports_data_and_plaintext_coverage() {
     let (mut passed, mut failed, mut blocked, mut cases, mut attempted) = (0, 0, 0, 0, 0);
     let mut reasons = BTreeMap::<String, usize>::new();
     let mut passed_by_initial = BTreeMap::<String, usize>::new();
+    let mut retained_data_passes = 0;
+    let mut former_tag_open = BTreeMap::<String, usize>::new();
     for path in paths {
         let document: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -46,6 +48,37 @@ fn pinned_upstream_runner_reports_data_and_plaintext_coverage() {
                     attempted += 1;
                     execute(run)
                 });
+                // Independently identify the previous Data baseline: complete Data
+                // runs never reached '&' or '<'; formerly Tag-open-blocked runs
+                // reached '<' before any '&'. Do not infer support from dispatch.
+                let input = decode(
+                    case["input"].as_str().unwrap(),
+                    case.get("doubleEscaped")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                );
+                let first_transition = input.iter().find(|p| matches!(p.value(), 0x26 | 0x3c));
+                let adapter_supported = policy.is_none()
+                    && case["output"].as_array().unwrap().iter().all(|token| {
+                        decode(
+                            token[0].as_str().unwrap(),
+                            case.get("doubleEscaped")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                        ) == decode("Character", false)
+                    });
+                if state == "Data state" && adapter_supported {
+                    if first_transition.is_none() {
+                        retained_data_passes += usize::from(result == Outcome::Passed);
+                    } else if first_transition.is_some_and(|point| point.value() == 0x3c) {
+                        let label = match &result {
+                            Outcome::Passed => "Passed".into(),
+                            Outcome::Blocked(reason) => format!("{reason:?}"),
+                            Outcome::Failed(_) => "Failed".into(),
+                        };
+                        *former_tag_open.entry(label).or_default() += 1;
+                    }
+                }
                 match result {
                     Outcome::Passed => {
                         passed += 1;
@@ -85,23 +118,37 @@ fn pinned_upstream_runner_reports_data_and_plaintext_coverage() {
             ("PendingSpecReview".into(), 1),
             ("TokenVariants".into(), 1625),
             ("Unimplemented(CdataSection)".into(), 56),
-            ("Unimplemented(CharacterReference)".into(), 4658),
+            ("Unimplemented(CharacterReference)".into(), 4659),
+            ("Unimplemented(EndTagOpen)".into(), 5),
+            ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
             ("Unimplemented(Rawtext)".into(), 61),
             ("Unimplemented(Rcdata)".into(), 63),
             ("Unimplemented(ScriptData)".into(), 82),
-            ("Unimplemented(TagOpen)".into(), 66),
+            ("Unimplemented(TagName)".into(), 11),
             ("XmlCoercion".into(), 4),
         ])
     );
     assert_eq!(
         (passed, failed, blocked),
-        (437, 0, 6616),
-        "Data and PLAINTEXT baseline"
+        (461, 0, 6592),
+        "Data, PLAINTEXT, and Tag open baseline"
     );
     assert_eq!(
         passed_by_initial,
-        BTreeMap::from([("Data state".into(), 385), ("PLAINTEXT state".into(), 52)]),
-        "retain Data coverage; only PLAINTEXT is newly comparable"
+        BTreeMap::from([("Data state".into(), 409), ("PLAINTEXT state".into(), 52)]),
+        "retain PLAINTEXT coverage; 24 Data-initial runs newly compare"
+    );
+    assert_eq!(retained_data_passes, 385);
+    assert_eq!(
+        former_tag_open,
+        BTreeMap::from([
+            ("Passed".into(), 24),
+            ("Unimplemented(CharacterReference)".into(), 1),
+            ("Unimplemented(EndTagOpen)".into(), 5),
+            ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
+            ("Unimplemented(TagName)".into(), 11),
+        ]),
+        "account for all 66 formerly Tag-open-blocked runs"
     );
     assert!(
         !reasons.contains_key("FixtureCapability"),
@@ -118,7 +165,16 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
     // Local adapter regression tests, not additional upstream conformance cases.
     for (input, output, errors, destination) in [
         ("p&", "p", json!([]), State::CharacterReference),
-        ("p<", "p", json!([]), State::TagOpen),
+        ("p<a", "p", json!([]), State::TagName),
+        ("p<!", "p", json!([]), State::MarkupDeclarationOpen),
+        ("p</", "p", json!([]), State::EndTagOpen),
+        ("p<?", "p", json!([]), State::ProcessingInstructionOpen),
+        (
+            "p<0&",
+            "p<0",
+            json!([{"code":"invalid-first-character-of-tag-name", "line":1, "col":3}]),
+            State::CharacterReference,
+        ),
         (
             "p\0&",
             "p\0",
@@ -154,7 +210,7 @@ fn production_plaintext_mapping_multiple_runs_and_data_default_remain_explicit()
         outcomes,
         [
             Outcome::Passed,
-            Outcome::Blocked(Blocked::Unimplemented(State::TagOpen)),
+            Outcome::Blocked(Blocked::Unimplemented(State::TagName)),
             Outcome::Passed,
             Outcome::Blocked(Blocked::Unimplemented(State::Rcdata)),
         ]
@@ -164,7 +220,7 @@ fn production_plaintext_mapping_multiple_runs_and_data_default_remain_explicit()
     assert_eq!(initial_states(&default), ["Data state"]);
     assert_eq!(
         run_with(&default, &initial_states(&default)[0], None, execute),
-        Outcome::Blocked(Blocked::Unimplemented(State::TagOpen))
+        Outcome::Blocked(Blocked::Unimplemented(State::TagName))
     );
 
     let null = json!({
