@@ -31,6 +31,9 @@ The first component is a specification-first HTML tokenizer.
   at unimplemented Script data escaped less-than sign; escaped end tags and
   double escaping are not reachable from Script data entry
   ([integration evidence](docs/tokenizer-script-data-escape-start.md)).
+  Isolated [Double escape start](docs/tokenizer-script-data-double-escape-start.md)
+  entry now accumulates ASCII-normalized scratch and selects the real double-escaped
+  loop at exact `script` delimiters, or Escaped otherwise.
   Isolated [double escaped](docs/tokenizer-script-data-double-escaped.md)
   entry now completes the character/dash/dash-dash loop and reaches
   [double escaped less-than sign](docs/tokenizer-script-data-double-escaped-less-than-sign.md),
