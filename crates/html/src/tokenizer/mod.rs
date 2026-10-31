@@ -7,6 +7,7 @@ mod data;
 mod end_tag_open;
 mod input;
 mod plaintext;
+mod rawtext;
 mod self_closing_start_tag;
 mod state;
 mod tag;
@@ -137,6 +138,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
     match state {
         State::Data => Ok(data::step(context)),
         State::Plaintext => Ok(plaintext::step(context)),
+        State::Rawtext => Ok(rawtext::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),
