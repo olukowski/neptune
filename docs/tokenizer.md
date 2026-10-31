@@ -17,6 +17,7 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data escaped](tokenizer-script-data-escaped.md),
 [Script data escaped dash](tokenizer-script-data-escaped-dash.md),
 [Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md), isolated-entry
+[Script data double escaped](tokenizer-script-data-double-escaped.md),
 [Script data double escaped dash](tokenizer-script-data-double-escaped-dash.md),
 [Script data double escaped dash dash](tokenizer-script-data-double-escaped-dash-dash.md),
 [Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md), and
@@ -32,12 +33,14 @@ handles literal characters, hyphen cycles, NUL replacement and
 Script data. This emits character tokens, not Comment tokens. An escaped `<`
 still reaches terminal Script data escaped less-than sign: escaped end tags and
 end-to-end double escaping are not reachable from Script data entry.
-Isolated double escaped dash entry emits `-` and reaches double escaped dash dash,
-which emits repeated hyphens and returns to Script data on `>`. Both reach double
-escaped less-than sign on `<`, then Double escape end on `/`. Double escape end
-clears no scratch itself, accumulates ASCII-normalized scratch while emitting original
-spelling, and can return to real Escaped on a matching `script` delimiter.
-DoubleEscaped fallback and the gateway states remain terminal stubs.
+Isolated double escaped entry now completes the character/dash/dash-dash loop,
+including NUL and EOF handling. All three states reach double escaped less-than
+sign on `<`, then Double escape end on `/`. Double escape end accumulates
+ASCII-normalized scratch while emitting original spelling, returning to Escaped
+on a matching `script` delimiter or DoubleEscaped otherwise. Non-slash less-than
+fallback and other DoubleEscapeEnd fallback (including EOF) reconsume in
+DoubleEscaped. `>` in double escaped dash dash returns to Script data.
+The earlier gateway states remain terminal stubs.
 Ordinary Script data closing-tag support remains separate. No tree builder or automatic element-based
 mode switching is implied. See the [integrated branch/fixture audit](tokenizer-script-data-escape-start.md).
 

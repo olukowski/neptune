@@ -109,6 +109,19 @@ fn assert_stub(execution: &mut Execution, state: State) {
     assert!(!before.tokens.contains(&Token::Eof));
 }
 
+// EOF is diagnosed/emitted by the actual Escaped/DoubleEscaped destination.
+fn finish_at(execution: &mut Execution, expected: &mut Snapshot, line: usize, column: usize) {
+    expected.current = Some((Input::Eof, Position { line, column }));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", line, column));
+    for _ in 0..3 {
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(execution), *expected);
+    }
+}
+
 #[test]
 fn exhaustive_source_branches_preserve_unrelated_context_and_probe_consumption() {
     for value in (0..=0x7f).chain([
@@ -125,7 +138,7 @@ fn exhaustive_source_branches_preserve_unrelated_context_and_probe_consumption()
                 for finished in [false, true] {
                     let mut context = seeded_context();
                     context.current_tag = selected;
-                    // Cursor history only, not a simulation of the stub predecessor.
+                    // Cursor history only, not a simulation of a predecessor algorithm.
                     context.input.push(points("\r\n/")).unwrap();
                     assert_eq!(context.input.consume(), Input::CodePoint('\n'.into()));
                     assert_eq!(context.input.consume(), Input::CodePoint('/'.into()));
@@ -310,15 +323,22 @@ fn delimiter_equality_is_exact_and_never_clears_or_emits_the_scratch_buffer() {
                 [Token::Character(delimiter.into())]
             );
             assert!(execution.context().errors.is_empty());
-            if target == State::ScriptDataDoubleEscaped {
-                assert_stub(&mut execution, target);
-            }
+            let mut expected = snapshot(&execution);
+            let (line, column) = if delimiter == '\n' { (2, 1) } else { (1, 2) };
+            expected.current = Some((Input::CodePoint('x'.into()), Position { line, column }));
+            expected.tokens.push(Token::Character('x'.into()));
+            assert_eq!(execution.step(), Ok(Progress::Continue(target)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&execution), expected);
+            execution.context_mut().input.finish();
+            finish_at(&mut execution, &mut expected, line, column + 1);
         }
     }
 }
 
 #[test]
-fn fallback_nul_non_scalars_and_malformed_input_stop_at_typed_destination() {
+fn fallback_nul_non_scalars_and_malformed_input_execute_exact_real_destinations() {
     for value in [
         0, 0x0b, 0x26, 0x27, 0x2d, 0x30, 0x3c, 0x3d, 0xa0, 0xd800, 0xfdd0,
     ] {
@@ -344,9 +364,47 @@ fn fallback_nul_non_scalars_and_malformed_input_stop_at_typed_destination() {
                 execution.context_mut().input.reconsume(),
                 Err(CursorError::AlreadyReconsuming)
             );
-            assert_stub(&mut execution, State::ScriptDataDoubleEscaped);
+            let mut expected = snapshot(&execution);
+            expected.state = match value {
+                0x2d => State::ScriptDataDoubleEscapedDash,
+                0x3c => State::ScriptDataDoubleEscapedLessThanSign,
+                _ => State::ScriptDataDoubleEscaped,
+            };
+            expected.tokens.push(Token::Character(if value == 0 {
+                expected
+                    .errors
+                    .push(error("unexpected-null-character", 1, 1));
+                '\u{fffd}'.into()
+            } else {
+                point
+            }));
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            expected.current = Some((
+                Input::CodePoint('\0'.into()),
+                Position { line: 1, column: 2 },
+            ));
+            if value == 0x3c {
+                // LessThanSign consumes, then reconsumes the next NUL.
+                expected.state = State::ScriptDataDoubleEscaped;
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+                assert_eq!(
+                    execution.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
+                );
+            }
+            expected.state = State::ScriptDataDoubleEscaped;
+            expected.tokens.push(Token::Character('\u{fffd}'.into()));
+            expected
+                .errors
+                .push(error("unexpected-null-character", 1, 2));
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&execution), expected);
             execution.context_mut().input.finish();
-            assert_stub(&mut execution, State::ScriptDataDoubleEscaped);
+            finish_at(&mut execution, &mut expected, 1, 3);
         }
     }
 }
@@ -398,7 +456,13 @@ fn open_exhaustion_preserves_current_input_and_explicit_eof_is_reconsumed_not_em
                 execution.context_mut().input.reconsume(),
                 Err(CursorError::AlreadyReconsuming)
             );
-            assert_stub(&mut execution, State::ScriptDataDoubleEscaped);
+            let position = expected.current.unwrap().1;
+            finish_at(
+                &mut execution,
+                &mut expected,
+                position.line,
+                position.column,
+            );
             assert_eq!(
                 execution.context_mut().input.push([]),
                 Err(CursorError::InputAlreadyFinished)
@@ -628,10 +692,7 @@ fn drain(
             Ok(Progress::Continue(_)) => {}
             Ok(Progress::Finished) | Err(_) => {
                 if let Err(block) = result {
-                    assert!(matches!(
-                        block.state,
-                        State::ScriptDataDoubleEscaped | State::ScriptDataEscapedLessThanSign
-                    ));
+                    assert!(matches!(block.state, State::ScriptDataEscapedLessThanSign));
                 }
                 let before = snapshot(execution);
                 assert_eq!(execution.step(), result);

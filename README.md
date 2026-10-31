@@ -31,12 +31,12 @@ The first component is a specification-first HTML tokenizer.
   at unimplemented Script data escaped less-than sign; escaped end tags and
   double escaping are not reachable from Script data entry
   ([integration evidence](docs/tokenizer-script-data-escape-start.md)).
-  Isolated [double escaped dash](docs/tokenizer-script-data-double-escaped-dash.md)
-  entry reaches [double escaped dash dash](docs/tokenizer-script-data-double-escaped-dash-dash.md)
-  on `-`; both reach [double escaped less-than sign](docs/tokenizer-script-data-double-escaped-less-than-sign.md)
-  on `<`, then [Double escape end](docs/tokenizer-script-data-double-escape-end.md)
-  on `/`; `>` in double escaped dash dash returns to Script data.
-  DoubleEscaped fallback remains terminal. No
+  Isolated [double escaped](docs/tokenizer-script-data-double-escaped.md)
+  entry now completes the character/dash/dash-dash loop and reaches
+  [double escaped less-than sign](docs/tokenizer-script-data-double-escaped-less-than-sign.md),
+  then [Double escape end](docs/tokenizer-script-data-double-escape-end.md).
+  Matching `script` scratch returns to Escaped; `>` in double escaped dash dash
+  returns to Script data. No
   automatic mode switching, comment-token emission, or JavaScript parsing is implied; see
   [Script data integration evidence](docs/tokenizer-script-data-end-tag-name.md).
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely

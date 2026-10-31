@@ -1,7 +1,7 @@
 //! Local source-step evidence, not upstream conformance. Pinned HTML revision
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, source lines 144093–144108.
 //! DoubleEscapeEnd and both Dash/DashDash predecessors are implemented on the
-//! integrated base. DoubleEscaped and the ordinary-entry gateway remain stubs.
+//! integrated base. DoubleEscaped now executes; the ordinary-entry gateway remains a stub.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -107,6 +107,18 @@ fn assert_terminal(execution: &mut Execution, target: State) {
     }
 }
 
+fn finish_at(execution: &mut Execution, expected: &mut Snapshot, line: usize, column: usize) {
+    expected.current = Some((Input::Eof, Position { line, column }));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", line, column));
+    for _ in 0..3 {
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(execution), *expected);
+    }
+}
+
 #[test]
 fn every_ascii_branch_unicode_and_non_scalars_have_exact_source_effects() {
     for value in (0..=0x7f).chain([
@@ -185,8 +197,51 @@ fn every_ascii_branch_unicode_and_non_scalars_have_exact_source_effects() {
                         execution.context_mut().input.reconsume(),
                         Err(CursorError::AlreadyReconsuming)
                     );
+                    finish_at(&mut execution, &mut expected, 2, 4);
+                } else {
+                    let normalized = if value == 0x0d { '\n'.into() } else { point };
+                    expected.state = match value {
+                        0x2d => State::ScriptDataDoubleEscapedDash,
+                        0x3c => SOURCE,
+                        _ => State::ScriptDataDoubleEscaped,
+                    };
+                    expected.tokens.push(Token::Character(if value == 0 {
+                        expected
+                            .errors
+                            .push(error("unexpected-null-character", 2, 2));
+                        '\u{fffd}'.into()
+                    } else {
+                        normalized
+                    }));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&execution), expected);
+                    let (line, column) = if value == 0x0a || value == 0x0d {
+                        (3, 1)
+                    } else {
+                        (2, 3)
+                    };
+                    expected.current =
+                        Some((Input::CodePoint('z'.into()), Position { line, column }));
+                    expected.state = State::ScriptDataDoubleEscaped;
+                    if value == 0x3c {
+                        // The emitted '<' leads back here; z is reconsumed once.
+                        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                        assert_eq!(snapshot(&execution), expected);
+                        assert_eq!(
+                            execution.context_mut().input.reconsume(),
+                            Err(CursorError::AlreadyReconsuming)
+                        );
+                    }
+                    expected.tokens.push(Token::Character('z'.into()));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&execution), expected);
+                    if !finished {
+                        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                        assert_eq!(snapshot(&execution), expected);
+                        execution.context_mut().input.finish();
+                    }
+                    finish_at(&mut execution, &mut expected, line, column + 1);
                 }
-                assert_terminal(&mut execution, State::ScriptDataDoubleEscaped);
             }
         }
     }
@@ -265,10 +320,13 @@ fn open_exhaustion_is_effect_free_but_eof_is_reconsumed_without_emission() {
             execution.context_mut().input.reconsume(),
             Err(CursorError::AlreadyReconsuming)
         );
-        // Prove conceptual EOF reconsumption before the terminal target attempt.
-        assert_eq!(execution.context_mut().input.consume(), Input::Eof);
-        assert_eq!(snapshot(&execution), expected);
-        assert_terminal(&mut execution, State::ScriptDataDoubleEscaped);
+        // Actual destination reconsumes EOF, diagnosing/emitting exactly once.
+        finish_at(
+            &mut execution,
+            &mut expected,
+            if newline_prefix { 2 } else { 1 },
+            2,
+        );
     }
 }
 
@@ -316,7 +374,7 @@ fn default_storage_and_suspended_entry_need_no_tag_or_scratch_prerequisite() {
                 Err(CursorError::AlreadyReconsuming)
             );
         }
-        assert_terminal(&mut execution, State::ScriptDataDoubleEscaped);
+        finish_at(&mut execution, &mut expected, 1, if slash { 2 } else { 1 });
     }
 }
 
@@ -341,10 +399,7 @@ fn drain(
             Ok(Progress::Continue(_)) => {}
             Ok(Progress::Finished) | Err(_) => {
                 if let Err(block) = result {
-                    assert!(matches!(
-                        block.state,
-                        State::ScriptDataDoubleEscaped | State::ScriptDataEscapedLessThanSign
-                    ));
+                    assert!(matches!(block.state, State::ScriptDataEscapedLessThanSign));
                     assert_eq!(snapshot(execution), before);
                 }
                 let terminal = snapshot(execution);
@@ -614,8 +669,9 @@ fn integrated_malformed_suffix_has_exact_once_only_destination_diagnostics() {
 }
 
 #[test]
-fn real_dash_and_dash_dash_predecessors_emit_less_than_before_slash_or_eof_processing() {
+fn all_three_real_predecessors_emit_less_than_before_slash_or_eof_processing() {
     for initial in [
+        State::ScriptDataDoubleEscaped,
         State::ScriptDataDoubleEscapedDash,
         State::ScriptDataDoubleEscapedDashDash,
     ] {
@@ -663,7 +719,7 @@ fn real_dash_and_dash_dash_predecessors_emit_less_than_before_slash_or_eof_proce
                 execution.context_mut().input.reconsume(),
                 Err(CursorError::AlreadyReconsuming)
             );
-            assert_terminal(&mut execution, State::ScriptDataDoubleEscaped);
+            finish_at(&mut execution, &mut expected, 1, if slash { 3 } else { 2 });
         }
     }
 }
