@@ -3,8 +3,8 @@
 ## Status and source
 
 **Only Data, RCDATA, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before
-attribute name, Self-closing start tag, and Bogus comment are implemented. All other states,
-including Attribute name, After attribute name, ordinary Comment, and Character
+attribute name, Attribute name, Self-closing start tag, and Bogus comment are implemented.
+All other states, including After attribute name, ordinary Comment, and Character
 reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a
 stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
@@ -16,6 +16,7 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 **Tag open state** (`#tag-open-state`), **End tag open state** (`#end-tag-open-state`),
 **Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
+**Attribute name state** (`#attribute-name-state`),
 **Self-closing start tag state** (`#self-closing-start-tag-state`),
 **Bogus comment state** (`#bogus-comment-state`), and **RCDATA state**
 (`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)).
@@ -52,8 +53,15 @@ instruction states and no separate decimal-character-reference-start state.
   Tag open creates `pending_start_tag: Option<PendingStartTag>`; End tag open
   creates `pending_end_tag: Option<PendingEndTag>` or
   `pending_comment: Option<PendingComment>`. Tags store code-point names and an
-  ordered `Vec<Attribute>` with code-point names/values; the last entry is the
-  current attribute. Their explicit `self_closing: bool` defaults to false and
+  ordered `Vec<Attribute>` with code-point names/values. The current attribute is
+  the per-tag `discarded_current_attribute` when present, otherwise the last
+  retained entry. Attribute name removes a duplicate from the retained list but
+  keeps it in that detached slot; later value states must use the shared
+  `tag::current_attribute_mut` helper, NEVER fall back to its retained predecessor.
+  Starting another attribute clears the detached slot before appending the new
+  current entry. Creation defaults it to `None`; taking/abandoning the selected
+  tag drops it along with that tag, preserving unrelated storage.
+  Their explicit `self_closing: bool` defaults to false and
   attribute lists start empty, as required at creation. Comments store code-point data;
   Bogus comment appends to it and takes the pending comment on emission as
   `Token::Comment { data }`. Isolated Bogus comment entry requires initialized
@@ -67,8 +75,8 @@ instruction states and no separate decimal-character-reference-start state.
   Emission preserves the name and flag in `Token::StartTag` / `Token::EndTag`;
   EOF abandons only the selected tag. Both clear the selector. Direct isolated
   Tag name / Before attribute name / Self-closing start tag entry requires a
-  selector and matching pending tag. This is inspectable scaffolding, not a
-  general current-token API. Self-closing start tag sets the flag only on `>`.
+  selector and matching pending tag; Attribute name also requires an initialized
+  current attribute. This is inspectable scaffolding, not a general current-token API. Self-closing start tag sets the flag only on `>`.
   Emitting a flagged end tag reports `end-tag-with-trailing-solidus` at `>`.
   Attribute creation necessarily leads to terminal destination stubs before
   emission; no supported path emits attributes or reports `end-tag-with-attributes`.
@@ -239,8 +247,8 @@ fixture runner already maps `RAWTEXT state` to that initial state. No tree build
 or automatic switching on `<style>` is added. RAWTEXT less-than sign, RAWTEXT end
 tag open, and RAWTEXT end tag name remain terminal `UnimplementedState` stubs.
 A matching output prefix before a stub is blocked, never EOF or a passing run;
-blocked execution must not be reconstructed/resumed. Attribute name remains a
-stub; [RCDATA is implemented separately](tokenizer-rcdata.md).
+blocked execution must not be reconstructed/resumed.
+[RCDATA is implemented separately](tokenizer-rcdata.md).
 
 Focused tests in `crates/html/tests/rawtext_state.rs` check literal ampersands and
 markup-like punctuation, NUL replacement/errors, exact normalized positions,
@@ -356,7 +364,7 @@ errors. The initial milestone used the explicit selector, two emitted tag varian
 selected-token take/discard, and last-start-tag bookkeeping described above.
 Self-closing start tag minimally extends these variants with a flag and reuses
 the selected-token emission path; there is no general emission framework,
-attribute-name/value algorithm, or added dependency. The fixture adapter compares the
+attribute-value algorithm, or added dependency. The fixture adapter compares the
 representable fields without suppressing destination stub blocks.
 
 Focused tests in `crates/html/tests/tag_name_state.rs` cover both tag kinds,
@@ -415,11 +423,12 @@ state** (`#before-attribute-name-state`):
 | `=` U+003D | Report `unexpected-equals-sign-before-attribute-name`; append a new attribute with name `=` and empty value to the current tag; switch to Attribute name **without** reconsumption. |
 | Anything else | Append a new attribute with empty name/value to the current tag; reconsume in Attribute name. |
 
-Both destinations remain terminal `UnimplementedState` stubs. In particular,
-`>` does not emit a tag here and EOF does not yet report `eof-in-tag`, abandon the
-tag, or emit EOF. NUL, quotes, uppercase, non-ASCII whitespace, and non-scalars
-all take the empty-attribute/reconsume branch; replacement, lowercasing, and
-attribute-name diagnostics belong to the still-missing Attribute name algorithm.
+Attribute name now executes on the next step; After attribute name remains a
+terminal `UnimplementedState` stub. In particular, `>` does not emit a tag here
+and EOF does not yet report `eof-in-tag`, abandon the tag, or emit EOF. NUL,
+quotes, uppercase, non-ASCII whitespace, and non-scalars all take the
+empty-attribute/reconsume branch; replacement, lowercasing, and attribute-name
+diagnostics belong to Attribute name on the next step.
 Preprocessing errors occur once on initial consumption, at their original positions.
 Open exhaustion repeatedly suspends without effects, never implying EOF.
 
@@ -433,11 +442,52 @@ and all two-chunk splits plus single-code-point chunks of representative inputs,
 including CRLF splits, trailing/consecutive CR, NUL, and downstream blocks.
 These local source-step checks are not full tokenizer streaming conformance.
 
-Before attribute name needed only pending attribute storage; it does not change
-execution/input or emit tokens. Attribute name/value states, After attribute name,
+Before attribute name only creates pending attribute storage; it does not change
+execution/input or emit tokens. Attribute value states, After attribute name,
 ordinary comments, markup declarations, processing instructions, and character
-references remain stubs. Emitted attributes, their diagnostics, and expanded
-fixture comparisons remain work for states that can reach attribute emission.
+references remain stubs. Emitted attributes, their emission diagnostics, and
+expanded fixture comparisons remain work for states that can reach attribute emission.
+
+## Attribute name coverage
+
+The implementation follows **Attribute name state** (`#attribute-name-state`)
+in the pinned source, including the on-leaving duplicate rule and its
+removed-but-still-current note:
+
+| Consumed input | Source effects and intended destination |
+| --- | --- |
+| TAB, LF, FF, SPACE, `/`, `>`, EOF | Reconsume in After attribute name. CR is normalized to LF by the cursor. |
+| `=` | Switch to Before attribute value without appending or reconsumption. |
+| ASCII upper alpha | Append code point + 0x20 to the current name; no Unicode folding. |
+| NUL | Report `unexpected-null-character`; append U+FFFD. |
+| `"`, `'`, `<` | Report `unexpected-character-in-attribute-name`; append the original point. |
+| Anything else | Append the point unchanged, including non-scalars. |
+
+Every departure compares the completed name to other retained attributes on the
+selected tag using exact code-point equality. A duplicate reports
+`duplicate-attribute` at the consumed delimiter/EOF, removes only the new entry,
+and retains its identity/name/value in the detached-current slot described above.
+This happens before the destination attempt even though both destinations remain
+terminal stubs. NeedMoreInput is not departure and never checks a prefix for
+duplicates. No new emission path, EOF output, `eof-in-tag`, or
+`end-tag-with-attributes` diagnostic is supplied by this state.
+
+`crates/html/tests/attribute_name_state.rs` covers every ASCII branch, literal
+Unicode/case/normalization distinctions, NUL and punctuation diagnostics,
+non-scalars and preprocessing locations, retained versus discarded identity and
+values, both tag kinds, and unrelated context preservation. Seeded duplicates
+exercise paths not constructible through the downstream stubs. Shared helper
+unit tests independently check duplicate detachment, later current-value mutation,
+next-attribute creation, repeated removal protection, tag replacement and take.
+Real Data → Tag name → Before attribute name → Attribute name tests preserve
+terminal blocks and source effects. Every two-chunk split and single-point chunks
+match closed-input source-step traces, including name boundaries, duplicate
+prefix suspension versus final EOF, CRLF, malformed input, non-scalars, and
+blocked targets. These are local state checks, not whole-tokenizer conformance.
+There are no newly passing upstream identities for this state alone; the existing
+case-level pass baselines, including the separately merged RCDATA and RAWTEXT
+additions, are unchanged. Integration checks are rerun after rebasing onto those
+state implementations; their downstream states remain explicit stubs.
 
 ## Self-closing start tag coverage
 
@@ -452,8 +502,8 @@ state** (`#self-closing-start-tag-state`):
 
 Open exhausted input suspends without setting the flag or emitting EOF. Recovery
 executes the merged Before attribute name implementation and then reports a typed
-terminal block at Attribute name or After attribute name. A destination stub is
-not an HTML parse error or supported resumption.
+terminal block at After attribute name or Before attribute value. A destination
+stub is not an HTML parse error or supported resumption.
 NUL and Unicode follow the anything-else branch with no replacement or extra
 state diagnostic here; cursor preprocessing diagnostics remain intact.
 
