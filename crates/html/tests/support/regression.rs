@@ -13,6 +13,7 @@ pub fn passing_baseline() -> BTreeSet<RunId> {
     let entries: Vec<RunId> = [
         include_str!("../baselines/passing.json"),
         include_str!("../baselines/rawtext.json"),
+        include_str!("../baselines/rcdata.json"),
     ]
     .into_iter()
     .flat_map(|source| serde_json::from_str::<Vec<RunId>>(source).expect("passing run identities"))
