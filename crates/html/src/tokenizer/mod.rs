@@ -2,6 +2,7 @@
 //! See docs/tokenizer.md for current scope and pinned specification provenance.
 
 mod attribute_name;
+mod attribute_value_single_quoted;
 mod before_attribute_name;
 mod bogus_comment;
 mod data;
@@ -103,7 +104,7 @@ pub struct Context {
     pub return_state: Option<State>,
     /// Selected by tag creation; cleared on emission or abandonment at EOF.
     /// Direct tag-state entry requires this and its matching pending tag;
-    /// Attribute name additionally requires an initialized current attribute.
+    /// Attribute name and value states additionally require a current attribute.
     pub current_tag: Option<TagKind>,
     /// Created, not emitted; absent until Tag open's ASCII-alpha branch.
     pub pending_start_tag: Option<PendingStartTag>,
@@ -155,6 +156,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::TagName => Ok(tag_name::step(context)),
         State::BeforeAttributeName => Ok(before_attribute_name::step(context)),
         State::AttributeName => Ok(attribute_name::step(context)),
+        State::AttributeValueSingleQuoted => Ok(attribute_value_single_quoted::step(context)),
         State::SelfClosingStartTag => Ok(self_closing_start_tag::step(context)),
         State::BogusComment => Ok(bogus_comment::step(context)),
         _ => Err(UnimplementedState { state }),

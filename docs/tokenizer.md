@@ -3,7 +3,8 @@
 ## Status and source
 
 **Only Data, RCDATA, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before
-attribute name, Attribute name, Self-closing start tag, and Bogus comment are implemented.
+attribute name, Attribute name, Attribute value (single-quoted), Self-closing start
+tag, and Bogus comment are implemented.
 All other states, including After attribute name, ordinary Comment, and Character
 reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a
 stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
@@ -20,6 +21,8 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 **Self-closing start tag state** (`#self-closing-start-tag-state`),
 **Bogus comment state** (`#bogus-comment-state`), and **RCDATA state**
 (`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)).
+[Attribute value (single-quoted) branch evidence](tokenizer-attribute-value-single-quoted.md)
+cites its exact pinned source lines.
 Newline normalization follows the linked Infra
 [normalize newlines](https://infra.spec.whatwg.org/#normalize-newlines) operation.
 The test adapter follows the pinned
@@ -76,8 +79,8 @@ instruction states and no separate decimal-character-reference-start state.
   `Token::StartTag` / `Token::EndTag`; the detached duplicate is never emitted;
   EOF abandons only the selected tag. Both clear the selector. Direct isolated
   Tag name / Before attribute name / Self-closing start tag entry requires a
-  selector and matching pending tag; Attribute name also requires an initialized
-  current attribute. This is inspectable scaffolding, not a general current-token API. Self-closing start tag sets the flag only on `>`.
+  selector and matching pending tag; Attribute name and Attribute value
+  (single-quoted) also require an initialized current attribute. This is inspectable scaffolding, not a general current-token API. Self-closing start tag sets the flag only on `>`.
   Shared emission reports `end-tag-with-attributes` once for a nonempty retained
   end-tag attribute list and independently `end-tag-with-trailing-solidus` once
   for a flagged end tag. Both use the emitting state's current `>` position,
@@ -462,9 +465,10 @@ including CRLF splits, trailing/consecutive CR, NUL, and downstream blocks.
 These local source-step checks are not full tokenizer streaming conformance.
 
 Before attribute name only creates pending attribute storage; it does not change
-execution/input or emit tokens. Attribute value states, After attribute name,
+execution/input or emit tokens. Other than the isolated single-quoted value
+implementation, attribute value states remain stubs, as do After attribute name,
 ordinary comments, markup declarations, processing instructions, and character
-references remain stubs. Shared attribute emission, diagnostics, and fixture
+references. Shared attribute emission, diagnostics, and fixture
 comparisons are supported, but reachable attribute emission awaits those states.
 
 ## Attribute name coverage
@@ -557,7 +561,10 @@ This prerequisite adds no states or dispatch registrations and changes no upstre
 fixtures or passing-run baselines. It supplies shared support for six subsequent,
 separately reviewed states: After attribute name, Before attribute value,
 Attribute value (double-quoted), Attribute value (single-quoted), Attribute value
-(unquoted), and After attribute value (quoted). They remain stubs here.
+(unquoted), and After attribute value (quoted). Only Attribute value
+(single-quoted) is implemented in this PR; the other five remain stubs.
+See its [state-local evidence](tokenizer-attribute-value-single-quoted.md) for
+branch mapping, entry limitations, and unchanged upstream pass baselines.
 
 Before claiming broader coverage, implement the remaining states,
 review pending-spec-change expectations, and decide whether XML coercion belongs
