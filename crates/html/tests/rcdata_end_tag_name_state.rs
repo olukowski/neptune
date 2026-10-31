@@ -359,7 +359,7 @@ fn anything_else_is_literal_even_when_candidate_matches_and_diagnostics_belong_t
         }
         assert_eq!(execution.step(), Ok(Progress::Continue(target)));
         assert_eq!(snapshot(&execution), expected);
-        if target != State::Rcdata {
+        if target == State::CharacterReference {
             stable_terminal(&mut execution, Err(UnimplementedState { state: target }));
             // Feeding after a terminal error cannot clear it. Never reconstruct/resume.
             execution
@@ -372,11 +372,26 @@ fn anything_else_is_literal_even_when_candidate_matches_and_diagnostics_belong_t
             assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
             assert_eq!(snapshot(&execution), before);
         } else {
+            if target == State::RcdataLessThanSign {
+                // Implemented less-than sign consumes X, emits its delayed '<',
+                // then reconsumes X in RCDATA. No terminal block is expected here.
+                expected.state = State::Rcdata;
+                expected.current = Some((
+                    Input::CodePoint('X'.into()),
+                    Position { line: 1, column: 2 },
+                ));
+                expected.tokens.push(Token::Character('<'.into()));
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::Rcdata)));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            expected.state = State::Rcdata;
+            expected.current = Some((
+                Input::CodePoint('X'.into()),
+                Position { line: 1, column: 2 },
+            ));
+            expected.tokens.push(Token::Character('X'.into()));
             assert_eq!(execution.step(), Ok(Progress::Continue(State::Rcdata)));
-            assert_eq!(
-                execution.context().tokens.last(),
-                Some(&Token::Character('X'.into()))
-            );
+            assert_eq!(snapshot(&execution), expected);
         }
     }
 }
@@ -793,14 +808,423 @@ fn every_two_chunk_split_and_single_point_chunking_preserve_source_step_traces()
 }
 
 #[test]
-fn adjacent_entry_states_remain_effect_free_terminal_stubs() {
-    for state in [
-        State::RcdataLessThanSign,
-        State::RcdataEndTagOpen,
-        State::RawtextLessThanSign,
-        State::RawtextEndTagOpen,
-        State::RawtextEndTagName,
+fn real_rcdata_entry_preserves_each_source_boundary_and_returns_to_data() {
+    let mut context = seeded(
+        &points("old-end"),
+        &points("old-buffer"),
+        Some(points("title")),
+    );
+    context.pending_end_tag.as_mut().unwrap().self_closing = true;
+    context
+        .pending_end_tag
+        .as_mut()
+        .unwrap()
+        .discarded_current_attribute = Some(Attribute::default());
+    context.input.push(points("\r\n</TiTlE>\0")).unwrap();
+    context.input.finish();
+    let mut execution = Execution::new(State::Rcdata, context);
+    let mut expected = snapshot(&execution);
+    expected.current = Some((
+        Input::CodePoint('\n'.into()),
+        Position { line: 1, column: 1 },
+    ));
+    expected.tokens.push(Token::Character('\n'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(State::Rcdata)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::RcdataLessThanSign;
+    expected.current = Some((
+        Input::CodePoint('<'.into()),
+        Position { line: 2, column: 1 },
+    ));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected); // '<' has not emitted or cleared storage.
+    expected.state = State::RcdataEndTagOpen;
+    expected.current = Some((
+        Input::CodePoint('/'.into()),
+        Position { line: 2, column: 2 },
+    ));
+    expected.buffer.clear();
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected); // Only slash clears the buffer.
+    expected.state = State::RcdataEndTagName;
+    expected.current = Some((
+        Input::CodePoint('T'.into()),
+        Position { line: 2, column: 3 },
+    ));
+    expected.end = Some(PendingEndTag::default());
+    expected.current_tag = Some(TagKind::End);
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected); // Creation, not accumulation/emission.
+    for (index, point) in points("TiTlE").into_iter().enumerate() {
+        expected
+            .end
+            .as_mut()
+            .unwrap()
+            .name
+            .push(points("title")[index]);
+        expected.buffer.push(point);
+        expected.current = Some((
+            Input::CodePoint(point),
+            Position {
+                line: 2,
+                column: index + 3,
+            },
+        ));
+        assert_eq!(
+            execution.step(),
+            Ok(Progress::Continue(State::RcdataEndTagName))
+        );
+        assert_eq!(snapshot(&execution), expected);
+    }
+    expected.state = State::Data;
+    expected.current = Some((
+        Input::CodePoint('>'.into()),
+        Position { line: 2, column: 8 },
+    ));
+    expected.tokens.push(Token::EndTag {
+        name: points("title"),
+        attributes: vec![],
+        self_closing: false,
+    });
+    expected.end = None;
+    expected.current_tag = None;
+    assert_eq!(execution.step(), Ok(Progress::Continue(State::Data)));
+    assert_eq!(snapshot(&execution), expected);
+    // After the explicit closing-tag transition it really is Data: NUL is
+    // emitted literally, not replaced as it would be in RCDATA.
+    expected.current = Some((
+        Input::CodePoint('\0'.into()),
+        Position { line: 2, column: 9 },
+    ));
+    expected.tokens.push(Token::Character('\0'.into()));
+    expected
+        .errors
+        .push(error("unexpected-null-character", 2, 9));
+    assert_eq!(execution.step(), Ok(Progress::Continue(State::Data)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 2,
+            column: 10,
+        },
+    ));
+    expected.tokens.push(Token::Eof);
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
+    stable_terminal(&mut execution, Ok(Progress::Finished));
+}
+
+fn characters(text: &str) -> Vec<Token> {
+    points(text).into_iter().map(Token::Character).collect()
+}
+
+fn end_tag(name: &str) -> Token {
+    Token::EndTag {
+        name: points(name),
+        attributes: vec![],
+        self_closing: false,
+    }
+}
+
+#[test]
+fn real_rcdata_closing_tag_and_literal_fallback_paths_complete_exactly() {
+    for (input, last, output, errors) in [
+        (
+            "a</TiTlE>b</other>",
+            Some("title"),
+            [
+                characters("a"),
+                vec![end_tag("title")],
+                characters("b"),
+                vec![end_tag("other")],
+            ]
+            .concat(),
+            vec![],
+        ),
+        ("</TiTlE>", None, characters("</TiTlE>"), vec![]),
+        (
+            "<title>literal</title>",
+            None,
+            characters("<title>literal</title>"),
+            vec![],
+        ),
+        ("</TiTlEx>", Some("title"), characters("</TiTlEx>"), vec![]),
+        (
+            "</TiTlE</TiTlE>",
+            Some("title"),
+            [characters("</TiTlE"), vec![end_tag("title")]].concat(),
+            vec![],
+        ),
+        (
+            "</TiTlE\0>",
+            Some("title"),
+            characters("</TiTlE\u{fffd}>"),
+            vec![error("unexpected-null-character", 1, 8)],
+        ),
+        ("</TiTlE", Some("title"), characters("</TiTlE"), vec![]),
+        (
+            "</TiTlE ",
+            Some("title"),
+            vec![],
+            vec![error("eof-in-tag", 1, 9)],
+        ),
+        (
+            "</TiTlE/",
+            Some("title"),
+            vec![],
+            vec![error("eof-in-tag", 1, 9)],
+        ),
+        (
+            "</TiTlE/>",
+            Some("title"),
+            vec![Token::EndTag {
+                name: points("title"),
+                attributes: vec![],
+                self_closing: true,
+            }],
+            vec![error("end-tag-with-trailing-solidus", 1, 9)],
+        ),
+        (
+            "</TiTlE a='v'>",
+            Some("title"),
+            vec![Token::EndTag {
+                name: points("title"),
+                attributes: vec![Attribute {
+                    name: points("a"),
+                    value: points("v"),
+                }],
+                self_closing: false,
+            }],
+            vec![error("end-tag-with-attributes", 1, 14)],
+        ),
+        ("</Other ", Some("title"), characters("</Other "), vec![]),
+        ("</Other/", Some("title"), characters("</Other/"), vec![]),
+        ("</TiTlEÉ>", Some("title"), characters("</TiTlEÉ>"), vec![]),
     ] {
+        let mut context = seeded(&points("old"), &points("old-scratch"), last.map(points));
+        let start = context.pending_start_tag.clone();
+        let comment = context.pending_comment.clone();
+        context.input.push(points(input)).unwrap();
+        context.input.finish();
+        let mut execution = Execution::new(State::Rcdata, context);
+        let mut trace = Vec::new();
+        assert!(drain(&mut execution, &mut trace, input.len() * 4 + 20));
+        assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished), "{input}");
+        assert_eq!(
+            execution.context().tokens,
+            [vec![Token::Character('!'.into())], output, vec![Token::Eof]].concat(),
+            "{input}"
+        );
+        assert_eq!(
+            execution.context().errors,
+            [vec![error("prior", 4, 5)], errors].concat(),
+            "{input}"
+        );
+        assert!(execution.context().input.errors().is_empty());
+        assert_eq!(execution.context().pending_start_tag, start);
+        assert_eq!(execution.context().pending_comment, comment);
+        assert_eq!(execution.context().last_start_tag, last.map(points));
+        assert_eq!(
+            execution.context().return_state,
+            Some(State::AttributeValueDoubleQuoted)
+        );
+    }
+}
+
+#[test]
+fn explicit_modes_do_not_switch_automatically_and_remaining_destinations_stay_terminal() {
+    let start_tag = |name| Token::StartTag {
+        name: points(name),
+        attributes: vec![],
+        self_closing: false,
+    };
+    for (initial, input, last, output, final_last) in [
+        (
+            State::Data,
+            "<title><b></title>",
+            None,
+            vec![start_tag("title"), start_tag("b"), end_tag("title")],
+            Some("b"),
+        ),
+        (
+            State::Rcdata,
+            "<title><b></title>",
+            None,
+            characters("<title><b></title>"),
+            None,
+        ),
+        (
+            State::Rcdata,
+            "</TiTlE><textarea><b></textarea>",
+            Some("title"),
+            vec![
+                end_tag("title"),
+                start_tag("textarea"),
+                start_tag("b"),
+                end_tag("textarea"),
+            ],
+            Some("b"),
+        ),
+    ] {
+        let mut context = Context {
+            last_start_tag: last.map(points),
+            ..Context::default()
+        };
+        context.input.push(points(input)).unwrap();
+        context.input.finish();
+        let mut execution = Execution::new(initial, context);
+        let mut trace = Vec::new();
+        assert!(drain(&mut execution, &mut trace, input.len() * 4 + 20));
+        assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+        assert_eq!(
+            execution.context().tokens,
+            [output, vec![Token::Eof]].concat()
+        );
+        assert_eq!(execution.context().last_start_tag, final_last.map(points));
+        assert!(execution.context().errors.is_empty());
+    }
+    for (initial, input, target, output, return_state) in [
+        (
+            State::Rcdata,
+            "p</TiTlE&tail",
+            State::CharacterReference,
+            characters("p</TiTlE"),
+            Some(State::Rcdata),
+        ),
+        (
+            State::Rcdata,
+            "</TiTlE>&tail",
+            State::CharacterReference,
+            vec![end_tag("title")],
+            Some(State::Data),
+        ),
+        (
+            State::Rcdata,
+            "</TiTlE><!tail",
+            State::MarkupDeclarationOpen,
+            vec![end_tag("title")],
+            None,
+        ),
+        (
+            State::Rawtext,
+            "p</title>",
+            State::RawtextEndTagName,
+            characters("p"),
+            None,
+        ),
+    ] {
+        let mut context = Context {
+            last_start_tag: Some(points("title")),
+            ..Context::default()
+        };
+        context.input.push(points(input)).unwrap();
+        let mut execution = Execution::new(initial, context);
+        let mut trace = Vec::new();
+        assert!(drain(&mut execution, &mut trace, input.len() * 4 + 20));
+        assert_eq!(
+            trace.last().unwrap().0,
+            Err(UnimplementedState { state: target })
+        );
+        assert_eq!(execution.context().tokens, output);
+        assert_eq!(execution.context().return_state, return_state);
+        assert!(execution.context().errors.is_empty());
+        execution.context_mut().input.push(points("more")).unwrap();
+        execution.context_mut().input.finish();
+        stable_terminal(&mut execution, Err(UnimplementedState { state: target }));
+    }
+}
+
+#[test]
+fn real_rcdata_entry_all_splits_and_single_point_chunks_preserve_every_step() {
+    let mut samples: Vec<_> = [
+        "",
+        "<",
+        "</",
+        "</TiTlE",
+        "</TiTlE>",
+        "</TiTlE ",
+        "</TiTlE/",
+        "</TiTlE/>",
+        "</TiTlE a='v'/>",
+        "</TiTlE/x>",
+        "</TiTlEx>",
+        "</Other\r\n>",
+        "</TiTlE</TiTlE>",
+        "<title></TiTlE><b></title>",
+        "\r\n</TiTlE\r\n A=\"v\">\0",
+        "</TiTlE\0\r\r\n>",
+        "</TiTlE&tail",
+        "</TiTlE>&tail",
+        "</TiTlE a='&tail",
+        "</TiTlE><!tail",
+        "<!--</TiTlE>--></title>",
+    ]
+    .into_iter()
+    .map(points)
+    .collect();
+    samples.push(
+        [
+            points("</Ti"),
+            vec![
+                CodePoint::new(0xd800).unwrap(),
+                CodePoint::new(0xfdd0).unwrap(),
+                '\u{b}'.into(),
+            ],
+            points("\r\n</TiTlE>"),
+        ]
+        .concat(),
+    );
+    for last in [None, Some(points("title"))] {
+        for input in &samples {
+            let run = |chunks: Vec<&[CodePoint]>, closed: bool| {
+                let mut execution = Execution::new(
+                    State::Rcdata,
+                    seeded(&points("old"), &points("old-scratch"), last.clone()),
+                );
+                let mut trace = Vec::new();
+                let bound = input.len() * 4 + 20;
+                if closed {
+                    execution
+                        .context_mut()
+                        .input
+                        .push(input.iter().copied())
+                        .unwrap();
+                    execution.context_mut().input.finish();
+                } else {
+                    for chunk in chunks {
+                        execution
+                            .context_mut()
+                            .input
+                            .push(chunk.iter().copied())
+                            .unwrap();
+                        if drain(&mut execution, &mut trace, bound) {
+                            return trace;
+                        }
+                        execution.context_mut().input.push([]).unwrap();
+                        assert!(!drain(&mut execution, &mut trace, 1));
+                    }
+                    execution.context_mut().input.finish();
+                }
+                assert!(drain(&mut execution, &mut trace, bound));
+                trace
+            };
+            let expected = run(vec![], true);
+            for split in 0..=input.len() {
+                assert_eq!(
+                    run(vec![&input[..split], &input[split..]], false),
+                    expected,
+                    "split {split} of {input:?}, last {last:?}"
+                );
+            }
+            assert_eq!(run(input.chunks(1).collect(), false), expected);
+        }
+    }
+}
+
+#[test]
+fn remaining_rawtext_name_and_character_reference_are_effect_free_terminal_stubs() {
+    for state in [State::RawtextEndTagName, State::CharacterReference] {
         for finished in [false, true] {
             let mut context = seeded(&[], &[], Some(points("title")));
             context.input.push(points("TiTlE>")).unwrap();

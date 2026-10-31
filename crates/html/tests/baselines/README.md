@@ -28,7 +28,8 @@ and empty input, whitespace, punctuation (including `&`), case-preserved letters
 and supplementary scalar input (`test3.test`). The latter's JSON surrogate pairs
 are scalar input, not the fixture's `doubleEscaped` convention. Only U+000B has a
 preprocessing diagnostic in that group. No `<`-containing run is a new pass:
-those terminate at RAWTEXT less-than sign, still a stub.
+at that baseline's original review, those terminated at RAWTEXT less-than sign,
+then a stub. Later state-specific additions retain these original identities.
 
 `rcdata.json` records reviewed RCDATA identities: `domjs.test` cases 3 and 24,
 and `test3.test` cases 0–16, 20–66, and 1576–1604 (even indices only). The former
@@ -60,6 +61,33 @@ All 817 prior identities and the original eight PR21 identities remain intact;
 the integrated protected baseline is 867 identities. Baseline additions are
 **not** the same count as new passes: combined support admits 206 new passes
 over main (including those eight), of which 42 further identities are protected.
+
+`rcdata_end_tag_open.json` adds exactly one manually reviewed identity after
+PRs #26/#25 make end tag open reachable: `domjs.test` tests[28], “bad endtag
+(space before name)”, RCDATA initial-state index 0. Input `</ XMP>` takes
+non-alpha SPACE fallback and emits the full string literally with no errors;
+no name matching or tag creation applies. The
+[state-local audit](../../../../docs/tokenizer-rcdata-end-tag-open.md#integrated-fixture-review)
+explains this sole newly comparable run and the 18 remaining alpha/name-state
+blocks. All previous 867 protected identities remain unchanged (868 total).
+
+`rawtext_end_tag_open.json` adds the one independently reviewed RAWTEXT run:
+`domjs.test`, `tests[28]`, “bad endtag (space before name)”, initial-state index 1.
+The literal input/output `</ XMP>` takes the non-alpha fallback without errors;
+see the [state-local review](../../../../docs/tokenizer-rawtext-end-tag-open.md#integrated-fixture-review).
+The sibling RCDATA case 28 identity (entry index 0), its registration and every
+prior baseline are unchanged. There are now 869 protected identities.
+
+`rcdata_end_tag_name.json` adds 17 individually reviewed RCDATA identities:
+`contentModelFlags.test` cases 2–11, `domjs.test` cases 27 and 29–31, and
+`escapeFlag.test` cases 0, 1, and 4, all initial-state index 0. The
+[state-local fixture audit](../../../../docs/tokenizer-rcdata-end-tag-name.md#integrated-fixture-review)
+records their unchanged expected tokens/errors and pinned branch reasoning,
+including literal EOF fallback versus tag-state EOF abandonment. The eighteenth
+formerly name-blocked run (`escapeFlag.test` case 2) now blocks at Markup
+declaration open and is not added. All 869 prior identities, files, and registrations
+remain unchanged; the protected union now has 886 identities. No result-derived
+baseline generation or policy weakening is used.
 
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
