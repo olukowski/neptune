@@ -1,5 +1,27 @@
 # Script data double escape end state
 
+## PR #38 integration update
+
+The original standalone evidence below is historical for predecessor support.
+On base `542a5060d085bd546387e2781bbf10039fb2e197` (merged PR #43) plus PR #38,
+DoubleEscapedLessThanSign is now implemented and reaches this state on `/`.
+Its source step clears the temporary buffer and emits `/`; this state then
+executes its existing algorithm unchanged. The old immediate-predecessor stub
+test now checks that real source step, each `script` accumulation step, matched
+`>` transition to Escaped, and actual Escaped EOF/error, with exact snapshots.
+Ordinary ScriptData entry still blocks at EscapedLessThanSign, and
+DoubleEscaped remains a terminal destination stub. All original state-local
+branch tests and the normal-entry earlier block are preserved.
+
+Current integrated validation: all CONTRIBUTING checks and the pinned runner
+pass; **300 Rust tests passed, 0 failed, 0 ignored**. Upstream remains **1,126
+executed/passed, 0 failed, 5,927 blocked**, with no new identities or baseline
+changes. See [PR #38's current integrated evidence](tokenizer-script-data-double-escaped-less-than-sign.md#current-integrated-evidence-after-pr-43)
+for exact base, original standalone head, current counts and integration limits;
+the final integrated review head is recorded in the PR body. The remainder of
+this document records PR #43's original standalone audit, including its former
+predecessor-stub statements and original 292-test total, not current support.
+
 ## Scope and source
 
 This PR implements exactly `State::ScriptDataDoubleEscapeEnd`, anchor
