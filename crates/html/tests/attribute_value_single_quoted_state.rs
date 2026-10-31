@@ -258,7 +258,9 @@ fn quote_and_ampersand_consume_without_appending_before_executable_or_stub_desti
                     }
                     assert_eq!(e.step(), Ok(Progress::Continue(target)));
                     assert_eq!(snapshot(&e), expected);
-                    let blocked_state = if delimiter == '\'' {
+                    if delimiter == '\'' {
+                        // Preserve exact source snapshots through whitespace and
+                        // Before attribute name's reconsumption, then execute emission.
                         expected.state = State::BeforeAttributeName;
                         expected.current = Some((
                             Input::CodePoint(' '.into()),
@@ -273,35 +275,70 @@ fn quote_and_ampersand_consume_without_appending_before_executable_or_stub_desti
                         ));
                         assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
                         assert_eq!(snapshot(&e), expected);
-                        State::AfterAttributeName
+                        expected.kind = None;
+                        expected.state = State::Data;
+                        let token = match kind {
+                            TagKind::Start => {
+                                let tag = expected.start.take().unwrap();
+                                expected.last_start_tag = Some(tag.name.clone());
+                                Token::StartTag {
+                                    name: tag.name,
+                                    attributes: tag.attributes,
+                                    self_closing: tag.self_closing,
+                                }
+                            }
+                            TagKind::End => {
+                                let tag = expected.end.take().unwrap();
+                                expected.errors.extend([
+                                    error("end-tag-with-attributes", 1, 3),
+                                    error("end-tag-with-trailing-solidus", 1, 3),
+                                ]);
+                                Token::EndTag {
+                                    name: tag.name,
+                                    attributes: tag.attributes,
+                                    self_closing: tag.self_closing,
+                                }
+                            }
+                        };
+                        expected.tokens.push(token);
+                        assert_eq!(e.step(), Ok(Progress::Continue(State::Data)));
+                        assert_eq!(snapshot(&e), expected);
+                        // '>' was consumed once; only Data handles the tail.
+                        expected.current = Some((
+                            Input::CodePoint('Z'.into()),
+                            Position { line: 1, column: 4 },
+                        ));
+                        expected.tokens.push(Token::Character('Z'.into()));
+                        assert_eq!(e.step(), Ok(Progress::Continue(State::Data)));
+                        assert_eq!(snapshot(&e), expected);
+                        if !closed {
+                            for _ in 0..2 {
+                                assert_eq!(e.step(), Ok(Progress::NeedMoreInput));
+                                assert_eq!(snapshot(&e), expected);
+                            }
+                            e.context_mut().input.finish();
+                        }
+                        expected.current = Some((Input::Eof, Position { line: 1, column: 5 }));
+                        expected.tokens.push(Token::Eof);
+                        for _ in 0..3 {
+                            assert_eq!(e.step(), Ok(Progress::Finished));
+                            assert_eq!(snapshot(&e), expected);
+                        }
                     } else {
-                        target
-                    };
-                    assert_blocked(&mut e, blocked_state, &expected);
-                    // Neither a stub nor repeated terminal dispatch consumes Z.
-                    // Feeding/closing open input does not make the stub resumable.
-                    if !closed {
-                        e.context_mut().input.push(points("more")).unwrap();
-                        e.context_mut().input.finish();
-                        assert_blocked(&mut e, blocked_state, &expected);
-                    }
-                    if delimiter == '\'' {
+                        // Character reference remains effect-free and terminal.
+                        assert_blocked(&mut e, target, &expected);
+                        // Feeding/closing does not revive the stub or consume Z.
+                        if !closed {
+                            e.context_mut().input.push(points("more")).unwrap();
+                            e.context_mut().input.finish();
+                            assert_blocked(&mut e, target, &expected);
+                        }
                         assert_eq!(
                             e.context_mut().input.consume(),
-                            Input::CodePoint('>'.into())
+                            Input::CodePoint('Z'.into())
                         );
-                        assert_blocked(&mut e, blocked_state, &expected);
+                        assert_eq!(e.step(), Err(UnimplementedState { state: target }));
                     }
-                    assert_eq!(
-                        e.context_mut().input.consume(),
-                        Input::CodePoint('Z'.into())
-                    );
-                    assert_eq!(
-                        e.step(),
-                        Err(UnimplementedState {
-                            state: blocked_state
-                        })
-                    );
                 }
             }
         }

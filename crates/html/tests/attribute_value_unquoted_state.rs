@@ -507,32 +507,77 @@ fn drain(e: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
 fn whitespace_recovery_executes_existing_states_and_retains_terminal_stubs() {
     for kind in [TagKind::Start, TagKind::End] {
         for detached in [false, true] {
-            for (text, target) in [
-                (" /tail", State::AfterAttributeName),
-                (" >tail", State::AfterAttributeName),
-                (" ", State::AfterAttributeName),
-                (" next=tail", State::BeforeAttributeValue),
-            ] {
+            for text in [" /tail", " >tail", " ", " next=tail"] {
                 let mut c = seeded(kind, detached);
                 c.input.push(points(text)).unwrap();
                 c.input.finish();
                 let mut e = Execution::new(State::AttributeValueUnquoted, c);
+                let mut expected = snapshot(&e);
+                // Source whitespace terminates the value, without mutation.
+                expected.state = State::BeforeAttributeName;
+                expected.current = Some((
+                    Input::CodePoint(' '.into()),
+                    Position { line: 1, column: 1 },
+                ));
+                assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&e), expected);
                 assert!(drain(&mut e, &mut vec![], 30));
-                assert_terminal(&mut e, Err(UnimplementedState { state: target }));
-                assert_eq!(e.context().tokens, [Token::Character('p'.into())]);
-                assert_eq!(e.context().errors, [error("prior-diagnostic", 1, 1)]);
-                assert_eq!(e.context().last_start_tag, Some(points("previous")));
-                let mut after = snapshot(&e);
-                let (attributes, discarded) = after.storage(kind);
-                if target == State::BeforeAttributeValue {
-                    assert_eq!(attributes.last(), Some(&attribute("next", "")));
-                    assert!(discarded.is_none()); // starting another attribute cleared detached identity
-                } else {
-                    assert_eq!(discarded.is_some(), detached);
-                    assert_eq!(
-                        attributes,
-                        &[attribute("prior", "retained"), attribute("current", "seed")]
+                if text == " next=tail" {
+                    expected.state = State::BeforeAttributeValue;
+                    expected.current = Some((
+                        Input::CodePoint('='.into()),
+                        Position { line: 1, column: 6 },
+                    ));
+                    let (attributes, discarded) = expected.storage(kind);
+                    attributes.push(attribute("next", ""));
+                    *discarded = None;
+                    assert_eq!(snapshot(&e), expected);
+                    assert_terminal(
+                        &mut e,
+                        Err(UnimplementedState {
+                            state: State::BeforeAttributeValue,
+                        }),
                     );
+                } else {
+                    let eof = Position {
+                        line: 1,
+                        column: text.chars().count() + 1,
+                    };
+                    expected.current = Some((Input::Eof, eof));
+                    if text == " /tail" {
+                        expected
+                            .errors
+                            .push(error("unexpected-solidus-in-tag", 1, 3));
+                        let (attributes, discarded) = expected.storage(kind);
+                        attributes.push(attribute("tail", ""));
+                        *discarded = None;
+                    }
+                    let token = expected.take_selected(kind);
+                    if text == " >tail" {
+                        expected.state = State::Data;
+                        if kind == TagKind::Start {
+                            expected.last_start_tag = Some(points("start"));
+                        } else {
+                            expected.errors.push(error("end-tag-with-attributes", 1, 2));
+                        }
+                        expected.tokens.push(token);
+                        expected
+                            .tokens
+                            .extend("tail".chars().map(|c| Token::Character(c.into())));
+                    } else {
+                        expected.state = State::AfterAttributeName;
+                        expected.errors.push(ParseError {
+                            code: "eof-in-tag",
+                            position: eof,
+                        });
+                    }
+                    expected.tokens.push(Token::Eof);
+                    assert_eq!(
+                        snapshot(&e),
+                        expected,
+                        "{kind:?} detached={detached} {text:?}"
+                    );
+                    assert_terminal(&mut e, Ok(Progress::Finished));
                 }
             }
         }
@@ -571,6 +616,8 @@ fn all_two_chunk_splits_and_single_point_chunks_match_complete_source_step_trace
         "value>x\0&",
         "value>\r\n</A>",
         " /",
+        " /tail",
+        " >tail",
         " ",
         " \r\n",
         "<a x=value>",

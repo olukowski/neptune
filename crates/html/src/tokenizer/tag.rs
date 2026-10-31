@@ -87,9 +87,9 @@ pub(super) fn take_tag(context: &mut Context) -> Token {
     }
 }
 
-// Shared by Tag name and Self-closing start tag: Tokenization emission rules.
-// Attribute paths still reach stubs; initialized local contexts exercise this
-// support without resuming a blocked execution or implementing another state.
+// Shared by emitting tag states: Tokenization emission rules.
+// Boolean attributes are reachable; seeded value support remains local evidence,
+// never resumption of a blocked execution.
 pub(super) fn emit_tag(context: &mut Context) {
     let token = take_tag(context);
     match &token {

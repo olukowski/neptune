@@ -15,6 +15,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::TagName,
         State::BeforeAttributeName,
         State::AttributeName,
+        State::AfterAttributeName,
         State::AttributeValueDoubleQuoted,
         State::AttributeValueSingleQuoted,
         State::AttributeValueUnquoted,

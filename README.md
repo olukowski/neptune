@@ -14,13 +14,15 @@ The first component is a specification-first HTML tokenizer.
 - Registry of all 84 tokenizer states in the pinned HTML Standard.
 - [Partial tokenizer scope](docs/tokenizer.md#status-and-source), with typed
   `UnimplementedState` stubs for unsupported states.
+  [After attribute name](docs/tokenizer-after-attribute-name.md) now completes
+  whitespace-only endings and boolean attributes (empty values).
   Attribute value (double-quoted), (single-quoted),
   [unquoted](docs/tokenizer-attribute-value-unquoted.md), and
   [After attribute value (quoted)](docs/tokenizer-after-attribute-value-quoted.md)
-  are implemented in isolation. After attribute name, Before attribute value,
-  and Character reference remain stubs, so real Data entry cannot complete tags
-  with attributes. Shared tag emission and the test adapter preserve/compare
-  attributes; value-state tests use seeded entry.
+  remain implemented in isolation. Before attribute value and Character reference
+  remain stubs, so Data entry cannot complete tags requiring value parsing.
+  Shared tag emission and the test adapter preserve/compare attributes;
+  value-state tests use seeded entry.
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.

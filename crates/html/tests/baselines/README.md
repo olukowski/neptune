@@ -38,6 +38,13 @@ VT's preprocessing error. Case 18 (`&`) is deliberately absent: Character
 reference is a terminal block, not a pass. See the
 [RCDATA branch evidence](../../../../docs/tokenizer-rcdata.md).
 
+`after_attribute_name.json` adds the 160 reviewed Data identities listed and
+explained in [After attribute name evidence](../../../../docs/tokenizer-after-attribute-name.md#independently-reviewed-fixture-identities).
+They cover boolean attributes, whitespace-only endings, EOF abandonment,
+duplicate removal, end-tag diagnostics, and malformed-solidus recovery. Existing
+baseline files are unchanged; Before attribute value remains a typed stub, so
+Data-to-value parsing is not yet reachable.
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an
