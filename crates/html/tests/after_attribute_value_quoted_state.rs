@@ -1,5 +1,5 @@
 //! Local evidence, not upstream conformance. Isolated entry is seeded because
-//! Before attribute value remains a stub; no blocked Execution is resumed/rebuilt.
+//! Data reaches value parsing; Character reference remains terminal. No stub is resumed.
 //! Pinned algorithm: HTML 404b3eb14a7a936dddefb2d78e224dbeb01d2358
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L144402-L144432>
 
@@ -517,7 +517,6 @@ fn missing_whitespace_precedes_attribute_creation_and_name_errors_without_reproc
                 e.context().input.position(),
                 Position { line: 2, column: 2 }
             );
-            assert_terminal_stub(&mut e, State::BeforeAttributeValue);
             assert_eq!(e.context().errors, errors);
             assert_eq!(e.context().input.errors(), input_errors);
             assert_eq!(e.context().tokens, [Token::Character('p'.into())]);
@@ -525,7 +524,35 @@ fn missing_whitespace_precedes_attribute_creation_and_name_errors_without_reproc
                 TagKind::Start => assert_eq!(e.context().pending_end_tag, old_end),
                 TagKind::End => assert_eq!(e.context().pending_start_tag, old_start),
             }
+            assert_before_value_eof(&mut e, kind);
         }
+    }
+}
+
+// EOF is reconsumed by Before value; only unquoted value abandons the tag.
+fn assert_before_value_eof(e: &mut Execution, kind: TagKind) {
+    let mut expected = snapshot(e);
+    assert_eq!(
+        e.step(),
+        Ok(Progress::Continue(State::AttributeValueUnquoted))
+    );
+    let position = e.context().input.position();
+    expected.state = State::AttributeValueUnquoted;
+    expected.current = Some((Input::Eof, position));
+    assert_eq!(snapshot(e), expected);
+    expected.kind = None;
+    match kind {
+        TagKind::Start => expected.start = None,
+        TagKind::End => expected.end = None,
+    }
+    expected.errors.push(ParseError {
+        code: "eof-in-tag",
+        position,
+    });
+    expected.tokens.push(Token::Eof);
+    for _ in 0..3 {
+        assert_eq!(e.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(e), expected);
     }
 }
 
@@ -594,12 +621,12 @@ fn later_name_input_diagnostics_are_not_source_errors() {
             e.step(),
             Ok(Progress::Continue(State::BeforeAttributeValue))
         );
-        assert_terminal_stub(&mut e, State::BeforeAttributeValue);
         assert_eq!(e.context().errors, errors);
         assert_eq!(
             e.context().input.errors(),
             [error("surrogate-in-input-stream", 2, 3)]
         );
+        assert_before_value_eof(&mut e, kind);
     }
 }
 
@@ -641,7 +668,7 @@ fn equals_recovery_and_new_duplicate_keep_retained_values_untouched() {
                 errors.push(error("unexpected-equals-sign-before-attribute-name", 1, 1));
             }
             assert_eq!(e.context().errors, errors);
-            assert_terminal_stub(&mut e, State::BeforeAttributeValue);
+            assert_before_value_eof(&mut e, kind);
         }
     }
 }
@@ -680,8 +707,8 @@ fn seeded_destination_paths_complete_or_block_without_accepting_prefixes() {
             ("/ >", None),
             (" next>", None),
             (" same>", None),
-            ("X=", Some(State::BeforeAttributeValue)),
-            ("=x=", Some(State::BeforeAttributeValue)),
+            ("X=", None),
+            ("=x=", None),
             (">&", Some(State::CharacterReference)),
             ("/><!", Some(State::MarkupDeclarationOpen)),
             ("/", None),
@@ -709,14 +736,29 @@ fn seeded_destination_paths_complete_or_block_without_accepting_prefixes() {
                 };
                 expected.current = Some((Input::Eof, eof));
                 expected.kind = None;
-                let abandoned = text == "/" || text == "\r\n";
+                let value_eof = text == "X=" || text == "=x=";
+                let abandoned = text == "/" || text == "\r\n" || value_eof;
                 expected.state = if text == "/" {
                     State::SelfClosingStartTag
+                } else if value_eof {
+                    State::AttributeValueUnquoted
                 } else if abandoned {
                     State::AfterAttributeName
                 } else {
                     State::Data
                 };
+                if value_eof {
+                    expected
+                        .errors
+                        .push(error("missing-whitespace-between-attributes", 1, 1));
+                    if text == "=x=" {
+                        expected.errors.push(error(
+                            "unexpected-equals-sign-before-attribute-name",
+                            1,
+                            1,
+                        ));
+                    }
+                }
                 let mut attributes = retained();
                 if text == " next>" {
                     attributes.push(attribute("next", ""));
@@ -799,16 +841,45 @@ fn seeded_destination_paths_complete_or_block_without_accepting_prefixes() {
             }
         }
     }
-    // No reachable end-to-end quoted entry is claimed: Before attribute value
-    // still stops genuine Data input, even after an exactly matching tag prefix.
+    // Data entry now reaches the quoted states and compares complete tokens.
     for text in ["<a x='v'>", "</a x=\"v\">", "<p/><a x='v'>"] {
         let mut c = Context::default();
         c.input.push(points(text)).unwrap();
         c.input.finish();
         let mut e = Execution::new(State::Data, c);
         assert!(drain(&mut e, &mut vec![]));
-        assert_terminal_stub(&mut e, State::BeforeAttributeValue);
-        assert!(!e.context().tokens.contains(&Token::Eof));
+        assert_eq!(e.step(), Ok(Progress::Finished));
+        let token = if text.starts_with("</") {
+            Token::EndTag {
+                name: points("a"),
+                attributes: vec![attribute("x", "v")],
+                self_closing: false,
+            }
+        } else {
+            Token::StartTag {
+                name: points("a"),
+                attributes: vec![attribute("x", "v")],
+                self_closing: false,
+            }
+        };
+        let mut tokens = vec![];
+        if text.starts_with("<p/>") {
+            tokens.push(Token::StartTag {
+                name: points("p"),
+                attributes: vec![],
+                self_closing: true,
+            });
+        }
+        tokens.extend([token, Token::Eof]);
+        assert_eq!(e.context().tokens, tokens);
+        assert_eq!(
+            e.context().errors,
+            if text.starts_with("</") {
+                vec![error("end-tag-with-attributes", 1, 10)]
+            } else {
+                vec![]
+            }
+        );
     }
 }
 

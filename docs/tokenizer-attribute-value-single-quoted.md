@@ -6,7 +6,7 @@ Prerequisite PR #15 (merged at `046565d7c033ed2bff4934b83f689284113bb1b4`)
 supplies tag/attribute storage, shared emission/abandonment, and fixture support.
 This change implements **only** `State::AttributeValueSingleQuoted` in
 `crates/html/src/tokenizer/attribute_value_single_quoted.rs`, with narrow
-module/dispatch and independent support-inventory registration. PR #20's
+module/dispatch and independent support-inventory registration. Historically PR #20's
 integration onto main `81eecf0955187a6b9be74a1a1d68afaa4b7ba399` (merged
 PRs #16/#17/#18/#19) preserves both quoted value states, After attribute value
 (quoted), and the unquoted value state, and adds only After attribute name.
@@ -60,9 +60,12 @@ CR, EOF, NUL, non-scalars, whitespace/punctuation, and later terminal destinatio
 ## Entry and conformance limitations
 
 Direct isolated entry requires a selected pending tag with a current attribute.
-These seeded tests do **not** establish a reachable end-to-end path: real Data
-entry still stops at Before attribute value, as the focused integration test
-asserts. After attribute value (quoted) now executes: source snapshots still
+Seeded tests independently inspect source effects. PR #21 adds Before attribute
+value onto main `2983fbe`, connecting real Data entry to value parsing.
+`real_data_entry_completes_abandons_or_blocks_only_at_character_reference`
+checks exact start/end-tag values, EOF abandonment, NUL replacement and terminal
+ampersand blocking, including pending value/return state and unconsumed tail.
+After attribute value (quoted) executes: source snapshots still
 verify the closing quote independently, then whitespace recovery executes After
 attribute name. Exact snapshots check selected-tag emission, detached exclusion,
 end-tag errors, Data continuation, suspension, and one terminal EOF. The
@@ -74,10 +77,12 @@ dispatch, even after feeding input, returns the same terminal error; blocked
 Execution is never reconstructed/resumed. Combined quoted-source emission and
 EOF checks live in `after_attribute_value_quoted_state.rs`.
 
-No upstream fixtures, pinned revisions, or exclusions change. This value state
-adds no upstream passes: the runner's initial states cannot enter it before an
-existing stub. PR #20's separate [After attribute name evidence](tokenizer-after-attribute-name.md)
-records its reviewed boolean-attribute/attribute-free pass additions. The prior
+No upstream fixtures, pinned revisions, or exclusions change. Historically this
+value-state PR alone added no upstream passes because Data entry was blocked.
+The combined PR #21 integration's new passes and reviewed identities are recorded
+in [Before attribute value evidence](tokenizer-before-attribute-value.md).
+PR #20's [After attribute name evidence](tokenizer-after-attribute-name.md)
+retains its boolean-attribute/attribute-free allowlist unchanged. The prior
 case-level baseline remains enforced, with full token/diagnostic comparison for
 every comparable run; a blocked prefix is never a pass. Exact executed/passed/
 failed/blocked evidence and required check results belong in the PR report.

@@ -27,7 +27,7 @@ fn attribute(name: &str, value: &str) -> Attribute {
     }
 }
 
-// Valid isolated entry, NOT a path through Before attribute value (still a stub).
+// Valid isolated entry for source-step effects; real Data paths are also tested.
 fn seeded(kind: TagKind, duplicate: bool) -> Context {
     let current = Attribute {
         name: points(if duplicate { "prior" } else { "current" }),
@@ -540,12 +540,46 @@ fn normalized_locations_and_non_scalars_are_preserved_with_preprocessing_errors_
 }
 
 #[test]
-fn real_data_entry_still_blocks_before_value_without_falsely_passing_a_tag_prefix() {
-    for input in [
-        "<p><a x=\"value\">",
-        "<p></a x=\"value\">",
-        "<a x=\"",
-        "</a x=\"\0&",
+fn real_data_entry_completes_abandons_or_blocks_only_at_character_reference() {
+    for (input, expected_tokens, errors, blocked) in [
+        (
+            "<a x=\"value\">",
+            vec![
+                Token::StartTag {
+                    name: points("a"),
+                    attributes: vec![attribute("x", "value")],
+                    self_closing: false,
+                },
+                Token::Eof,
+            ],
+            vec![],
+            false,
+        ),
+        (
+            "</a x=\"value\">",
+            vec![
+                Token::EndTag {
+                    name: points("a"),
+                    attributes: vec![attribute("x", "value")],
+                    self_closing: false,
+                },
+                Token::Eof,
+            ],
+            vec![error("end-tag-with-attributes", 1, 14)],
+            false,
+        ),
+        (
+            "<a x=\"",
+            vec![Token::Eof],
+            vec![error("eof-in-tag", 1, 7)],
+            false,
+        ),
+        (
+            "<a x=\"\0&tail",
+            vec![],
+            vec![error("unexpected-null-character", 1, 7)],
+            true,
+        ),
     ] {
         let mut c = Context::default();
         c.input.push(points(input)).unwrap();
@@ -556,38 +590,54 @@ fn real_data_entry_still_blocks_before_value_without_falsely_passing_a_tag_prefi
             seen.push(e.state());
             match e.step() {
                 Ok(Progress::Continue(_)) => {}
-                Err(block) => {
-                    assert_eq!(block.state, State::BeforeAttributeValue);
+                result => {
+                    assert_eq!(
+                        result,
+                        if blocked {
+                            Err(UnimplementedState {
+                                state: State::CharacterReference,
+                            })
+                        } else {
+                            Ok(Progress::Finished)
+                        }
+                    );
                     break;
                 }
-                other => panic!("unexpected completion: {other:?}"),
             }
         }
-        assert!(!seen.contains(&SOURCE));
-        assert!(e.context().errors.is_empty());
+        assert!(seen.contains(&State::AttributeValueDoubleQuoted));
+        assert_eq!(e.context().tokens, expected_tokens);
+        assert_eq!(e.context().errors, errors);
         assert!(e.context().input.errors().is_empty());
-        assert_eq!(
-            e.context().tokens,
-            if input.starts_with("<p>") {
-                vec![Token::StartTag {
-                    name: points("p"),
-                    attributes: vec![],
-                    self_closing: false,
-                }]
-            } else {
-                vec![]
+        if blocked {
+            assert_eq!(
+                e.context().return_state,
+                Some(State::AttributeValueDoubleQuoted)
+            );
+            assert_eq!(
+                e.context().pending_start_tag.as_ref().unwrap().attributes,
+                [attribute("x", "\u{fffd}")]
+            );
+            let before = snapshot(&e);
+            for _ in 0..3 {
+                assert_eq!(
+                    e.step(),
+                    Err(UnimplementedState {
+                        state: State::CharacterReference
+                    })
+                );
+                assert_eq!(snapshot(&e), before);
             }
-        );
-        assert_eq!(
-            e.context_mut().input.consume(),
-            Input::CodePoint('"'.into())
-        );
-        assert_terminal(
-            &mut e,
-            Err(UnimplementedState {
-                state: State::BeforeAttributeValue,
-            }),
-        );
+            assert_eq!(
+                e.context_mut().input.consume(),
+                Input::CodePoint('t'.into())
+            );
+        } else {
+            assert_eq!(e.step(), Ok(Progress::Finished));
+            assert_eq!(e.context().current_tag, None);
+            assert!(e.context().pending_start_tag.is_none());
+            assert!(e.context().pending_end_tag.is_none());
+        }
     }
 }
 

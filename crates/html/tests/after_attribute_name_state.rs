@@ -135,20 +135,8 @@ fn whitespace_solidus_equals_consume_without_touching_storage_even_without_curre
                         ));
                         assert_eq!(e.step(), Ok(Progress::Continue(target)));
                         assert_eq!(snapshot(&e), expected);
-                        if target == State::BeforeAttributeValue {
-                            for _ in 0..2 {
-                                assert_eq!(e.step(), Err(UnimplementedState { state: target }));
-                                assert_eq!(snapshot(&e), expected);
-                            }
-                            // Context mutation must not clear a terminal stub.
-                            e.context_mut()
-                                .input
-                                .push(points("more"))
-                                .unwrap_or_else(|_| {
-                                    assert!(closed);
-                                });
-                            assert_eq!(e.step(), Err(UnimplementedState { state: target }));
-                        }
+                        // Source-step inspection: '=' has not consumed the value.
+                        // This isolated matrix intentionally includes no current attribute.
                         assert_eq!(
                             e.context_mut().input.consume(),
                             Input::CodePoint('Z'.into())
@@ -400,8 +388,8 @@ fn drain(
 }
 
 #[test]
-fn real_paths_finish_boolean_attributes_and_duplicates_but_values_still_block() {
-    for (input, kind, attrs, codes, blocked) in [
+fn real_paths_finish_boolean_attributes_duplicates_and_abandon_unfinished_values() {
+    for (input, kind, attrs, codes, abandoned) in [
         ("<DIV >", TagKind::Start, vec![], vec![], false),
         (
             "</DIV />",
@@ -428,7 +416,7 @@ fn real_paths_finish_boolean_attributes_and_duplicates_but_values_still_block() 
             "<DIV A A =tail",
             TagKind::Start,
             vec![attribute("a", "")],
-            vec!["duplicate-attribute"],
+            vec!["duplicate-attribute", "eof-in-tag"],
             true,
         ),
         (
@@ -453,17 +441,18 @@ fn real_paths_finish_boolean_attributes_and_duplicates_but_values_still_block() 
                 .collect::<Vec<_>>(),
             codes
         );
-        if blocked {
+        if abandoned {
+            assert_eq!(e.step(), Ok(Progress::Finished));
+            assert_eq!(e.context().tokens, [Token::Eof]);
             assert_eq!(
-                e.step(),
-                Err(UnimplementedState {
-                    state: State::BeforeAttributeValue
-                })
+                e.context().errors,
+                [
+                    error("duplicate-attribute", 1, 9),
+                    error("eof-in-tag", 1, 15),
+                ]
             );
-            let (retained, detached) = storage(e.context_mut());
-            assert_eq!(*retained, attrs);
-            assert_eq!(*detached, Some(attribute("a", "")));
-            assert!(e.context().tokens.is_empty());
+            assert_eq!(e.context().current_tag, None);
+            assert!(e.context().pending_start_tag.is_none());
         } else {
             assert_eq!(
                 e.context().tokens,

@@ -42,8 +42,24 @@ reference is a terminal block, not a pass. See the
 explained in [After attribute name evidence](../../../../docs/tokenizer-after-attribute-name.md#independently-reviewed-fixture-identities).
 They cover boolean attributes, whitespace-only endings, EOF abandonment,
 duplicate removal, end-tag diagnostics, and malformed-solidus recovery. Existing
-baseline files are unchanged; Before attribute value remains a typed stub, so
-Data-to-value parsing is not yet reachable.
+baseline files remain unchanged. Its historical PR #20 report predates reachable
+Data-to-value parsing; PR #21 now connects that path.
+
+`before_attribute_value.json` adds eight individually reviewed Data identities:
+`test3.test` cases 1317, 1320, 1321, 1323, 1324, 1326, and 1442, plus
+`test4.test` case 4. These are missing-value `>` recovery (including each HTML
+whitespace and CR normalization), not quoted/unquoted value implementations.
+The two identical `<a a=>` descriptions are separate upstream case identities.
+See the [branch and fixture review](../../../../docs/tokenizer-before-attribute-value.md).
+
+`integrated_attribute_values.json` adds 42 explicitly reviewed Data identities
+for PR #21's newly reachable valued-attribute integration. The
+[review table](../../../../docs/tokenizer-before-attribute-value.md#combined-integration-review)
+maps each selection to unchanged fixture tokens/diagnostics and pinned branches.
+All 817 prior identities and the original eight PR21 identities remain intact;
+the integrated protected baseline is 867 identities. Baseline additions are
+**not** the same count as new passes: combined support admits 206 new passes
+over main (including those eight), of which 42 further identities are protected.
 
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from

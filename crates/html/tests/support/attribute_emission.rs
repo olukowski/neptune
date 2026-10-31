@@ -222,9 +222,24 @@ fn expected_attributes_do_not_hide_real_destination_stubs() {
         run_with(&wrong, "Data state", None, execute),
         Outcome::Failed(_)
     ));
+    // These exact former stub inputs now require real complete values.
+    for input in ["<p id =x>", "<p id=x>", "<p id='x'>", "<p id=\"x\">"] {
+        let case = json!({"description":"reachable attribute value", "input":input,
+            "output":[["StartTag","p",{"id":"x"}]]});
+        assert_eq!(
+            run_with(&case, "Data state", None, execute),
+            Outcome::Passed
+        );
+        let mut wrong = case;
+        wrong["output"] = json!([["StartTag","p",{"id":""}]]);
+        assert!(matches!(
+            run_with(&wrong, "Data state", None, execute),
+            Outcome::Failed(_)
+        ));
+    }
     for (input, destination) in [
-        ("<p id =x>", State::BeforeAttributeValue),
-        ("<p id=x>", State::BeforeAttributeValue),
+        ("<p id =&>", State::CharacterReference),
+        ("<p id=x&>", State::CharacterReference),
     ] {
         let case = json!({"description":"attribute adapter is not a state implementation", "input":input,
             "output":[["StartTag","p",{"id":"x"}]]});
