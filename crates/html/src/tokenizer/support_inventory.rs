@@ -9,6 +9,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::Data,
         State::Rcdata,
         State::RcdataLessThanSign,
+        State::RcdataEndTagOpen,
         State::Plaintext,
         State::Rawtext,
         State::RawtextLessThanSign,

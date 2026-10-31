@@ -16,8 +16,9 @@ stream** and opening **Tokenization** contracts. Revisions remain those in
 
 Every branch consumes once; none reconsumes. The two transition branches do not
 emit or report state diagnostics. Their source effects are inspectable before
-the next step attempts the destination. [RCDATA less-than sign now executes](tokenizer-rcdata-less-than-sign.md);
-Character reference and RCDATA end-tag states remain terminal `UnimplementedState`
+the next step attempts the destination. [RCDATA less-than sign](tokenizer-rcdata-less-than-sign.md)
+and [RCDATA end tag open](tokenizer-rcdata-end-tag-open.md) now execute;
+Character reference and RCDATA end tag name remain terminal `UnimplementedState`
 stubs. Never reconstruct or resume blocked execution.
 
 Select RCDATA explicitly with `Execution::new(State::Rcdata, context)`. The
