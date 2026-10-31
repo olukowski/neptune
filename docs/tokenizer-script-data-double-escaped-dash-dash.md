@@ -1,6 +1,28 @@
 # Script data double escaped dash dash state
 
-## Current integrated evidence after PRs #43 and #38
+## Current PR #40 integration update
+
+On exact main **`eecf0a3992d820f95990dcdca9201e1378e52a8f`** (merged #43/#38/#39)
+plus #40, Dash is implemented without changing any merged production algorithm
+or removing source-step assertions.
+
+Dash now enters this state on `-`, with its own hyphen emission inspected before
+this source executes. The `>`/CRLF/malformed-input test retains original DashDash
+entry and also executes Dash entry with exact initial source snapshots. The full
+streaming suite runs both entry states through real LessThanSign/DoubleEscapeEnd,
+scratch/name handling, escaped cycles, EOF and later genuine blocks.
+
+DoubleEscaped and the ordinary-entry EscapedLessThanSign gateway remain genuine
+stubs. All required checks pass: **319 Rust tests, 0 failed, 0 ignored**; upstream
+**1,126 executed/passed, 0 failed, 5,927 blocked**, zero new passes. Fixtures,
+pins and all baseline files/registrations remain unchanged. See
+[#40's current integration evidence](tokenizer-script-data-double-escaped-dash.md#current-integration-after-prs-43-38-and-39)
+for exact paths, tests, counts and final-head location. Coordinator final-head
+review is separate; this thread does not merge or start reviewers.
+
+**The #39 and older reports below are historical for support and test totals.**
+
+## Historical PR #39 report
 
 The user authorized sequential integration. PR #39 is rebased onto exact main
 base **`98607c3a282cc8336c41312db042e8f87b8c2bcf`**, containing merged #43

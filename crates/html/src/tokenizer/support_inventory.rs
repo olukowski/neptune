@@ -28,6 +28,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptDataEscapedDashDash,
         State::ScriptDataDoubleEscapedLessThanSign,
         State::ScriptDataDoubleEscapeEnd,
+        State::ScriptDataDoubleEscapedDash, // Direct entry needs no pending storage.
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,

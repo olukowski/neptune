@@ -415,49 +415,56 @@ fn explicitly_reconsumed_entry_and_eof_keep_normalized_positions_without_duplica
 }
 
 #[test]
-fn greater_than_returns_to_real_script_data_and_predecessor_entry_is_still_blocked() {
-    let mut context = seeded();
-    context.input.push(points("-->\r\n\0\0")).unwrap();
-    context
-        .input
-        .push([CodePoint::new(0xd800).unwrap()])
-        .unwrap();
-    context.input.finish();
-    let preserved = retained(&context);
-    let mut execution = Execution::new(SOURCE, context);
-    for _ in 0..2 {
-        assert_eq!(execution.step(), Ok(Progress::Continue(SOURCE)));
+fn greater_than_returns_to_real_script_data_from_dash_or_dash_dash_but_gateway_still_blocks() {
+    for initial in [SOURCE, State::ScriptDataDoubleEscapedDash] {
+        let mut context = seeded();
+        context.input.push(points("-->\r\n\0\0")).unwrap();
+        context
+            .input
+            .push([CodePoint::new(0xd800).unwrap()])
+            .unwrap();
+        context.input.finish();
+        let preserved = retained(&context);
+        let mut execution = Execution::new(initial, context);
+        let mut source = snapshot(&execution);
+        for column in 1..=2 {
+            source.state = SOURCE;
+            source.current = Some((Input::CodePoint('-'.into()), Position { line: 1, column }));
+            source.tokens.push(Token::Character('-'.into()));
+            assert_eq!(execution.step(), Ok(Progress::Continue(SOURCE)));
+            assert_eq!(snapshot(&execution), source);
+        }
+        for _ in 0..5 {
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+        }
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        let expected: Vec<_> = points("p-->\n\u{fffd}\u{fffd}")
+            .into_iter()
+            .chain([CodePoint::new(0xd800).unwrap()])
+            .map(Token::Character)
+            .chain([Token::Eof])
+            .collect();
+        assert_eq!(execution.context().tokens, expected);
+        assert_eq!(
+            execution.context().errors,
+            [
+                error("prior-diagnostic", 1, 1),
+                error("unexpected-null-character", 2, 1),
+                error("unexpected-null-character", 2, 2)
+            ]
+        );
+        assert_eq!(
+            execution.context().input.errors(),
+            [error("surrogate-in-input-stream", 2, 3)]
+        );
+        assert_eq!(
+            execution.context().input.current(),
+            Some((Input::Eof, Position { line: 2, column: 4 }))
+        );
+        assert_eq!(retained(execution.context()), preserved);
     }
-    for _ in 0..5 {
-        assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
-    }
-    assert_eq!(execution.step(), Ok(Progress::Finished));
-    let expected: Vec<_> = points("p-->\n\u{fffd}\u{fffd}")
-        .into_iter()
-        .chain([CodePoint::new(0xd800).unwrap()])
-        .map(Token::Character)
-        .chain([Token::Eof])
-        .collect();
-    assert_eq!(execution.context().tokens, expected);
-    assert_eq!(
-        execution.context().errors,
-        [
-            error("prior-diagnostic", 1, 1),
-            error("unexpected-null-character", 2, 1),
-            error("unexpected-null-character", 2, 2)
-        ]
-    );
-    assert_eq!(
-        execution.context().input.errors(),
-        [error("surrogate-in-input-stream", 2, 3)]
-    );
-    assert_eq!(
-        execution.context().input.current(),
-        Some((Input::Eof, Position { line: 2, column: 4 }))
-    );
-    assert_eq!(retained(execution.context()), preserved);
 
-    // No implemented predecessor can enter the assigned state on this base.
+    // Ordinary Script data entry still stops at the genuine earlier gateway.
     // Exercise the real available chain, without reconstructing after its stub.
     let mut context = Context::default();
     context.input.push(points("<!--<script>-->")).unwrap();
@@ -788,43 +795,45 @@ fn every_two_chunk_split_and_single_point_stream_matches_closed_source_steps() {
         ]);
     }
     for input in inputs {
-        let run = |chunks: Vec<&[CodePoint]>, closed: bool| {
-            let mut execution = Execution::new(SOURCE, seeded());
-            let mut trace = Vec::new();
-            if closed {
-                execution
-                    .context_mut()
-                    .input
-                    .push(input.iter().copied())
-                    .unwrap();
-                execution.context_mut().input.finish();
-            } else {
-                for chunk in chunks {
+        for initial in [SOURCE, State::ScriptDataDoubleEscapedDash] {
+            let run = |chunks: Vec<&[CodePoint]>, closed: bool| {
+                let mut execution = Execution::new(initial, seeded());
+                let mut trace = Vec::new();
+                if closed {
                     execution
                         .context_mut()
                         .input
-                        .push(chunk.iter().copied())
+                        .push(input.iter().copied())
                         .unwrap();
-                    if drain(&mut execution, &mut trace, input.len() * 3 + 8) {
-                        // No feeding, reconstruction or resumption after a terminal stub.
-                        return trace;
+                    execution.context_mut().input.finish();
+                } else {
+                    for chunk in chunks {
+                        execution
+                            .context_mut()
+                            .input
+                            .push(chunk.iter().copied())
+                            .unwrap();
+                        if drain(&mut execution, &mut trace, input.len() * 3 + 8) {
+                            // No feeding, reconstruction or resumption after a terminal stub.
+                            return trace;
+                        }
+                        execution.context_mut().input.push([]).unwrap();
+                        assert!(!drain(&mut execution, &mut trace, 1));
                     }
-                    execution.context_mut().input.push([]).unwrap();
-                    assert!(!drain(&mut execution, &mut trace, 1));
+                    execution.context_mut().input.finish();
                 }
-                execution.context_mut().input.finish();
+                assert!(drain(&mut execution, &mut trace, input.len() * 3 + 8));
+                trace
+            };
+            let expected = run(vec![], true);
+            for split in 0..=input.len() {
+                assert_eq!(
+                    run(vec![&input[..split], &input[split..]], false),
+                    expected,
+                    "split {split} of {input:?}"
+                );
             }
-            assert!(drain(&mut execution, &mut trace, input.len() * 3 + 8));
-            trace
-        };
-        let expected = run(vec![], true);
-        for split in 0..=input.len() {
-            assert_eq!(
-                run(vec![&input[..split], &input[split..]], false),
-                expected,
-                "split {split} of {input:?}"
-            );
+            assert_eq!(run(input.chunks(1).collect(), false), expected);
         }
-        assert_eq!(run(input.chunks(1).collect(), false), expected);
     }
 }
