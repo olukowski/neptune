@@ -15,6 +15,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::TagName,
         State::BeforeAttributeName,
         State::AttributeName,
+        State::AttributeValueSingleQuoted,
         State::SelfClosingStartTag,
         State::BogusComment,
     ];
@@ -29,7 +30,10 @@ fn explicit_support_inventory_matches_dispatch() {
                 // Supply invariants for isolated tag/comment entry at EOF.
                 context.current_tag = Some(TagKind::Start);
                 context.pending_start_tag = Some(PendingStartTag::default());
-                if state == State::AttributeName {
+                if matches!(
+                    state,
+                    State::AttributeName | State::AttributeValueSingleQuoted
+                ) {
                     context
                         .pending_start_tag
                         .as_mut()

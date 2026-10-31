@@ -14,8 +14,9 @@ The first component is a specification-first HTML tokenizer.
 - Registry of all 84 tokenizer states in the pinned HTML Standard.
 - [Partial tokenizer scope](docs/tokenizer.md#status-and-source), with typed
   `UnimplementedState` stubs for unsupported states.
-  After attribute name and attribute-value states are still stubs;
-  tags with whitespace/attributes cannot complete. Shared tag emission and the
+  Attribute value (single-quoted) is implemented in isolation; After attribute
+  name, Before attribute value, and After attribute value (quoted) remain stubs,
+  so tags with whitespace/attributes cannot complete. Shared tag emission and the
   test adapter preserve/compare attributes, but those paths are not yet reachable.
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
