@@ -157,7 +157,7 @@ fn every_ascii_branch_and_non_scalars_have_exact_source_effects() {
 }
 
 #[test]
-fn both_destinations_are_terminal_stubs_after_inspectable_source_effects() {
+fn destinations_execute_escaped_dash_or_remain_terminal_after_inspectable_source_effects() {
     for (delimiter, destination) in [
         ('-', State::ScriptDataEscapedDash),
         ('<', State::ScriptDataEscapedLessThanSign),
@@ -187,16 +187,63 @@ fn both_destinations_are_terminal_stubs_after_inspectable_source_effects() {
             }
             assert_eq!(execution.step(), Ok(Progress::Continue(destination)));
             assert_eq!(snapshot(&execution), expected);
-            let blocked = Err(UnimplementedState { state: destination });
-            for _ in 0..3 {
+            if delimiter == '<' {
+                let blocked = Err(UnimplementedState {
+                    state: State::ScriptDataEscapedLessThanSign,
+                });
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), blocked);
+                    assert_eq!(snapshot(&execution), expected);
+                }
+                // Closing input cannot revive the remaining less-than-sign stub.
+                execution.context_mut().input.finish();
                 assert_eq!(execution.step(), blocked);
                 assert_eq!(snapshot(&execution), expected);
+                continue;
             }
-            // Closing an open cursor cannot revive a terminal stub. The tail
-            // must remain unprocessed: no NUL/preprocessing diagnostics or EOF.
-            execution.context_mut().input.finish();
-            assert_eq!(execution.step(), blocked);
+            // The real EscapedDash step consumes the surrogate, not the preceding
+            // hyphen again. Inspect its effects before returning to Escaped.
+            let surrogate = CodePoint::new(0xd800).unwrap();
+            expected.state = State::ScriptDataEscaped;
+            expected.current = Some((Input::CodePoint(surrogate), Position { line: 1, column: 2 }));
+            expected.tokens.push(Token::Character(surrogate));
+            expected
+                .input_errors
+                .push(error("surrogate-in-input-stream", 1, 2));
+            assert_eq!(
+                execution.step(),
+                Ok(Progress::Continue(State::ScriptDataEscaped))
+            );
             assert_eq!(snapshot(&execution), expected);
+            expected.current = Some((
+                Input::CodePoint('\0'.into()),
+                Position { line: 1, column: 3 },
+            ));
+            expected.tokens.push(Token::Character('\u{fffd}'.into()));
+            expected
+                .errors
+                .push(error("unexpected-null-character", 1, 3));
+            assert_eq!(
+                execution.step(),
+                Ok(Progress::Continue(State::ScriptDataEscaped))
+            );
+            assert_eq!(snapshot(&execution), expected);
+            if !finished {
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                    assert_eq!(snapshot(&execution), expected);
+                }
+                execution.context_mut().input.finish();
+            }
+            expected.current = Some((Input::Eof, Position { line: 1, column: 4 }));
+            expected.tokens.push(Token::Eof);
+            expected
+                .errors
+                .push(error("eof-in-script-html-comment-like-text", 1, 4));
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&execution), expected);
+            }
         }
     }
 }
@@ -355,7 +402,7 @@ fn every_two_chunk_split_and_single_point_stream_matches_closed_source_steps() {
     mixed
         .extend([0xd800, 0xdfff, 0xfdd0, 0x10ffff, 0x01, 0x7f].map(|v| CodePoint::new(v).unwrap()));
     let mut dash = mixed.clone();
-    dash.extend(points("-unconsumed\0"));
+    dash.extend(points("-literal\0-a--unconsumed\0"));
     let mut less_than = mixed.clone();
     less_than.extend(points("<unconsumed\0"));
     for input in [
@@ -369,6 +416,8 @@ fn every_two_chunk_split_and_single_point_stream_matches_closed_source_steps() {
         points("\0\r"),
         points("&"),
         points("-"),
+        points("--unconsumed\0"),
+        points("-<unconsumed\0"),
         points("<"),
         points("\r\n<\r\n"),
         points("\r-\0"),

@@ -2,7 +2,7 @@
 
 ## Scope and pinned evidence
 
-This PR implements only `State::ScriptDataEscaped`, anchor
+PR #32 implemented only `State::ScriptDataEscaped`, anchor
 `#script-data-escaped-state`, on main baseline
 `28131e11437941928eb7246885fb70e1160b2700` (PR #31). It uses existing
 Context, Cursor, character tokens, diagnostics and Execution; no shared framework,
@@ -33,7 +33,7 @@ Focused tests: `crates/html/tests/script_data_escaped_state.rs`.
 
 | Consumed input | Required source effects / destination | Focused evidence |
 | --- | --- | --- |
-| `-` U+002D | Emit `-`; switch to Script data escaped dash | Exhaustive ASCII source snapshot, untouched suffix, separate terminal destination test |
+| `-` U+002D | Emit `-`; switch to Script data escaped dash | Exhaustive ASCII source snapshot, untouched suffix, separate real destination test |
 | `<` U+003C | Emit nothing; switch to Script data escaped less-than sign | Exhaustive ASCII source snapshot, untouched suffix, separate terminal destination test |
 | NUL U+0000 | Report `unexpected-null-character`; emit U+FFFD; stay | Exhaustive branch and repeated NUL/newline test with exact error positions and multiplicity |
 | EOF | Report `eof-in-script-html-comment-like-text`; emit EOF | Empty/nonempty and seeded/default contexts, normalized EOF position, repeated terminal steps |
@@ -42,9 +42,14 @@ Focused tests: `crates/html/tests/script_data_escaped_state.rs`.
 Every source step consumes exactly one normalized point (or conceptual EOF).
 Delimiters are consumed, not reconsumed. The suffix probe is a source-boundary
 inspection, not an attempt to resume a stub. Actual destination attempts are
-separate tests: both Script data escaped dash and Script data escaped less-than
-sign remain terminal `UnimplementedState`, with no suffix consumption, diagnostic,
-substitute EOF, or reconstructed execution. Closing input cannot revive them.
+separate tests. Historically both destinations were terminal stubs in PR #32.
+With PR #34 integrated, Script data escaped dash executes its own source step,
+consumes a surrogate suffix once, emits it unchanged with its preprocessing error,
+and returns to Script data escaped. The next NUL is replaced/diagnosed there,
+then open input suspends or closed input emits one EOF/error. Script data escaped
+less-than sign remains terminal `UnimplementedState`, with no suffix consumption,
+diagnostic, substitute EOF, or reconstructed execution. Closing input cannot
+revive that stub. PR #34 changes no production algorithm in this state.
 
 Exhausted open input and empty chunks are effect-free `NeedMoreInput`, preserving
 the previous current item/position. Only explicit `finish` supplies EOF. EOF adds
@@ -67,14 +72,18 @@ suspension/completion, and default/seeded contexts. All two-chunk splits and
 single-code-point streaming compare every non-suspension source-step snapshot
 against closed input. Inputs include CRLF splits, consecutive/trailing CR,
 repeated NUL, surrogate/noncharacter/control points, literal entity-like text,
-and terminal `-`/`<` destinations with unconsumed tails. Suspensions must preserve
-the complete snapshot; trace collection stops at a stub without feeding it again.
+and transitions through `-` into Script data escaped dash and back. `--` and
+`-<` retain explicit dash-dash/less-than-sign terminal blocks with unconsumed tails.
+Suspensions must preserve the complete snapshot; trace collection stops at a
+stub without feeding it again.
 
 Entry is isolated through `Execution::new(State::ScriptDataEscaped, context)`.
 Script data escape start and escape start dash remain stubs in this baseline,
-so normal Script data input cannot yet reach the assigned state. Existing source
-and terminal-block assertions are deliberately unchanged: no old test named this
-state as a stub; the independent support inventory is registered additively.
+so normal Script data input cannot yet reach the assigned state. PR #32's source
+assertions remain unchanged. PR #34 deliberately updates its old escaped-dash
+stub assumption to the actual destination effects described above and extends
+streaming traces through both states; the less-than-sign stub remains explicit.
+The independent support inventory is registered additively.
 No tree-builder mode switching or JavaScript parsing is implemented.
 
 ## Upstream fixture review and results
@@ -87,7 +96,8 @@ and cases 10–12 reach double-escaped forms. These need earlier and/or later
 states as well: all still stop at Script data escape start, not a comparable
 prefix pass. They are not added to a pass baseline.
 
-The standalone runner report remains exactly:
+The historical standalone PR #32 runner report was (the integrated PR #34
+report has the same upstream counts; see its state-local evidence):
 
 - 6,827 fixture cases; 7,053 runs; 6,190 dispatch-attempted.
 - **Executed 1,117 = passed 1,117 + failed 0; blocked 5,936.**
@@ -102,9 +112,11 @@ is claimed.
 
 ## Validation and parallel integration
 
-All required validation commands passed locally (exit 0). The workspace suite
-passed 253 Rust tests with 0 failed and 0 ignored, including the six focused
-state tests. These Rust test totals are separate from upstream run counts.
+Historical standalone PR #32 validation: all required commands passed locally
+(exit 0); the workspace suite passed 253 Rust tests with 0 failed and 0 ignored,
+including the six focused state tests. These Rust test totals are separate from
+upstream run counts. For the rerun after PR #34 integration, see
+[Script data escaped dash evidence](tokenizer-script-data-escaped-dash.md#upstream-and-validation).
 
 ```sh
 cargo fmt --all -- --check
@@ -114,11 +126,13 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 cargo test --workspace --locked pinned_upstream_runner -- --nocapture
 ```
 
-Only this state is implemented; upstream/downstream Script escaping states remain
-stubs. No unmerged sibling branches are imported. This standalone PR is against
-the common baseline, not a promise of conflict-free integration: the parent
-must reconcile additive module/dispatch/support registration after neighboring
-merges and rerun all checks/upstream reporting. Newly reachable destinations can
-move terminal blocks or admit complete cases; review those individually rather
-than skipping tests, auto-blessing identities or resuming a blocked execution.
-The parent handles integration after the user declares the wave done.
+PR #32 originally implemented only this state against the common baseline.
+PR #34 now inherits merged PR #32 from main
+`e2a9b926938d022820613c752b467e16130521bc` and adds Script data escaped dash;
+the escape-start states, escaped dash dash, and escaped less-than sign still
+block. No unmerged sibling branch is imported. Module/dispatch/support inventory
+registration is additive. Future integrations must rerun all checks/upstream
+reporting and review moved terminal blocks or newly comparable cases without
+skipping tests, auto-blessing identities, or resuming blocked execution.
+The user now authorizes sequential integration by the parent, with a fresh
+independent review of each final revision before merge.
