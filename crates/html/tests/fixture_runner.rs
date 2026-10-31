@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_coverage() {
+fn pinned_upstream_runner_reports_before_attribute_name_self_closing_and_bogus_comment_coverage() {
     let directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
     let mut paths: Vec<_> = fs::read_dir(directory)
@@ -57,6 +57,17 @@ fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_covera
     ];
     let mut newly_comparable_tag_passes = 0;
     let mut retained_tag_open_passes = 0;
+    let mut retained_simple_tag_passes = 0;
+    let mut self_closing_seen = BTreeMap::new();
+    // All six former Self-closing-start-tag blocks, independently identified.
+    const FORMER_SELF_CLOSING: &[(&str, &str, bool)] = &[
+        ("test3.test", "<a/\\u0009>", false),
+        ("test3.test", "<a/\\u000A>", false),
+        ("test3.test", "<a/\\u000C>", false),
+        ("test3.test", "<a/ >", false),
+        ("test4.test", "Slash EOF in tag name", true),
+        ("test4.test", "Permitted slash but in close tag", true),
+    ];
     let mut former_tag_open = BTreeMap::<String, usize>::new();
     // Explicit case identities from the previous five End-tag-open blocks.
     // Independent of production dispatch; fixtures and policies are unchanged.
@@ -67,18 +78,14 @@ fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_covera
         ("test3.test", "</"),
         ("test3.test", "</>"),
     ];
-    // Explicit previous Tag-name-blocked cases: only EOF-in-name can finish.
+    // Explicit previous Tag-name-blocked cases: EOF in name or after '/' can finish.
     const FORMER_TAG_NAME: &[(&str, &str, Option<State>)] = &[
         (
             "test4.test",
             "CR EOF in tag name",
             Some(State::AfterAttributeName),
         ),
-        (
-            "test4.test",
-            "Slash EOF in tag name",
-            Some(State::SelfClosingStartTag),
-        ),
+        ("test4.test", "Slash EOF in tag name", None),
         ("test4.test", "EOF in tag name state ", None),
         (
             "test4.test",
@@ -145,6 +152,28 @@ fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_covera
                     attempted += 1;
                     execute(run)
                 });
+                let identity = (
+                    path.file_name().unwrap().to_str().unwrap(),
+                    case["description"].as_str().unwrap(),
+                );
+                if state == "Data state"
+                    && let Some((_, _, finishes)) = FORMER_SELF_CLOSING
+                        .iter()
+                        .find(|(file, description, _)| (*file, *description) == identity)
+                {
+                    assert_eq!(
+                        result,
+                        if *finishes {
+                            Outcome::Passed
+                        } else {
+                            Outcome::Blocked(Blocked::Unimplemented(State::AfterAttributeName))
+                        },
+                        "{identity:?}"
+                    );
+                    *self_closing_seen
+                        .entry((identity.0.to_owned(), identity.1.to_owned()))
+                        .or_insert(0) += 1;
+                }
                 // Independently identify the previous Data baseline: complete Data
                 // runs never reached '&' or '<'; formerly Tag-open-blocked runs
                 // reached '<' before any '&'. Do not infer support from dispatch.
@@ -227,6 +256,17 @@ fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_covera
                             kind == decode("StartTag", false) || kind == decode("EndTag", false)
                         }) {
                             newly_comparable_tag_passes += 1;
+                            // Retain all 55 prior tag-output passes, not merely
+                            // the aggregate total after admitting flagged tags.
+                            if !case["output"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .any(|t| t.get(3).and_then(|v| v.as_bool()) == Some(true))
+                                && identity != ("test4.test", "Permitted slash but in close tag")
+                            {
+                                retained_simple_tag_passes += 1;
+                            }
                         }
                         passed += 1;
                         *passed_by_initial.entry(state.clone()).or_default() += 1;
@@ -257,14 +297,14 @@ fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_covera
         attempted > 0,
         "must reach production dispatch, not just inventory"
     );
-    assert_eq!((passed + failed + blocked, attempted), (7053, 5818));
+    assert_eq!((passed + failed + blocked, attempted), (7053, 5826));
     // Review deliberately when changing support; never silently widen blocking.
     assert_eq!(
         reasons,
         BTreeMap::from([
             ("PendingSpecReview".into(), 1),
-            ("TokenVariants".into(), 1230),
-            ("Unimplemented(AfterAttributeName)".into(), 14),
+            ("TokenVariants".into(), 1222),
+            ("Unimplemented(AfterAttributeName)".into(), 20),
             ("Unimplemented(AttributeName)".into(), 10),
             ("Unimplemented(CdataSection)".into(), 56),
             ("Unimplemented(CharacterReference)".into(), 4659),
@@ -273,21 +313,20 @@ fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_covera
             ("Unimplemented(Rawtext)".into(), 71),
             ("Unimplemented(Rcdata)".into(), 74),
             ("Unimplemented(ScriptData)".into(), 89),
-            ("Unimplemented(SelfClosingStartTag)".into(), 6),
             ("XmlCoercion".into(), 4),
         ])
     );
     assert_eq!(
         (passed, failed, blocked),
-        (547, 0, 6506),
-        "Before attribute name plus Bogus comment baseline (all prior passes retained)"
+        (555, 0, 6498),
+        "Before attribute name, Self-closing start tag, and Bogus comment baseline"
     );
     assert_eq!(
         passed_by_initial,
-        BTreeMap::from([("Data state".into(), 495), ("PLAINTEXT state".into(), 52)]),
-        "retain prior coverage; 25 comment-output Data-initial runs newly compare"
+        BTreeMap::from([("Data state".into(), 503), ("PLAINTEXT state".into(), 52)]),
+        "retain 547 prior passes and add eight Self-closing-start-tag passes"
     );
-    assert_eq!(retained_pre_comment_passes, 522);
+    assert_eq!(retained_pre_comment_passes, 530);
     assert_eq!(
         comment_passes,
         BOGUS_COMMENT_PASSES
@@ -298,7 +337,15 @@ fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_covera
     assert_eq!(retained_data_passes, 385);
     assert_eq!(retained_tag_open_passes, 24);
     assert_eq!(former_tag_name_seen, 11);
-    assert_eq!(newly_comparable_tag_passes, 55);
+    assert_eq!(newly_comparable_tag_passes, 62);
+    assert_eq!(retained_simple_tag_passes, 55);
+    assert_eq!(
+        self_closing_seen,
+        FORMER_SELF_CLOSING
+            .iter()
+            .map(|(file, description, _)| ((file.to_string(), description.to_string()), 1))
+            .collect()
+    );
     assert_eq!(
         newly_passed,
         FORMER_END_TAG_OPEN
@@ -309,12 +356,11 @@ fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_covera
     assert_eq!(
         former_tag_open,
         BTreeMap::from([
-            ("Passed".into(), 30),
+            ("Passed".into(), 31),
             ("Unimplemented(AfterAttributeName)".into(), 2),
             ("Unimplemented(AttributeName)".into(), 7),
             ("Unimplemented(CharacterReference)".into(), 1),
             ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
-            ("Unimplemented(SelfClosingStartTag)".into(), 1),
         ]),
         "account for all 66 formerly Tag-open-blocked runs"
     );
@@ -335,7 +381,12 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
         ("p&", "p", json!([]), State::CharacterReference),
         ("p<a ", "p", json!([]), State::AfterAttributeName),
         ("p<!", "p", json!([]), State::MarkupDeclarationOpen),
-        ("p</A/", "p", json!([]), State::SelfClosingStartTag),
+        (
+            "p</A/x",
+            "p",
+            json!([{"code":"unexpected-solidus-in-tag", "line":1, "col":6}]),
+            State::AttributeName,
+        ),
         (
             "p</0>&",
             "p",
@@ -684,6 +735,45 @@ fn comment_adapter_rejects_extra_fields_instead_of_dropping_them() {
 }
 
 #[test]
+fn production_self_closing_comparison_checks_start_flags_and_end_tag_diagnostics() {
+    // Local adapter tests, not additional upstream conformance runs.
+    let case = json!({"description":"flagged start", "input":"<br/>",
+        "output":[["StartTag","br",{},true]]});
+    assert_eq!(
+        run_with(&case, "Data state", None, execute),
+        Outcome::Passed
+    );
+    let mut wrong = case.clone();
+    wrong["output"] = json!([["StartTag", "br", {}]]);
+    assert!(matches!(
+        run_with(&wrong, "Data state", None, execute),
+        Outcome::Failed(_)
+    ));
+    wrong = case;
+    wrong["input"] = json!("<br>");
+    assert!(matches!(
+        run_with(&wrong, "Data state", None, execute),
+        Outcome::Failed(_)
+    ));
+    let mut end = json!({"description":"flagged end", "input":"</br/>",
+        "output":[["EndTag","br"]],
+        "errors":[{"code":"end-tag-with-trailing-solidus","line":1,"col":6}]});
+    assert_eq!(run_with(&end, "Data state", None, execute), Outcome::Passed);
+    end["errors"] = json!([]);
+    assert!(matches!(
+        run_with(&end, "Data state", None, execute),
+        Outcome::Failed(_)
+    ));
+    let prefix = json!({"description":"flag prefix still blocks", "input":"<p/><a/\0>",
+        "output":[["StartTag","p",{},true]],
+        "errors":[{"code":"unexpected-solidus-in-tag","line":1,"col":8}]});
+    assert_eq!(
+        run_with(&prefix, "Data state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::AttributeName))
+    );
+}
+
+#[test]
 fn unsupported_capabilities_never_invoke_executor_or_compare_a_partial_token() {
     let case = json!({"description":"synthetic", "input":"", "output":[["StartTag","p",{},true]]});
     for reason in [Blocked::XmlCoercion, Blocked::PendingSpecReview] {
@@ -695,7 +785,6 @@ fn unsupported_capabilities_never_invoke_executor_or_compare_a_partial_token() {
         );
     }
     for token in [
-        json!(["StartTag", "p", {}, true]),
         json!(["StartTag", "p", {"id":"x"}]),
         json!(["DOCTYPE", null, "", "id", false]),
         json!(["ProcessingInstruction", "x"]),

@@ -24,6 +24,7 @@ fn plaintext_null_replaces_output_not_current_input_and_reports_each_location() 
         pending_start_tag: Some(PendingStartTag {
             name: points("pending"),
             attributes: vec![],
+            self_closing: false,
         }),
         temporary_buffer: points("scratch"),
         return_state: Some(State::Rcdata),
@@ -60,6 +61,7 @@ fn plaintext_null_replaces_output_not_current_input_and_reports_each_location() 
             Some(PendingStartTag {
                 name: points("pending"),
                 attributes: vec![],
+                self_closing: false
             })
         );
         assert_eq!(execution.context().temporary_buffer, points("scratch"));

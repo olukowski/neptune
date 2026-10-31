@@ -27,10 +27,12 @@ fn seeded() -> Context {
         pending_start_tag: Some(PendingStartTag {
             name: points("start"),
             attributes: vec![],
+            self_closing: false,
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("end"),
             attributes: vec![],
+            self_closing: false,
         }),
         pending_comment: Some(PendingComment {
             data: points("old comment"),
@@ -129,7 +131,8 @@ fn end_tag_open_letters_create_empty_end_tags_without_lowercasing_then_reconsume
                 assert_eq!(
                     execution.context().tokens.last(),
                     Some(&Token::EndTag {
-                        name: points(&matched.to_ascii_lowercase().to_string())
+                        name: points(&matched.to_ascii_lowercase().to_string()),
+                        self_closing: false
                     })
                 );
             }

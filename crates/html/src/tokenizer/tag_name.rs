@@ -2,7 +2,7 @@
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, "Tag name state" (#tag-name-state).
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source>
 //! Creation, abandonment, emission, and last-start-tag semantics follow the
-//! opening Tokenization paragraphs. Attributes/flags retain creation defaults.
+//! opening Tokenization paragraphs. Reachable emission paths have no attributes.
 
 use super::{CodePoint, Context, Input, ParseError, Progress, State, TagKind, Token};
 
@@ -30,28 +30,50 @@ fn name(context: &mut Context) -> &mut Vec<CodePoint> {
 }
 
 // Take only the selected storage; unrelated pending storage is inspectable scaffolding.
-fn take_name(context: &mut Context) -> (TagKind, Vec<CodePoint>) {
+pub(super) fn take_tag(context: &mut Context) -> Token {
     let kind = context
         .current_tag
         .take()
-        .expect("Tag name requires a current tag");
-    let name = match kind {
+        .expect("tag state requires a current tag");
+    match kind {
         TagKind::Start => {
-            context
-                .pending_start_tag
-                .take()
-                .expect("current start tag")
-                .name
+            let tag = context.pending_start_tag.take().expect("current start tag");
+            Token::StartTag {
+                name: tag.name,
+                self_closing: tag.self_closing,
+            }
         }
         TagKind::End => {
-            context
-                .pending_end_tag
-                .take()
-                .expect("current end tag")
-                .name
+            let tag = context.pending_end_tag.take().expect("current end tag");
+            Token::EndTag {
+                name: tag.name,
+                self_closing: tag.self_closing,
+            }
         }
-    };
-    (kind, name)
+    }
+}
+
+// Shared by Tag name and Self-closing start tag: Tokenization emission rules.
+// Attribute creation reaches stubs before emission; emitting an attribute-bearing
+// context via manual redirection remains unsupported.
+pub(super) fn emit_tag(context: &mut Context) {
+    let token = take_tag(context);
+    match &token {
+        Token::StartTag { name, .. } => {
+            // Appropriate-end-tag context tracks EMITTED start tags only.
+            context.last_start_tag = Some(name.clone());
+        }
+        Token::EndTag {
+            self_closing: true, ..
+        } => {
+            context.errors.push(ParseError {
+                code: "end-tag-with-trailing-solidus",
+                position: context.input.position(),
+            });
+        }
+        _ => {}
+    }
+    context.tokens.push(token);
 }
 
 pub(super) fn step(context: &mut Context) -> Progress {
@@ -63,18 +85,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
             0x2f => Progress::Continue(State::SelfClosingStartTag),
             // U+003E GREATER-THAN SIGN: switch to Data and emit the current tag.
             0x3e => {
-                let (kind, name) = take_name(context);
-                let token = match kind {
-                    TagKind::Start => {
-                        // Appropriate-end-tag context tracks EMITTED start tags only.
-                        context.last_start_tag = Some(name.clone());
-                        Token::StartTag { name }
-                    }
-                    // Empty attributes / unset flag cannot trigger either end-tag
-                    // emission diagnostic from the Tokenization preamble.
-                    TagKind::End => Token::EndTag { name },
-                };
-                context.tokens.push(token);
+                emit_tag(context);
                 Progress::Continue(State::Data)
             }
             // ASCII upper alpha: add exactly 0x20; never Unicode case-fold.
@@ -103,7 +114,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
                 position: context.input.position(),
             });
             // The unfinished tag is abandoned, never emitted (Tokenization note).
-            take_name(context);
+            take_tag(context);
             context.tokens.push(Token::Eof);
             Progress::Finished
         }

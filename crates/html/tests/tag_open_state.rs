@@ -27,6 +27,7 @@ fn seeded() -> Context {
         pending_start_tag: Some(PendingStartTag {
             name: points("old"),
             attributes: vec![],
+            self_closing: false,
         }),
         temporary_buffer: vec![CodePoint::new(0xd800).unwrap(), 'x'.into()],
         ..Context::default()
@@ -89,6 +90,7 @@ fn tag_open_switch_branches_consume_once_and_preserve_effects_at_terminal_stubs(
                             points("old")
                         },
                         attributes: vec![],
+                        self_closing: false
                     })
                 );
                 assert_eq!(

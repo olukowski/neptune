@@ -154,18 +154,21 @@ fn prepare(case: &Value, state: &str) -> Result<Prepared, Blocked> {
                 .get(3)
                 .map(|flag| flag.as_bool().expect("flag bool"))
                 .unwrap_or(false);
-            // Production represents only creation defaults. Block the WHOLE run
-            // rather than dropping unsupported attributes or self-closing flags.
-            if !attributes.is_empty() || self_closing {
+            // Attributes remain unsupported. Compare the representable flag exactly.
+            if !attributes.is_empty() {
                 return Err(Blocked::TokenVariants);
             }
             expected.push(Token::StartTag {
                 name: decode(fields[1].as_str().expect("tag name"), double_escaped),
+                self_closing,
             });
         } else if kind == decode("EndTag", false) {
             assert_eq!(fields.len(), 2, "EndTag token shape");
+            // Upstream EndTag output omits its flag; the trailing-solidus error
+            // remains compared exactly. Preserve the flag in production storage.
             expected.push(Token::EndTag {
                 name: decode(fields[1].as_str().expect("tag name"), double_escaped),
+                self_closing: false,
             });
         } else {
             return Err(Blocked::TokenVariants);
@@ -226,6 +229,11 @@ fn output(tokens: Vec<Token>) -> Result<Vec<Token>, String> {
         }
         match token {
             Token::Eof => eof = true,
+            // The upstream EndTag shape has no self-closing field.
+            Token::EndTag { name, .. } => result.push(Token::EndTag {
+                name,
+                self_closing: false,
+            }),
             other => result.push(other),
         }
     }

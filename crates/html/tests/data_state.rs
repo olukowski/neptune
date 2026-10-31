@@ -33,6 +33,7 @@ fn data_ampersand_and_less_than_complete_source_effects_before_destination_entry
                 pending_start_tag: Some(PendingStartTag {
                     name: points("pending"),
                     attributes: vec![],
+                    self_closing: false,
                 }),
                 temporary_buffer: points("scratch"),
                 return_state: Some(State::Rcdata),
@@ -55,6 +56,7 @@ fn data_ampersand_and_less_than_complete_source_effects_before_destination_entry
                 Some(PendingStartTag {
                     name: points("pending"),
                     attributes: vec![],
+                    self_closing: false
                 })
             );
             assert_eq!(execution.context().temporary_buffer, points("scratch"));

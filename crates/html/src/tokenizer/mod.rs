@@ -1,5 +1,5 @@
 //! Partial tokenizer: Data, PLAINTEXT, Tag open, End tag open, Tag name,
-//! Before attribute name, and Bogus comment.
+//! Before attribute name, Self-closing start tag, and Bogus comment.
 //! All other states remain explicit stubs.
 
 mod before_attribute_name;
@@ -8,6 +8,7 @@ mod data;
 mod end_tag_open;
 mod input;
 mod plaintext;
+mod self_closing_start_tag;
 mod state;
 mod tag_name;
 mod tag_open;
@@ -16,34 +17,43 @@ pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
 /// Only emitted token variants needed by the implemented states.
-/// Reachable emission paths have empty attributes and unset self-closing flags.
-/// Attribute creation leads to stubs before any tag can be emitted.
+/// Reachable emission paths have empty attributes; attribute creation leads to stubs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
-    StartTag { name: Vec<CodePoint> },
-    EndTag { name: Vec<CodePoint> },
-    Comment { data: Vec<CodePoint> },
+    StartTag {
+        name: Vec<CodePoint>,
+        self_closing: bool,
+    },
+    EndTag {
+        name: Vec<CodePoint>,
+        self_closing: bool,
+    },
+    Comment {
+        data: Vec<CodePoint>,
+    },
     Eof,
 }
 
 /// Unfinished start tag created by Tag open, not an emitted token.
 ///
-/// The self-closing flag is implicitly unset. Attributes start empty; the last
+/// Creation unsets the self-closing flag. Attributes start empty; the last
 /// entry is the current attribute. No attribute-name/value algorithms run yet.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PendingStartTag {
     pub name: Vec<CodePoint>,
+    pub self_closing: bool,
     pub attributes: Vec<Attribute>,
 }
 
 /// Unfinished end tag created by End tag open, not an emitted token.
 ///
-/// As with `PendingStartTag`, the self-closing flag is implicitly unset and the
+/// As with `PendingStartTag`, creation unsets the self-closing flag and the
 /// attribute list starts empty; its last entry is the current attribute.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PendingEndTag {
     pub name: Vec<CodePoint>,
+    pub self_closing: bool,
     pub attributes: Vec<Attribute>,
 }
 
@@ -78,8 +88,8 @@ pub struct Context {
     /// Set by states invoking Character reference; absent before any invocation.
     pub return_state: Option<State>,
     /// Selected by tag creation; cleared on emission or abandonment at EOF.
-    /// Direct Tag name / Before attribute name entry requires this and its
-    /// matching pending tag.
+    /// Direct Tag name / Before attribute name / Self-closing start tag entry
+    /// requires this and its matching pending tag.
     pub current_tag: Option<TagKind>,
     /// Created, not emitted; absent until Tag open's ASCII-alpha branch.
     pub pending_start_tag: Option<PendingStartTag>,
@@ -128,6 +138,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),
         State::BeforeAttributeName => Ok(before_attribute_name::step(context)),
+        State::SelfClosingStartTag => Ok(self_closing_start_tag::step(context)),
         State::BogusComment => Ok(bogus_comment::step(context)),
         _ => Err(UnimplementedState { state }),
     }
@@ -191,7 +202,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_support_inventory_has_seven_implemented_states_and_seventy_seven_stubs() {
+    fn explicit_support_inventory_has_eight_implemented_states_and_seventy_six_stubs() {
         // Deliberate support inventory, independent of dispatch outcomes.
         const IMPLEMENTED: &[State] = &[
             State::Data,
@@ -200,6 +211,7 @@ mod tests {
             State::EndTagOpen,
             State::TagName,
             State::BeforeAttributeName,
+            State::SelfClosingStartTag,
             State::BogusComment,
         ];
         assert_eq!(State::ALL.len(), 84);
@@ -208,7 +220,7 @@ mod tests {
             .copied()
             .filter(|state| !IMPLEMENTED.contains(state))
             .collect();
-        assert_eq!(stubs.len(), 77);
+        assert_eq!(stubs.len(), 76);
         for state in stubs {
             for finished in [false, true] {
                 let mut context = Context::default();
