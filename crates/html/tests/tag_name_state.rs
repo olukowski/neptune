@@ -25,10 +25,12 @@ fn seeded(kind: TagKind) -> Context {
         pending_start_tag: Some(PendingStartTag {
             name: points("start"),
             attributes: vec![],
+            self_closing: false,
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("end"),
             attributes: vec![],
+            self_closing: false,
         }),
         pending_comment: Some(PendingComment {
             data: points("comment"),
@@ -174,23 +176,12 @@ fn tag_name_whitespace_and_solidus_consume_without_emitting_before_destination_e
                     Position { line: 1, column: 1 },
                 ));
                 assert_eq!(snapshot(&execution), expected);
-                if target == State::SelfClosingStartTag {
-                    for _ in 0..2 {
-                        assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-                        assert_eq!(snapshot(&execution), expected);
-                    }
-                }
-                // Source-local inspection; Before attribute name integration is
-                // covered in before_attribute_name_state.rs. A stub cannot resume.
+                // Source-local inspection; destination integration is covered in
+                // before_attribute_name_state.rs and self_closing_start_tag_state.rs.
                 assert_eq!(
                     execution.context_mut().input.consume(),
                     Input::CodePoint('Z'.into())
                 );
-                if target == State::SelfClosingStartTag {
-                    let inspected = snapshot(&execution);
-                    assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-                    assert_eq!(snapshot(&execution), inspected);
-                }
             }
         }
     }
@@ -216,11 +207,17 @@ fn tag_name_greater_than_emits_only_selected_tag_then_consumes_next_character_in
             TagKind::Start => {
                 expected.start = None;
                 expected.last_start_tag = Some(emitted_name.clone());
-                expected.tokens.push(Token::StartTag { name: emitted_name });
+                expected.tokens.push(Token::StartTag {
+                    name: emitted_name,
+                    self_closing: false,
+                });
             }
             TagKind::End => {
                 expected.end = None;
-                expected.tokens.push(Token::EndTag { name: emitted_name });
+                expected.tokens.push(Token::EndTag {
+                    name: emitted_name,
+                    self_closing: false,
+                });
             }
         }
         // Default attributes and flag cause neither end-tag emission diagnostic.
@@ -295,9 +292,18 @@ fn tag_name_simple_tag_milestone_and_unicode_malformed_name_integration() {
         ("<A\"'<&=!?09>text</A\"'<&=!?09>", "a\"'<&=!?09", "text"),
     ] {
         let execution = complete(&points(input), Context::default());
-        let mut expected = vec![Token::StartTag { name: points(tag) }];
+        let mut expected = vec![Token::StartTag {
+            name: points(tag),
+            self_closing: false,
+        }];
         expected.extend(points(text).into_iter().map(Token::Character));
-        expected.extend([Token::EndTag { name: points(tag) }, Token::Eof]);
+        expected.extend([
+            Token::EndTag {
+                name: points(tag),
+                self_closing: false,
+            },
+            Token::Eof,
+        ]);
         assert_eq!(execution.context().tokens, expected);
         assert_eq!(execution.context().last_start_tag, Some(points(tag)));
         assert_eq!(execution.context().current_tag, None);
@@ -311,10 +317,12 @@ fn tag_name_simple_tag_milestone_and_unicode_malformed_name_integration() {
         execution.context().tokens,
         [
             Token::StartTag {
-                name: points("a�b")
+                name: points("a�b"),
+                self_closing: false
             },
             Token::EndTag {
-                name: points("a�b")
+                name: points("a�b"),
+                self_closing: false
             },
             Token::Eof
         ]

@@ -30,10 +30,12 @@ fn seeded() -> Context {
         pending_start_tag: Some(PendingStartTag {
             name: points("start"),
             attributes: vec![],
+            self_closing: false,
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("end"),
             attributes: vec![],
+            self_closing: false,
         }),
         last_start_tag: Some(points("title")),
         return_state: Some(State::Rcdata),
@@ -305,7 +307,7 @@ fn bogus_comment_recovery_separates_source_diagnostics_and_preserves_stub_failur
         ("<!", State::MarkupDeclarationOpen),
         ("<?", State::ProcessingInstructionOpen),
         ("<a ", State::AfterAttributeName),
-        ("<a/", State::SelfClosingStartTag),
+        ("<a/x", State::AttributeName),
     ] {
         let mut execution = isolated(&points(&format!("x>{tail}")), true);
         let mut trace = vec![];
