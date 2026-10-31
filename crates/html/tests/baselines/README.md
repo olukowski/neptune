@@ -100,6 +100,16 @@ including every RCDATA name-state entry and registration, remain unchanged.
 The protected union now has 903 identities; no result-derived baseline generation,
 fixture/pin edits, comparison changes, or policy weakening is used.
 
+`script_data.json` adds eleven individually reviewed Script data identities:
+`domjs.test` cases 3 and 24 (initial-state index 3), and `test3.test` cases
+0, 2, 4, 6, 8, 18, 66, 1584, and 1604 (initial-state index 4). They cover
+NUL replacement/error, literal U+FEFF, empty input, whitespace, VT's preprocessing
+error, literal `&`, case preservation, and supplementary scalar input. The
+[state-local audit](../../../../docs/tokenizer-script-data.md#reviewed-fixture-identities)
+records unchanged expected tokens/errors and pinned branch reasoning. All 903
+prior identities/files remain unchanged (914 protected identities total).
+The baseline is a reviewed subset, not all newly passing runs or a conformance claim.
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an

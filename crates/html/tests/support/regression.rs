@@ -13,6 +13,7 @@ pub fn passing_baseline() -> BTreeSet<RunId> {
     let entries: Vec<RunId> = [
         include_str!("../baselines/passing.json"),
         include_str!("../baselines/rawtext.json"),
+        include_str!("../baselines/script_data.json"),
         include_str!("../baselines/rawtext_end_tag_open.json"),
         include_str!("../baselines/rawtext_end_tag_name.json"),
         include_str!("../baselines/rcdata.json"),

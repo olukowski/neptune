@@ -1,0 +1,13 @@
+[
+  ["domjs.test", "tests", 3, "Raw NUL replacement", "Script data state", 3],
+  ["domjs.test", "tests", 24, "leading U+FEFF must pass through", "Script data state", 3],
+  ["test3.test", "tests", 0, "[empty]", "Script data state", 4],
+  ["test3.test", "tests", 2, "\\u0009", "Script data state", 4],
+  ["test3.test", "tests", 4, "\\u000A", "Script data state", 4],
+  ["test3.test", "tests", 6, "\\u000B", "Script data state", 4],
+  ["test3.test", "tests", 8, "\\u000C", "Script data state", 4],
+  ["test3.test", "tests", 18, "&", "Script data state", 4],
+  ["test3.test", "tests", 66, ";\\uDBC0\\uDC00", "Script data state", 4],
+  ["test3.test", "tests", 1584, "A", "Script data state", 4],
+  ["test3.test", "tests", 1604, "\\uDBC0\\uDC00", "Script data state", 4]
+]
