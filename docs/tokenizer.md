@@ -2,8 +2,8 @@
 
 ## Status and source
 
-**Only Data, PLAINTEXT, Tag open, End tag open, Tag name, Before attribute name,
-Self-closing start tag, and Bogus comment are implemented. All other states,
+**Only Data, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before attribute
+name, Self-closing start tag, and Bogus comment are implemented. All other states,
 including Attribute name, After attribute name, ordinary Comment, and Character
 reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a
 stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
@@ -12,8 +12,9 @@ Implementation evidence is the immutable HTML Standard source in
 [docs/sources.toml](sources.toml), specifically **Preprocessing the input stream**
 and the opening **Tokenization** paragraphs (current/next input, reconsumption,
 and token creation/emission), plus **Data state** (`#data-state`), **PLAINTEXT
-state** (`#plaintext-state`), **Tag open state** (`#tag-open-state`), **End tag
-open state** (`#end-tag-open-state`), **Tag name state** (`#tag-name-state`),
+state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
+**Tag open state** (`#tag-open-state`), **End tag open state** (`#end-tag-open-state`),
+**Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
 **Self-closing start tag state** (`#self-closing-start-tag-state`), and
 **Bogus comment state** (`#bogus-comment-state`).
@@ -222,6 +223,36 @@ markup and references, and preprocessing diagnostics. These are state-specific
 streaming checks, not whole-tokenizer conformance. Local production-adapter tests
 also cover explicit PLAINTEXT selection, repeated independent initial-state runs,
 Data defaults, empty input, and double-escaped NUL/surrogate diagnostics.
+
+## RAWTEXT coverage
+
+The implementation follows the pinned **RAWTEXT state** (`#rawtext-state`) in
+source order: `<` switches to RAWTEXT less-than sign; NUL reports
+`unexpected-null-character` at the consumed point and emits U+FFFD; EOF emits one
+terminal EOF; anything else emits the current code point unchanged. In particular,
+`&` is literal, not a character reference, and neither sets nor consumes the
+return state. No branch schedules reconsumption. Open exhausted input suspends.
+
+Select RAWTEXT explicitly with `Execution::new(State::Rawtext, context)`; the
+fixture runner already maps `RAWTEXT state` to that initial state. No tree builder
+or automatic switching on `<style>` is added. RAWTEXT less-than sign, RAWTEXT end
+tag open, and RAWTEXT end tag name remain terminal `UnimplementedState` stubs.
+A matching output prefix before a stub is blocked, never EOF or a passing run;
+blocked execution must not be reconstructed/resumed. Attribute name and RCDATA
+remain outside this PR and are still stubs.
+
+Focused tests in `crates/html/tests/rawtext_state.rs` check literal ampersands and
+markup-like punctuation, NUL replacement/errors, exact normalized positions,
+Unicode and actual surrogate/noncharacter/control points without silent
+replacement or duplicate preprocessing errors, intended transitions, consumption,
+retained context/return state, empty input, and repeated suspension/termination.
+All two-chunk splits and single-code-point chunks of representative inputs compare
+every source-step snapshot, including `<`, CRLF, consecutive/trailing CR, NUL,
+and terminal blocks. State-local adapter tests in
+`crates/html/tests/support/rawtext.rs` check explicit initial-state mapping,
+Data defaults, no automatic style handling,
+exact output/diagnostics, and matching-prefix rejection at the destination stub.
+These are state-specific checks, not full tokenizer streaming conformance.
 
 ## Tag open coverage
 

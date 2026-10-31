@@ -10,8 +10,13 @@ use crate::support::Outcome;
 pub type RunId = (String, String, usize, String, String, usize);
 
 pub fn passing_baseline() -> BTreeSet<RunId> {
-    let entries: Vec<RunId> = serde_json::from_str(include_str!("../baselines/passing.json"))
-        .expect("passing run identities");
+    let entries: Vec<RunId> = [
+        include_str!("../baselines/passing.json"),
+        include_str!("../baselines/rawtext.json"),
+    ]
+    .into_iter()
+    .flat_map(|source| serde_json::from_str::<Vec<RunId>>(source).expect("passing run identities"))
+    .collect();
     let count = entries.len();
     let baseline: BTreeSet<_> = entries.into_iter().collect();
     assert!(!baseline.is_empty(), "empty passing baseline");

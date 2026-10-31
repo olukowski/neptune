@@ -1,4 +1,6 @@
 //! Partial upstream execution report, distinct from fixture inventory.
+#[path = "support/rawtext.rs"]
+mod rawtext;
 #[path = "support/regression.rs"]
 mod regression;
 mod support;
