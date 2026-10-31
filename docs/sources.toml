@@ -1,0 +1,20 @@
+# Reviewed baselines, not automatically updated tracking branches.
+
+[html]
+repository = "https://github.com/whatwg/html"
+revision = "404b3eb14a7a936dddefb2d78e224dbeb01d2358"
+source = "https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source"
+living_standard = "https://html.spec.whatwg.org/multipage/parsing.html#tokenization"
+# The immutable source URL is the baseline; the living URL is a navigation aid.
+
+[html5lib_tests]
+repository = "https://github.com/html5lib/html5lib-tests"
+revision = "c777c408b61078ea2eb4acefc2535f54dbc8b28a"
+path = "tests/html5lib-tests"
+license = "MIT"
+# The git submodule entry pins the checkout; keep this record synchronized.
+
+[wpt]
+repository = "https://github.com/web-platform-tests/wpt"
+path = "html/syntax/parsing"
+status = "Not yet imported or pinned; add a revision when adopting tree-construction tests."
