@@ -1,4 +1,6 @@
 //! Partial upstream execution report, distinct from fixture inventory.
+#[path = "support/regression.rs"]
+mod regression;
 mod support;
 
 use std::{collections::BTreeMap, fs, path::Path};
@@ -7,137 +9,39 @@ use neptune_html::tokenizer::{CodePoint, Input, State, Token, UnimplementedState
 use serde_json::json;
 use support::*;
 
-#[test]
-fn pinned_upstream_runner_reports_before_attribute_name_self_closing_and_bogus_comment_coverage() {
-    let directory =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
+// Keep availability failures loud even before any run can be compared.
+fn fixture_paths(directory: &Path) -> Vec<std::path::PathBuf> {
     let mut paths: Vec<_> = fs::read_dir(directory)
         .expect("missing fixtures: run git submodule update --init --recursive")
-        .map(|entry| entry.unwrap().path())
+        .map(|entry| entry.expect("fixture directory entry").path())
         .filter(|path| {
             path.extension()
                 .is_some_and(|extension| extension == "test")
         })
         .collect();
     paths.sort();
-    assert_eq!(paths.len(), 14);
+    assert!(!paths.is_empty(), "no upstream tokenizer fixtures found");
+    paths
+}
+
+#[test]
+fn pinned_upstream_runner() {
+    let directory =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
+    let paths = fixture_paths(&directory);
+    assert_eq!(paths.len(), 14, "pinned fixture file inventory");
+    let baseline = regression::passing_baseline();
+    let mut outcomes = BTreeMap::new();
     let (mut passed, mut failed, mut blocked, mut cases, mut attempted) = (0, 0, 0, 0, 0);
     let mut reasons = BTreeMap::<String, usize>::new();
-    let mut passed_by_initial = BTreeMap::<String, usize>::new();
-    let mut retained_data_passes = 0;
-    let mut retained_pre_comment_passes = 0;
-    let mut comment_passes = BTreeMap::new();
-    // Explicit newly comparable upstream identities, not inferred from dispatch.
-    const BOGUS_COMMENT_PASSES: &[(&str, &str)] = &[
-        ("test2.test", "Illegal end tag name"),
-        ("test3.test", r"</\u0000"),
-        ("test3.test", r"</\u0009"),
-        ("test3.test", r"</\u000A"),
-        ("test3.test", r"</\u000B"),
-        ("test3.test", r"</\u000C"),
-        ("test3.test", "</ "),
-        ("test3.test", r"</ \u0000"),
-        ("test3.test", "</!"),
-        ("test3.test", "</\""),
-        ("test3.test", "</&"),
-        ("test3.test", "</'"),
-        ("test3.test", "</-"),
-        ("test3.test", "<//"),
-        ("test3.test", "</0"),
-        ("test3.test", "</1"),
-        ("test3.test", "</9"),
-        ("test3.test", "</<"),
-        ("test3.test", "</="),
-        ("test3.test", "</?"),
-        ("test3.test", "</@"),
-        ("test3.test", "</["),
-        ("test3.test", "</`"),
-        ("test3.test", "</{"),
-        ("test3.test", r"</\uDBC0\uDC00"),
-    ];
-    let mut newly_comparable_tag_passes = 0;
-    let mut retained_tag_open_passes = 0;
-    let mut retained_simple_tag_passes = 0;
-    let mut self_closing_seen = BTreeMap::new();
-    // All six former Self-closing-start-tag blocks, independently identified.
-    const FORMER_SELF_CLOSING: &[(&str, &str, bool)] = &[
-        ("test3.test", "<a/\\u0009>", false),
-        ("test3.test", "<a/\\u000A>", false),
-        ("test3.test", "<a/\\u000C>", false),
-        ("test3.test", "<a/ >", false),
-        ("test4.test", "Slash EOF in tag name", true),
-        ("test4.test", "Permitted slash but in close tag", true),
-    ];
-    let mut former_tag_open = BTreeMap::<String, usize>::new();
-    // Explicit case identities from the previous five End-tag-open blocks.
-    // Independent of production dispatch; fixtures and policies are unchanged.
-    const FORMER_END_TAG_OPEN: &[(&str, &str)] = &[
-        ("test1.test", "Empty end tag"),
-        ("test2.test", "Unescaped </"),
-        ("test2.test", "Empty end tag with following characters"),
-        ("test3.test", "</"),
-        ("test3.test", "</>"),
-    ];
-    // Explicit previous Tag-name-blocked cases: EOF in name or after '/' can finish.
-    const FORMER_TAG_NAME: &[(&str, &str, Option<State>)] = &[
-        (
-            "test4.test",
-            "CR EOF in tag name",
-            Some(State::AfterAttributeName),
-        ),
-        ("test4.test", "Slash EOF in tag name", None),
-        ("test4.test", "EOF in tag name state ", None),
-        (
-            "test4.test",
-            "EOF in before attribute name state",
-            Some(State::AfterAttributeName),
-        ),
-        (
-            "test4.test",
-            "EOF in attribute name state",
-            Some(State::AttributeName),
-        ),
-        (
-            "test4.test",
-            "EOF in after attribute name state",
-            Some(State::AttributeName),
-        ),
-        (
-            "test4.test",
-            "EOF in before attribute value state",
-            Some(State::AttributeName),
-        ),
-        (
-            "test4.test",
-            "EOF in attribute value (double quoted) state",
-            Some(State::AttributeName),
-        ),
-        (
-            "test4.test",
-            "EOF in attribute value (single quoted) state",
-            Some(State::AttributeName),
-        ),
-        (
-            "test4.test",
-            "EOF in attribute value (unquoted) state",
-            Some(State::AttributeName),
-        ),
-        (
-            "test4.test",
-            "EOF in after attribute value state",
-            Some(State::AttributeName),
-        ),
-    ];
-    let mut former_tag_name_seen = 0;
-    let mut newly_passed = BTreeMap::new();
     for path in paths {
         let document: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        let (tests, policy) = if let Some(tests) = document.get("xmlViolationTests") {
-            (tests, Some(Blocked::XmlCoercion))
+            serde_json::from_slice(&fs::read(&path).expect("read fixture")).expect("fixture JSON");
+        let (group, policy) = if document.get("xmlViolationTests").is_some() {
+            ("xmlViolationTests", Some(Blocked::XmlCoercion))
         } else {
             (
-                &document["tests"],
+                "tests",
                 if path.file_name().unwrap() == "pendingSpecChanges.test" {
                     Some(Blocked::PendingSpecReview)
                 } else {
@@ -145,145 +49,44 @@ fn pinned_upstream_runner_reports_before_attribute_name_self_closing_and_bogus_c
                 },
             )
         };
-        for case in tests.as_array().unwrap() {
+        for (case_index, case) in document[group]
+            .as_array()
+            .expect("fixture test array")
+            .iter()
+            .enumerate()
+        {
             cases += 1;
-            for state in initial_states(case) {
+            for (state_index, state) in initial_states(case).into_iter().enumerate() {
+                let id = (
+                    path.file_name().unwrap().to_str().unwrap().to_owned(),
+                    group.to_owned(),
+                    case_index,
+                    case["description"]
+                        .as_str()
+                        .expect("fixture description")
+                        .to_owned(),
+                    state.clone(),
+                    state_index,
+                );
                 let result = run_with(case, &state, policy, |run| {
                     attempted += 1;
                     execute(run)
                 });
-                let identity = (
-                    path.file_name().unwrap().to_str().unwrap(),
-                    case["description"].as_str().unwrap(),
-                );
-                if state == "Data state"
-                    && let Some((_, _, finishes)) = FORMER_SELF_CLOSING
-                        .iter()
-                        .find(|(file, description, _)| (*file, *description) == identity)
-                {
-                    assert_eq!(
-                        result,
-                        if *finishes {
-                            Outcome::Passed
-                        } else {
-                            Outcome::Blocked(Blocked::Unimplemented(State::AfterAttributeName))
-                        },
-                        "{identity:?}"
-                    );
-                    *self_closing_seen
-                        .entry((identity.0.to_owned(), identity.1.to_owned()))
-                        .or_insert(0) += 1;
-                }
-                // Independently identify the previous Data baseline: complete Data
-                // runs never reached '&' or '<'; formerly Tag-open-blocked runs
-                // reached '<' before any '&'. Do not infer support from dispatch.
-                let input = decode(
-                    case["input"].as_str().unwrap(),
-                    case.get("doubleEscaped")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                );
-                let first_transition = input.iter().find(|p| matches!(p.value(), 0x26 | 0x3c));
-                let adapter_supported = policy.is_none()
-                    && case["output"].as_array().unwrap().iter().all(|token| {
-                        decode(
-                            token[0].as_str().unwrap(),
-                            case.get("doubleEscaped")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false),
-                        ) == decode("Character", false)
-                    });
-                if state == "Data state" && adapter_supported {
-                    let identity = (
-                        path.file_name().unwrap().to_str().unwrap(),
-                        case["description"].as_str().unwrap(),
-                    );
-                    if FORMER_END_TAG_OPEN.contains(&identity) {
-                        assert_eq!(result, Outcome::Passed, "{identity:?}");
-                        *newly_passed
-                            .entry((identity.0.to_owned(), identity.1.to_owned()))
-                            .or_insert(0) += 1;
-                    } else if let Some((_, _, destination)) = FORMER_TAG_NAME
-                        .iter()
-                        .find(|(file, description, _)| (*file, *description) == identity)
-                    {
-                        let expected = destination
-                            .map(|state| Outcome::Blocked(Blocked::Unimplemented(state)))
-                            .unwrap_or(Outcome::Passed);
-                        assert_eq!(result, expected, "{identity:?}");
-                        former_tag_name_seen += 1;
-                    } else if first_transition.is_some_and(|point| point.value() == 0x3c) {
-                        retained_tag_open_passes += usize::from(result == Outcome::Passed);
-                    }
-                    if first_transition.is_none() {
-                        retained_data_passes += usize::from(result == Outcome::Passed);
-                    } else if first_transition.is_some_and(|point| point.value() == 0x3c) {
-                        let label = match &result {
-                            Outcome::Passed => "Passed".into(),
-                            Outcome::Blocked(reason) => format!("{reason:?}"),
-                            Outcome::Failed(_) => "Failed".into(),
-                        };
-                        *former_tag_open.entry(label).or_default() += 1;
-                    }
-                }
-                match result {
-                    Outcome::Passed => {
-                        if case["output"].as_array().unwrap().iter().any(|token| {
-                            decode(
-                                token[0].as_str().unwrap(),
-                                case.get("doubleEscaped")
-                                    .and_then(|v| v.as_bool())
-                                    .unwrap_or(false),
-                            ) == decode("Comment", false)
-                        }) {
-                            assert_eq!(state, "Data state");
-                            *comment_passes
-                                .entry((
-                                    path.file_name().unwrap().to_str().unwrap().to_owned(),
-                                    case["description"].as_str().unwrap().to_owned(),
-                                ))
-                                .or_insert(0) += 1;
-                        } else {
-                            retained_pre_comment_passes += 1;
-                        }
-                        if case["output"].as_array().unwrap().iter().any(|token| {
-                            let kind = decode(
-                                token[0].as_str().unwrap(),
-                                case.get("doubleEscaped")
-                                    .and_then(|v| v.as_bool())
-                                    .unwrap_or(false),
-                            );
-                            kind == decode("StartTag", false) || kind == decode("EndTag", false)
-                        }) {
-                            newly_comparable_tag_passes += 1;
-                            // Retain all 55 prior tag-output passes, not merely
-                            // the aggregate total after admitting flagged tags.
-                            if !case["output"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .any(|t| t.get(3).and_then(|v| v.as_bool()) == Some(true))
-                                && identity != ("test4.test", "Permitted slash but in close tag")
-                            {
-                                retained_simple_tag_passes += 1;
-                            }
-                        }
-                        passed += 1;
-                        *passed_by_initial.entry(state.clone()).or_default() += 1;
-                    }
+                match &result {
+                    Outcome::Passed => passed += 1,
                     Outcome::Failed(message) => {
                         failed += 1;
-                        eprintln!(
-                            "{} / {} / {state}: {message}",
-                            path.display(),
-                            case["description"]
-                        );
+                        eprintln!("{id:?}: {message}");
                     }
                     Outcome::Blocked(reason) => {
                         blocked += 1;
                         *reasons.entry(format!("{reason:?}")).or_default() += 1;
                     }
                 }
+                assert!(
+                    outcomes.insert(id, result).is_none(),
+                    "duplicate run identity"
+                );
             }
         }
     }
@@ -292,78 +95,17 @@ fn pinned_upstream_runner_reports_before_attribute_name_self_closing_and_bogus_c
         passed + failed + blocked,
         passed + failed
     );
-    assert_eq!(cases, 6827);
+    assert_eq!(cases, 6827, "pinned fixture case inventory");
     assert!(
         attempted > 0,
         "must reach production dispatch, not just inventory"
     );
-    assert_eq!((passed + failed + blocked, attempted), (7053, 5826));
-    // Review deliberately when changing support; never silently widen blocking.
     assert_eq!(
-        reasons,
-        BTreeMap::from([
-            ("PendingSpecReview".into(), 1),
-            ("TokenVariants".into(), 1222),
-            ("Unimplemented(AfterAttributeName)".into(), 20),
-            ("Unimplemented(AttributeName)".into(), 10),
-            ("Unimplemented(CdataSection)".into(), 56),
-            ("Unimplemented(CharacterReference)".into(), 4659),
-            ("Unimplemented(MarkupDeclarationOpen)".into(), 240),
-            ("Unimplemented(ProcessingInstructionOpen)".into(), 52),
-            ("Unimplemented(Rawtext)".into(), 71),
-            ("Unimplemented(Rcdata)".into(), 74),
-            ("Unimplemented(ScriptData)".into(), 89),
-            ("XmlCoercion".into(), 4),
-        ])
+        failed, 0,
+        "every comparable mismatch fails, including newly admitted runs"
     );
-    assert_eq!(
-        (passed, failed, blocked),
-        (555, 0, 6498),
-        "Before attribute name, Self-closing start tag, and Bogus comment baseline"
-    );
-    assert_eq!(
-        passed_by_initial,
-        BTreeMap::from([("Data state".into(), 503), ("PLAINTEXT state".into(), 52)]),
-        "retain 547 prior passes and add eight Self-closing-start-tag passes"
-    );
-    assert_eq!(retained_pre_comment_passes, 530);
-    assert_eq!(
-        comment_passes,
-        BOGUS_COMMENT_PASSES
-            .iter()
-            .map(|(file, description)| ((file.to_string(), description.to_string()), 1))
-            .collect()
-    );
-    assert_eq!(retained_data_passes, 385);
-    assert_eq!(retained_tag_open_passes, 24);
-    assert_eq!(former_tag_name_seen, 11);
-    assert_eq!(newly_comparable_tag_passes, 62);
-    assert_eq!(retained_simple_tag_passes, 55);
-    assert_eq!(
-        self_closing_seen,
-        FORMER_SELF_CLOSING
-            .iter()
-            .map(|(file, description, _)| ((file.to_string(), description.to_string()), 1))
-            .collect()
-    );
-    assert_eq!(
-        newly_passed,
-        FORMER_END_TAG_OPEN
-            .iter()
-            .map(|(file, description)| ((file.to_string(), description.to_string()), 1))
-            .collect()
-    );
-    assert_eq!(
-        former_tag_open,
-        BTreeMap::from([
-            ("Passed".into(), 31),
-            ("Unimplemented(AfterAttributeName)".into(), 2),
-            ("Unimplemented(AttributeName)".into(), 7),
-            ("Unimplemented(CharacterReference)".into(), 1),
-            ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
-        ]),
-        "account for all 66 formerly Tag-open-blocked runs"
-    );
+    regression::check_previous_passes(&baseline, &outcomes)
+        .unwrap_or_else(|message| panic!("{message}"));
     assert!(
         !reasons.contains_key("FixtureCapability"),
         "review new fixture fields"
@@ -372,6 +114,48 @@ fn pinned_upstream_runner_reports_before_attribute_name_self_closing_and_bogus_c
         !reasons.contains_key("InitialState"),
         "review new initial states"
     );
+}
+
+#[test]
+#[should_panic(expected = "missing fixtures: run git submodule update --init --recursive")]
+fn synthetic_missing_fixtures_fail_with_setup_instructions() {
+    // An executable is a file, never a fixture directory. No fixture is moved.
+    fixture_paths(&std::env::current_exe().unwrap().join("missing-fixtures"));
+}
+
+#[test]
+fn synthetic_malformed_known_fixture_shapes_fail_loudly() {
+    let good = json!({"description":"synthetic", "input":"", "output":[]});
+    for (field, value) in [
+        ("input", json!(false)),
+        ("output", json!({})),
+        ("doubleEscaped", json!("true")),
+        ("lastStartTag", json!(false)),
+        ("errors", json!({})),
+        ("errors", json!([{"code":"x","line":0,"col":1}])),
+        ("output", json!([["Character", 1]])),
+        ("output", json!([["EndTag", "p", {}]])),
+        ("output", json!([["StartTag", "p", [], false]])),
+        ("output", json!([["StartTag", "p", {}, "true"]])),
+    ] {
+        let mut malformed = good.clone();
+        malformed[field] = value;
+        assert!(
+            std::panic::catch_unwind(|| run_with(&malformed, "Data state", None, |_| {
+                Completion::Complete {
+                    tokens: vec![Token::Eof],
+                    errors: vec![],
+                }
+            }))
+            .is_err(),
+            "{malformed}"
+        );
+    }
+    for states in [json!([]), json!({}), json!([1])] {
+        assert!(
+            std::panic::catch_unwind(|| initial_states(&json!({"initialStates": states}))).is_err()
+        );
+    }
 }
 
 #[test]

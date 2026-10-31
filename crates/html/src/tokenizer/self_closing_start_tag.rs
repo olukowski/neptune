@@ -3,7 +3,7 @@
 //! (#self-closing-start-tag-state), and opening Tokenization emission rules.
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source>
 
-use super::{Context, Input, ParseError, Progress, State, TagKind, Token, tag_name};
+use super::{Context, Input, ParseError, Progress, State, TagKind, Token, tag};
 
 pub(super) fn step(context: &mut Context) -> Progress {
     match context.input.consume() {
@@ -29,7 +29,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
                         .self_closing = true;
                 }
             }
-            tag_name::emit_tag(context);
+            tag::emit_tag(context);
             Progress::Continue(State::Data)
         }
         Input::Eof => {
@@ -38,7 +38,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
                 position: context.input.position(),
             });
             // Unfinished tokens are abandoned, not emitted (Tokenization note).
-            tag_name::take_tag(context);
+            tag::take_tag(context);
             context.tokens.push(Token::Eof);
             Progress::Finished
         }

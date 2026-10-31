@@ -1,6 +1,5 @@
-//! Partial tokenizer: Data, PLAINTEXT, Tag open, End tag open, Tag name,
-//! Before attribute name, Self-closing start tag, and Bogus comment.
-//! All other states remain explicit stubs.
+//! Partial tokenizer with explicit stubs for unsupported states.
+//! See docs/tokenizer.md for current scope and pinned specification provenance.
 
 mod before_attribute_name;
 mod bogus_comment;
@@ -10,8 +9,12 @@ mod input;
 mod plaintext;
 mod self_closing_start_tag;
 mod state;
+mod tag;
 mod tag_name;
 mod tag_open;
+
+#[cfg(test)]
+mod support_inventory;
 
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
@@ -200,58 +203,6 @@ impl Execution {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn explicit_support_inventory_has_eight_implemented_states_and_seventy_six_stubs() {
-        // Deliberate support inventory, independent of dispatch outcomes.
-        const IMPLEMENTED: &[State] = &[
-            State::Data,
-            State::Plaintext,
-            State::TagOpen,
-            State::EndTagOpen,
-            State::TagName,
-            State::BeforeAttributeName,
-            State::SelfClosingStartTag,
-            State::BogusComment,
-        ];
-        assert_eq!(State::ALL.len(), 84);
-        let stubs: Vec<_> = State::ALL
-            .iter()
-            .copied()
-            .filter(|state| !IMPLEMENTED.contains(state))
-            .collect();
-        assert_eq!(stubs.len(), 76);
-        for state in stubs {
-            for finished in [false, true] {
-                let mut context = Context::default();
-                if finished {
-                    context.input.finish();
-                }
-                let mut execution = Execution::new(state, context);
-                let expected = Err(UnimplementedState { state });
-                assert_eq!(execution.step(), expected);
-                assert_eq!(
-                    execution.step_with(|_, _| panic!("must not resume")),
-                    expected
-                );
-                assert_eq!(execution.context().input.current(), None);
-                assert!(execution.context().tokens.is_empty());
-                assert!(execution.context().errors.is_empty());
-                assert!(execution.context().current_tag.is_none());
-                assert!(execution.context().pending_start_tag.is_none());
-                assert!(execution.context().pending_end_tag.is_none());
-                assert!(execution.context().pending_comment.is_none());
-                assert!(execution.context().temporary_buffer.is_empty());
-            }
-        }
-        assert_eq!(
-            UnimplementedState {
-                state: State::AttributeName
-            }
-            .to_string(),
-            "unimplemented HTML tokenizer state: Attribute name state"
-        );
-    }
 
     #[test]
     fn synthetic_source_effects_and_transition_are_inspectable_before_target_stub() {

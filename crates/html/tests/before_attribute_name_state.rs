@@ -28,12 +28,12 @@ fn seeded(kind: TagKind) -> Context {
         pending_start_tag: Some(PendingStartTag {
             name: points("start"),
             attributes: vec![attribute.clone()],
-            self_closing: false,
+            ..PendingStartTag::default()
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("end"),
             attributes: vec![attribute],
-            self_closing: false,
+            ..PendingEndTag::default()
         }),
         pending_comment: Some(PendingComment {
             data: points("comment"),

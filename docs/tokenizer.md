@@ -3,7 +3,7 @@
 ## Status and source
 
 **Only Data, PLAINTEXT, Tag open, End tag open, Tag name, Before attribute name,
-Self-closing start tag, and Bogus comment are implemented. The other 76 states,
+Self-closing start tag, and Bogus comment are implemented. All other states,
 including Attribute name, After attribute name, ordinary Comment, and Character
 reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a
 stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
@@ -87,13 +87,11 @@ instruction states and no separate decimal-character-reference-start state.
   mutation does not clear terminal status. Reconstructing/resuming after a stub
   has **no supported semantics**.
 
-Production dispatch implements only Data, PLAINTEXT, Tag open, End tag open,
-Tag name, Before attribute name, Self-closing start tag, and Bogus comment, with
-no synthetic handlers. Unit tests inject private, non-algorithmic source steps to
-validate the execution shell separately. The independent support-inventory test
-explicitly lists those eight and checks that the other 76 states
-block without effects at both suspension and EOF; it does not infer support from
-dispatch.
+The [independent support inventory](../crates/html/src/tokenizer/support_inventory.rs)
+explicitly lists supported states separately from production dispatch. It checks
+both supported entry and effect-free terminal stubs at suspension and EOF. Unit
+tests inject private, non-algorithmic source steps to validate the execution shell
+separately.
 
 ## Fixture runner
 
@@ -163,68 +161,22 @@ pair. Every run has exactly one result:
 including blocked stubs. This avoids describing attempted-but-blocked runs as
 successfully executed conformance tests. Inventory tests execute no conformance.
 
-Current pinned baseline including Before attribute name, Self-closing start tag,
-and Bogus comment:
-14 files, 6,827 cases, **7,053 runs; 5,826 dispatch-attempted; 555 executed,
-555 passed, 0 failed, 6,498 blocked**:
+The runner prints current totals and blocked-reason distribution centrally; keep
+exact run evidence in PR reports, not repeated hand-maintained documentation.
+Every comparable mismatch fails CI, including newly admitted runs.
+The [passing-run baseline](../crates/html/tests/baselines/README.md) independently
+records previously verified passes, including fixture identity and initial state.
+Each must still be present and pass exact output/diagnostic comparison; becoming
+blocked, failed, or missing fails CI even if other cases now pass. There is no
+automatic baseline-update mode. Add reviewed new pass identities without removing
+old ones; fixture/specification migrations require explicit review.
 
-- 4,659 blocked at Character reference (including one after Tag open recovery)
-- 20 blocked at After attribute name
-- 10 blocked at Attribute name
-- 52 blocked at Processing instruction open
-- 240 blocked at Markup declaration open
-- 290 blocked at other initial-state stubs (56 CDATA section, 71 RAWTEXT,
-  74 RCDATA, 89 Script data)
-- 1,222 unsupported-token runs
-- 4 XML-coercion runs
-- 1 pending-spec-review run
-
-At the preceding Tag name milestone, all **466 prior passes were retained**: 385 original Data, 52 PLAINTEXT, 24 Tag
-open additions, and five End tag open additions. The runner asserts these groups
-independently of dispatch, including explicit identities for the five End tag
-open cases. Of the 11 former Tag-name-blocked runs (also explicitly identified),
-`test4.test` “EOF in tag name state ” and “Slash EOF in tag name” now pass;
-two block at After attribute name and seven at Attribute name. Thus 31 of the
-original 66 Tag-open-blocked runs pass; 35 still block (2 After attribute name,
-7 Attribute name, 25 Processing instruction open, 1 Character reference).
-
-That milestone's adapter admitted **101 additional runs** with supported tag outputs: 55 pass,
-20 reach missing attribute/self-closing states, and 26 reach still-missing initial
-states. Together with the EOF-in-name pass this adds **56 passes**, all Data-
-initial: 470 Data and 52 PLAINTEXT passes in total. There are 5,184 Data-initial
-dispatch attempts, of which 4,714 remain blocked. No failed run was excluded to
-obtain these counts; policy precedence and existing exclusions are unchanged.
-Unsupported-token runs decreased from 1,625 to 1,524 with Tag name, while the
-admitted runs can still block at dispatch. Before attribute name retains all
-547 passes after the Bogus comment merge and adds none: its 24 former blocks now
-reach After attribute name (14) or Attribute name (10). No policy, adapter support,
-fixture, or pinned revision changed.
-
-Bogus comment retains **all 522 Tag name baseline passes** and adds **25 Data-
-initial passes**, explicitly identified in the runner (one `test2.test` case and
-24 `test3.test` cases). That stage's totals were 495 Data and 52 PLAINTEXT passes.
-Exact comment output support admits 294 formerly unsupported-token runs: 25 pass,
-240 block at Markup declaration open, 27 at Processing instruction open, and one
-each at RAWTEXT/RCDATA. These are additional dispatch attempts, not 294 passes.
-No failed case was excluded, and fixtures, revisions, and policy precedence are
-unchanged. Processing-instruction support has not been added.
-
-Self-closing start tag retains **all 547 merged baseline passes** and adds eight.
-Of its six former blocks, EOF after `/` and `</br/>` now pass; four whitespace-
-recovery cases execute Before attribute name and block at After attribute name.
-Admitting eight flagged StartTag runs adds six passes and two After-attribute-name
-blocks (`<a />`, `<a//>`). After-attribute-name blocks therefore increase from 14
-to 20 without a regression or added exclusion. Current totals are **503 Data and
-52 PLAINTEXT passes**, including 62 tag-output passes; the 25 Bogus comment passes
-remain independently identified. All 55 earlier simple-tag-output passes are also
-retained. Fixture contents, pinned revisions, and policy precedence are unchanged.
-
-The baseline counts/reasons are asserted explicitly; widening blocking requires
-review, not an automatic skip. Synthetic executor tests independently demonstrate
-both matches and deliberate mismatches/classification; their passes are **not**
-upstream tokenizer conformance passes. Local production-adapter regressions also
-check that an already matching output/error prefix still blocks at a destination
-stub. Only the pinned upstream runs contribute to the counts above.
+Policy/adapter limitations above remain explicit classifications, never skips.
+Unknown capabilities/states require review. Focused state tests retain meaningful
+destination-block assertions: implementing a destination can legitimately change
+an integration test's terminal block, so rebase and rerun after merges.
+Synthetic runner tests exercise rejection/classification and pass-regression
+tracking separately; their passes are **not** upstream conformance runs.
 
 ## Data coverage
 
@@ -417,7 +369,7 @@ never reconstructed or resumed. These are state-specific streaming checks, not
 whole-tokenizer conformance. Local adapter tests compare comment data/kind/order,
 empty-token boundaries, and double-escaped non-scalar data, deliberately mismatch
 outputs, reject malformed shapes, and retain downstream stub blocks after a
-matching comment prefix. Only upstream runs contribute to the counts above.
+matching comment prefix. Only upstream runs contribute to the conformance report.
 
 ## Before attribute name coverage
 
@@ -483,9 +435,8 @@ especially around `/` and `>`, CRLF, NUL, Unicode/non-scalars, and destination
 blocks. These are state-specific streaming tests, not full conformance.
 
 There is no tree builder or flag acknowledgement. A self-closing start-tag token
-does not make an arbitrary HTML element void. Integration with the merged Before
-attribute name and Bogus comment implementations preserves their algorithms and
-updates destination-block assertions, storage fields, inventory, and runner counts.
+does not make an arbitrary HTML element void. Integration tests execute Before
+attribute name on recovery and retain explicit destination-block assertions.
 
 Before claiming broader coverage, extend attribute fields and comparisons,
 review pending-spec-change expectations, and decide whether XML coercion belongs

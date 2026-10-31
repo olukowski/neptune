@@ -55,6 +55,23 @@ For a state implementation:
 See `docs/tokenizer.md` for the planned infrastructure and dependency boundaries.
 Do not implement adjacent states merely to make a state PR appear complete.
 
+### Parallel state work
+
+- Merge prerequisite shared API/storage/adapter changes in small supporting PRs
+  **before** starting a wave of states that needs them.
+- Assign one state owner per worktree/PR. Keep algorithms and branch evidence in
+  state-local files; keep module/dispatch and independent support-inventory edits
+  narrow. Use test-local helpers or `..Default::default()` for incidental storage,
+  but keep fields under test and creation-default assertions explicit.
+- Add reviewed newly passing upstream identities to the
+  [pass baseline](crates/html/tests/baselines/README.md); never replace prior
+  passes with aggregate counts or auto-bless current execution.
+- Rebase after prerequisite/neighbor merges and rerun all checks plus the upstream
+  report. A new destination implementation can legitimately move a terminal block;
+  review those integration changes rather than hiding them. Shared token types,
+  dispatch registration, adapter capabilities, and actual execution paths remain
+  shared responsibilities, not a promise of conflict-free development.
+
 ## Upstream tests and specification updates
 
 The html5lib submodule is pinned by Git. Do not edit its expected results,
