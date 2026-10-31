@@ -179,8 +179,8 @@ fn every_ascii_branch_and_non_scalar_preserves_storage_and_consumes_exactly_once
                     code: "surrogate-in-input-stream",
                     position: tail_position,
                 });
-                if matches!(value, 0x2d | 0x3c) {
-                    // Only these two specified destinations remain stubs.
+                if value == 0x3c {
+                    // Escaped less-than sign is the remaining terminal destination.
                     assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
                     if !finished {
                         execution.context_mut().input.push(points("z")).unwrap();
@@ -196,8 +196,9 @@ fn every_ascii_branch_and_non_scalar_preserves_storage_and_consumes_exactly_once
                     assert_eq!(execution.context().input.errors(), expected.input_errors);
                     continue;
                 }
-                // PR #32's real destination consumes the untouched tail once,
-                // preserving its non-scalar value and reporting preprocessing here.
+                // Escaped or the newly integrated DashDash consumes the untouched
+                // surrogate once, emits it literally and returns/stays in Escaped.
+                expected.state = State::ScriptDataEscaped;
                 expected.current = Some((Input::CodePoint(tail), tail_position));
                 expected.tokens.push(Token::Character(tail));
                 assert_eq!(
@@ -291,7 +292,7 @@ fn default_context_suspends_in_real_destination_and_preserves_remaining_stubs() 
             }
         );
         assert!(execution.context().input.errors().is_empty());
-        if matches!(text, "-" | "<") {
+        if text == "<" {
             assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
             continue;
         }
@@ -309,6 +310,7 @@ fn default_context_suspends_in_real_destination_and_preserves_remaining_stubs() 
             Input::CodePoint('\0'.into()),
             Position { line: 1, column: 2 },
         ));
+        expected.state = State::ScriptDataEscaped;
         expected.tokens.push(Token::Character('\u{fffd}'.into()));
         expected
             .errors
@@ -463,7 +465,7 @@ fn script_data_entry_still_stops_at_earlier_escape_start_stub() {
 type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;
 
 fn drain(execution: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
-    // Trace real EscapedDash <-> Escaped steps until suspension, EOF, or a stub.
+    // Trace real EscapedDash/Escaped/DashDash steps until suspension, EOF, or a stub.
     for _ in 0..bound {
         let before = snapshot(execution);
         let result = execution.step();
@@ -525,8 +527,12 @@ fn all_two_chunk_splits_and_single_point_chunks_match_closed_source_step_traces(
         "\u{b}x",
         "\u{fdd0}x",
         "x-\0a-\r\n\0&😀\r",
-        "x-a--unconsumed\0",
+        "x-a--literal\0",
         "x-a-<unconsumed\0",
+        "--a--\0--->\r\n\0",
+        "--a--\0---<\r\n\0",
+        "x--\0--a---\0--<tail",
+        "x--\0--a---><!tail",
     ]
     .into_iter()
     .map(points)

@@ -72,8 +72,12 @@ suspension/completion, and default/seeded contexts. All two-chunk splits and
 single-code-point streaming compare every non-suspension source-step snapshot
 against closed input. Inputs include CRLF splits, consecutive/trailing CR,
 repeated NUL, surrogate/noncharacter/control points, literal entity-like text,
-and transitions through `-` into Script data escaped dash and back. `--` and
-`-<` retain explicit dash-dash/less-than-sign terminal blocks with unconsumed tails.
+and transitions through `-` into Script data escaped dash and back. With PR #33,
+`--` executes real Script data escaped dash dash: hyphens stay there, NUL/literal
+points return to Escaped, and `>` returns to Script data. Repeated three-state
+cycles include NUL/CRLF boundaries and both real Script data continuation and
+later explicit escaped-less-than-sign / escape-start terminal blocks. `-<`
+still blocks at escaped less-than sign with its tail unconsumed.
 Suspensions must preserve the complete snapshot; trace collection stops at a
 stub without feeding it again.
 
@@ -82,7 +86,9 @@ Script data escape start and escape start dash remain stubs in this baseline,
 so normal Script data input cannot yet reach the assigned state. PR #32's source
 assertions remain unchanged. PR #34 deliberately updates its old escaped-dash
 stub assumption to the actual destination effects described above and extends
-streaming traces through both states; the less-than-sign stub remains explicit.
+streaming traces through both states. PR #33 extends those unchanged source
+assertions with real three-state streaming cycles; the less-than-sign stub
+remains explicit.
 The independent support inventory is registered additively.
 No tree-builder mode switching or JavaScript parsing is implemented.
 
@@ -117,6 +123,8 @@ Historical standalone PR #32 validation: all required commands passed locally
 including the six focused state tests. These Rust test totals are separate from
 upstream run counts. For the rerun after PR #34 integration, see
 [Script data escaped dash evidence](tokenizer-script-data-escaped-dash.md#upstream-and-validation).
+For the subsequent PR #33 integration onto merged PRs #32/#34, see
+[escaped dash dash validation](tokenizer-script-data-escaped-dash-dash.md#validation-and-upstream-report).
 
 ```sh
 cargo fmt --all -- --check
@@ -127,10 +135,13 @@ cargo test --workspace --locked pinned_upstream_runner -- --nocapture
 ```
 
 PR #32 originally implemented only this state against the common baseline.
-PR #34 now inherits merged PR #32 from main
+PR #34 inherited merged PR #32 from main
 `e2a9b926938d022820613c752b467e16130521bc` and adds Script data escaped dash;
-the escape-start states, escaped dash dash, and escaped less-than sign still
-block. No unmerged sibling branch is imported. Module/dispatch/support inventory
+on that historical baseline, the escape-start states, escaped dash dash, and
+escaped less-than sign still blocked. PR #33 now inherits both merged states
+from main `04283260b9d467d198ab92cb8ccd5721c51fe21e` and adds escaped dash dash;
+only the escape-start states and escaped less-than sign remain those boundaries.
+No unmerged sibling branch is imported. Module/dispatch/support inventory
 registration is additive. Future integrations must rerun all checks/upstream
 reporting and review moved terminal blocks or newly comparable cases without
 skipping tests, auto-blessing identities, or resuming blocked execution.

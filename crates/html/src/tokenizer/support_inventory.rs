@@ -22,6 +22,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptDataEndTagName,
         State::ScriptDataEscaped,
         State::ScriptDataEscapedDash,
+        State::ScriptDataEscapedDashDash,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
