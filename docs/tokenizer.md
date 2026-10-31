@@ -17,6 +17,7 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data escaped](tokenizer-script-data-escaped.md),
 [Script data escaped dash](tokenizer-script-data-escaped-dash.md),
 [Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md), isolated-entry
+[Script data double escaped dash](tokenizer-script-data-double-escaped-dash.md),
 [Script data double escaped dash dash](tokenizer-script-data-double-escaped-dash-dash.md),
 [Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md), and
 [Script data double escape end](tokenizer-script-data-double-escape-end.md) are implemented.
@@ -31,11 +32,12 @@ handles literal characters, hyphen cycles, NUL replacement and
 Script data. This emits character tokens, not Comment tokens. An escaped `<`
 still reaches terminal Script data escaped less-than sign: escaped end tags and
 end-to-end double escaping are not reachable from Script data entry.
-Isolated double escaped dash dash entry emits repeated hyphens, returns to Script
-data on `>`, and reaches double escaped less-than sign on `<`, then Double escape
-end on `/`. Double escape end uses explicit temporary-buffer context and can
-return to real Escaped on a matching `script` delimiter. DoubleEscaped fallback
-and the other double-escaped predecessors remain terminal stubs.
+Isolated double escaped dash entry emits `-` and reaches double escaped dash dash,
+which emits repeated hyphens and returns to Script data on `>`. Both reach double
+escaped less-than sign on `<`, then Double escape end on `/`. Double escape end
+clears no scratch itself, accumulates ASCII-normalized scratch while emitting original
+spelling, and can return to real Escaped on a matching `script` delimiter.
+DoubleEscaped fallback and the gateway states remain terminal stubs.
 Ordinary Script data closing-tag support remains separate. No tree builder or automatic element-based
 mode switching is implied. See the [integrated branch/fixture audit](tokenizer-script-data-escape-start.md).
 
