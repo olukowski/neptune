@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn pinned_upstream_runner_reports_no_passing_cases_while_all_states_are_stubs() {
+fn pinned_upstream_runner_reports_data_only_coverage() {
     let directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
     let mut paths: Vec<_> = fs::read_dir(directory)
@@ -81,15 +81,20 @@ fn pinned_upstream_runner_reports_no_passing_cases_while_all_states_are_stubs() 
             ("PendingSpecReview".into(), 1),
             ("TokenVariants".into(), 1625),
             ("Unimplemented(CdataSection)".into(), 56),
-            ("Unimplemented(Data)".into(), 5109),
+            ("Unimplemented(CharacterReference)".into(), 4658),
             ("Unimplemented(Plaintext)".into(), 52),
             ("Unimplemented(Rawtext)".into(), 61),
             ("Unimplemented(Rcdata)".into(), 63),
             ("Unimplemented(ScriptData)".into(), 82),
+            ("Unimplemented(TagOpen)".into(), 66),
             ("XmlCoercion".into(), 4),
         ])
     );
-    assert_eq!((passed, failed), (0, 0), "all algorithms remain stubs");
+    assert_eq!(
+        (passed, failed, blocked),
+        (385, 0, 6668),
+        "Data-only baseline"
+    );
     assert!(
         !reasons.contains_key("FixtureCapability"),
         "review new fixture fields"
@@ -98,6 +103,30 @@ fn pinned_upstream_runner_reports_no_passing_cases_while_all_states_are_stubs() 
         !reasons.contains_key("InitialState"),
         "review new initial states"
     );
+}
+
+#[test]
+fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
+    // Local adapter regression tests, not additional upstream conformance cases.
+    for (input, output, errors, destination) in [
+        ("p&", "p", json!([]), State::CharacterReference),
+        ("p<", "p", json!([]), State::TagOpen),
+        (
+            "p\0&",
+            "p\0",
+            json!([{"code":"unexpected-null-character", "line":1, "col":2}]),
+            State::CharacterReference,
+        ),
+    ] {
+        let case = json!({
+            "description": "local prefix would match if blocked execution were compared",
+            "input": input, "output": [["Character", output]], "errors": errors
+        });
+        assert_eq!(
+            run_with(&case, "Data state", None, execute),
+            Outcome::Blocked(Blocked::Unimplemented(destination))
+        );
+    }
 }
 
 #[test]
