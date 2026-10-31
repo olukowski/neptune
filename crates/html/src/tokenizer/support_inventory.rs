@@ -10,6 +10,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::Rcdata,
         State::Plaintext,
         State::Rawtext,
+        State::RawtextEndTagOpen,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,

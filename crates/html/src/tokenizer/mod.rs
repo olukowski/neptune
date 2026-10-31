@@ -15,6 +15,7 @@ mod end_tag_open;
 mod input;
 mod plaintext;
 mod rawtext;
+mod rawtext_end_tag_open;
 mod rcdata;
 mod self_closing_start_tag;
 mod state;
@@ -64,7 +65,7 @@ pub struct PendingStartTag {
     pub discarded_current_attribute: Option<Attribute>,
 }
 
-/// Unfinished end tag created by End tag open, not an emitted token.
+/// Unfinished end tag created by end-tag-open states, not an emitted token.
 ///
 /// Uses the same creation defaults and current-attribute invariant as
 /// `PendingStartTag`, including a removed duplicate remaining current.
@@ -113,7 +114,7 @@ pub struct Context {
     pub current_tag: Option<TagKind>,
     /// Created, not emitted; absent until Tag open's ASCII-alpha branch.
     pub pending_start_tag: Option<PendingStartTag>,
-    /// Created, not emitted; absent until End tag open's ASCII-alpha branch.
+    /// Created, not emitted, by an implemented end-tag-open ASCII-alpha branch.
     pub pending_end_tag: Option<PendingEndTag>,
     /// Created by End tag open's recovery; taken on Bogus comment emission.
     /// Direct Bogus comment entry requires an initialized pending comment.
@@ -156,6 +157,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::Rcdata => Ok(rcdata::step(context)),
         State::Plaintext => Ok(plaintext::step(context)),
         State::Rawtext => Ok(rawtext::step(context)),
+        State::RawtextEndTagOpen => Ok(rawtext_end_tag_open::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),
