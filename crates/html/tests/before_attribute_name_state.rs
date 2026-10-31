@@ -90,13 +90,6 @@ fn snapshot(execution: &Execution) -> Snapshot {
     }
 }
 
-fn assert_blocked(execution: &mut Execution, target: State, expected: &Snapshot) {
-    for _ in 0..2 {
-        assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-        assert_eq!(&snapshot(execution), expected);
-    }
-}
-
 #[test]
 fn before_attribute_name_ignores_only_exact_whitespace_without_attribute_creation_or_reconsumption()
 {
@@ -279,7 +272,7 @@ fn before_attribute_name_solidus_greater_than_and_eof_reconsume_in_after_attribu
                     Ok(Progress::Continue(State::AfterAttributeName))
                 );
                 assert_eq!(snapshot(&execution), expected); // no creation, emission or EOF error
-                assert_blocked(&mut execution, State::AfterAttributeName, &expected);
+                // Inspect source reconsumption before the implemented destination.
                 assert_eq!(execution.context_mut().input.consume(), consumed);
                 assert_eq!(snapshot(&execution), expected);
                 if consumed != Input::Eof {
@@ -316,10 +309,18 @@ fn before_attribute_name_open_exhaustion_suspends_until_explicit_eof_without_sou
             execution.context().input.current(),
             Some((Input::Eof, Position { line: 2, column: 3 }))
         );
-        let expected = snapshot(&execution);
-        assert_blocked(&mut execution, State::AfterAttributeName, &expected);
-        assert_eq!(execution.context_mut().input.consume(), Input::Eof);
-        assert_eq!(snapshot(&execution), expected);
+        let mut expected = snapshot(&execution);
+        expected.kind = None;
+        match kind {
+            TagKind::Start => expected.start = None,
+            TagKind::End => expected.end = None,
+        }
+        expected.errors.push(error("eof-in-tag", 2, 3));
+        expected.tokens.push(Token::Eof);
+        for _ in 0..3 {
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&execution), expected);
+        }
     }
 }
 

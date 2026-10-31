@@ -676,8 +676,10 @@ fn drain(
 fn seeded_destination_paths_complete_or_block_without_accepting_prefixes() {
     for kind in [TagKind::Start, TagKind::End] {
         for (text, target) in [
-            (" >", Some(State::AfterAttributeName)),
-            ("/ >", Some(State::AfterAttributeName)),
+            (" >", None),
+            ("/ >", None),
+            (" next>", None),
+            (" same>", None),
             ("X=", Some(State::BeforeAttributeValue)),
             ("=x=", Some(State::BeforeAttributeValue)),
             (">&", Some(State::CharacterReference)),
@@ -685,23 +687,96 @@ fn seeded_destination_paths_complete_or_block_without_accepting_prefixes() {
             ("/", None),
             ("/>", None),
             (">", None),
-            ("\r\n", Some(State::AfterAttributeName)),
+            ("\r\n", None),
         ] {
             let mut c = seeded(kind, false);
             c.input.push(points(text)).unwrap();
             c.input.finish();
             let mut e = Execution::new(SOURCE, c);
+            let mut expected = snapshot(&e);
             assert!(drain(&mut e, &mut vec![]));
             if let Some(state) = target {
                 assert_terminal_stub(&mut e, state);
+                assert!(!e.context().tokens.contains(&Token::Eof));
             } else {
-                assert_eq!(e.step(), Ok(Progress::Finished));
-            }
-            if text == " >" || text == "\r\n" {
-                assert_eq!(e.context().errors, [error("prior", 1, 1)]);
-                assert_eq!(e.context().tokens, [Token::Character('p'.into())]);
-                assert_eq!(storage(e.context(), kind).0, retained());
-                assert!(storage(e.context(), kind).1.is_some());
+                let eof = if text == "\r\n" {
+                    Position { line: 2, column: 1 }
+                } else {
+                    Position {
+                        line: 1,
+                        column: text.chars().count() + 1,
+                    }
+                };
+                expected.current = Some((Input::Eof, eof));
+                expected.kind = None;
+                let abandoned = text == "/" || text == "\r\n";
+                expected.state = if text == "/" {
+                    State::SelfClosingStartTag
+                } else if abandoned {
+                    State::AfterAttributeName
+                } else {
+                    State::Data
+                };
+                let mut attributes = retained();
+                if text == " next>" {
+                    attributes.push(attribute("next", ""));
+                }
+                if text == "/ >" {
+                    expected
+                        .errors
+                        .push(error("unexpected-solidus-in-tag", 1, 2));
+                }
+                if text == " same>" {
+                    expected.errors.push(error("duplicate-attribute", 1, 6));
+                }
+                let (name, token) = match kind {
+                    TagKind::Start => {
+                        let tag = expected.start.take().unwrap();
+                        let name = tag.name;
+                        let token = Token::StartTag {
+                            name: name.clone(),
+                            attributes,
+                            self_closing: text == "/>",
+                        };
+                        (name, token)
+                    }
+                    TagKind::End => {
+                        let tag = expected.end.take().unwrap();
+                        let name = tag.name;
+                        let token = Token::EndTag {
+                            name: name.clone(),
+                            attributes,
+                            self_closing: text == "/>",
+                        };
+                        (name, token)
+                    }
+                };
+                if abandoned {
+                    expected.errors.push(ParseError {
+                        code: "eof-in-tag",
+                        position: eof,
+                    });
+                } else {
+                    let column = text.chars().count();
+                    if kind == TagKind::Start {
+                        expected.last = Some(name);
+                    } else {
+                        expected
+                            .errors
+                            .push(error("end-tag-with-attributes", 1, column));
+                        if text == "/>" {
+                            expected
+                                .errors
+                                .push(error("end-tag-with-trailing-solidus", 1, column));
+                        }
+                    }
+                    expected.tokens.push(token);
+                }
+                expected.tokens.push(Token::Eof);
+                for _ in 0..3 {
+                    assert_eq!(e.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(&e), expected, "{kind:?} {text:?}");
+                }
             }
             if text == "/>" {
                 assert!(matches!(
@@ -746,6 +821,8 @@ fn all_two_chunk_splits_and_single_point_chunks_match_closed_source_step_traces(
         "/>",
         "/",
         " >",
+        " next>",
+        " same>",
         "\t\n\u{c} x=",
         "X=",
         "=x=",

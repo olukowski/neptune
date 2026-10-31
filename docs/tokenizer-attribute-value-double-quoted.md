@@ -53,23 +53,27 @@ Additional focused tests:
 ## Boundaries and upstream evidence
 
 Prerequisite PR #15 supplies the existing tag/attribute storage and shared
-emission/fixture support. Integration onto
-`78e52d1e56183acb9730b200c8e5d0cd728030e6` (merged PRs #16/#17/#18)
-retains both quoted value implementations and executable After attribute value
-(quoted); PR #19 adds the isolated unquoted value state. Source snapshots still
-verify the closing quote independently; subsequent whitespace recovery reaches the After
-attribute name stub, while malformed adjacency reports missing whitespace and
-schedules reconsumption without repeating preprocessing. Combined quoted-source
+emission/fixture support. PR #20 integrates onto main
+`81eecf0955187a6b9be74a1a1d68afaa4b7ba399` (merged PRs #16/#17/#18/#19),
+retaining both quoted value implementations, After attribute value (quoted),
+and the unquoted value state, and adding only After attribute name. Source
+snapshots still verify the closing quote independently; subsequent whitespace
+recovery executes After attribute name and checks exact selected-tag emission,
+end-tag diagnostics, Data continuation (including NUL), suspension, and terminal
+EOF snapshots. Malformed adjacency reports missing whitespace and schedules
+reconsumption without repeating preprocessing. Combined quoted-source
 emission and EOF checks live in `after_attribute_value_quoted_state.rs`.
 Character reference remains a terminal typed `UnimplementedState` destination.
 Repeated blocked steps are effect-free, including after direct cursor
 inspection/mutation. A blocked Execution cannot be reconstructed/resumed.
 
-Before attribute value and After attribute name remain stubs, so real Data
+Before attribute value remains a stub, so real Data
 input cannot yet reach this state. Seeded valid contexts are isolated algorithm
 tests, not reachable end-to-end attribute parsing. The upstream runner's six
 initial-state conventions do not include this state. Therefore there are **no
-newly passing upstream identities** and no baseline additions/removals.
+newly passing upstream identities from this value state**. PR #20's separate
+[After attribute name evidence](tokenizer-after-attribute-name.md) records its
+reviewed boolean-attribute/attribute-free pass additions; no baselines are removed.
 All existing case-level regression baselines remain intact; upstream fixtures
 and revisions are unchanged.
 
@@ -77,5 +81,5 @@ Run all [contributing checks](../CONTRIBUTING.md) and the
 [upstream runner](tokenizer.md#fixture-runner). The PR report records exact
 executed/passed/failed/blocked counts separately from local tests and fixture
 inventory. Local branch/streaming tests do not establish whole-tokenizer
-conformance, reachable attribute emission from Data, tree-builder behavior, or browser
+conformance, reachable value parsing from Data, tree-builder behavior, or browser
 security.

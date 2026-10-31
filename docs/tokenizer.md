@@ -3,11 +3,11 @@
 ## Status and source
 
 **Only Data, RCDATA, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before
-attribute name, Attribute name, Attribute value (double-quoted), Attribute value
-(single-quoted), Attribute value (unquoted), After attribute value (quoted),
-Self-closing start tag, and Bogus comment are implemented.
-All other states, including After attribute name, Before attribute value,
-ordinary Comment, and Character reference, remain `UnimplementedState` stubs.**
+attribute name, Attribute name, After attribute name, Attribute value
+(double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
+After attribute value (quoted), Self-closing start tag, and Bogus comment are
+implemented. All other states, including Before attribute value, ordinary
+Comment, and Character reference, remain `UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
 Implementation evidence is the immutable HTML Standard source in
@@ -19,6 +19,8 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 **Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
 **Attribute name state** (`#attribute-name-state`),
+**After attribute name state** (`#after-attribute-name-state`;
+[state-local branch and fixture evidence](tokenizer-after-attribute-name.md)),
 **Attribute value (double-quoted) state** (`#attribute-value-(double-quoted)-state`;
 [state-local coverage](tokenizer-attribute-value-double-quoted.md)),
 **After attribute value (quoted) state** (`#after-attribute-value-quoted-state`;
@@ -85,7 +87,8 @@ instruction states and no separate decimal-character-reference-start state.
   Emission preserves the name, ordered retained attributes, and flag in
   `Token::StartTag` / `Token::EndTag`; the detached duplicate is never emitted;
   EOF abandons only the selected tag. Both clear the selector. Direct isolated
-  Tag name / Before attribute name / After attribute value (quoted) /
+  Tag name / Before attribute name / After attribute name /
+  After attribute value (quoted) /
   Self-closing start tag entry requires a selector and matching pending tag;
   Attribute name and Attribute value (double-quoted) / (single-quoted) /
   (unquoted) also require an initialized current attribute. This is inspectable
@@ -100,11 +103,12 @@ instruction states and no separate decimal-character-reference-start state.
   [Tokenization paragraphs](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143174-L143210);
   the [Attribute name removal rule](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L144218-L144229)
   excludes detached duplicates from the token.
-  From Data, attribute creation still necessarily leads to terminal destination
-  stubs before emission. Seeded quoted-value contexts can reach After
-  attribute value (quoted) and emit; seeded unquoted-value contexts can emit
-  directly. Neither establishes Data-to-attribute emission or supported
-  resumption after a stub. No tree-builder acknowledgement or
+  Boolean attributes can now reach emission through After attribute name.
+  Before attribute value still blocks Data-to-value parsing. Seeded quoted-value
+  contexts can reach After attribute value (quoted) and emit; seeded unquoted-value
+  contexts can emit directly or reach boolean-attribute recovery. These do not
+  establish reachable value parsing or supported resumption after a stub.
+  No tree-builder acknowledgement or
   `non-void-html-element-start-tag-with-trailing-solidus` behavior is simulated.
 - Only start-tag **emission** updates `last_start_tag`, with the emitted normalized
   name; creation, mutation, EOF abandonment, and end-tag emission do not. The
@@ -131,7 +135,8 @@ separately.
 The runner lives in `crates/html/tests/support` as test-only infrastructure;
 `serde_json` remains a dev dependency. It is deliberately limited to the
 character/EOF, tag (including attributes and self-closing flags), and comment
-surface. Adapter support does not imply a reachable attribute emission path.
+surface. Boolean attribute emission is reachable; adapter value support does not
+imply reachable value parsing from Data.
 Run its upstream report with:
 
 ```sh
@@ -383,7 +388,9 @@ Every branch consumes once and none reconsumes. Open exhausted input preserves
 pending state and returns NeedMoreInput, not EOF. Whitespace and `/` consume but
 do not append, emit, or report a state parse error. Their source effects remain
 inspectable before the next step executes Before attribute name or Self-closing
-start tag. Before attribute name subsequently blocks at its own destinations.
+start tag. Before attribute name can now reach boolean-attribute emission or
+EOF abandonment through After attribute name; value parsing still blocks at
+Before attribute value.
 Do not resume a blocked execution.
 VT and NBSP are name characters, not separators; VT also gets the cursor's
 preprocessing diagnostic. Surrogates/noncharacters are preserved as code points,
@@ -456,9 +463,10 @@ state** (`#before-attribute-name-state`):
 | `=` U+003D | Report `unexpected-equals-sign-before-attribute-name`; append a new attribute with name `=` and empty value to the current tag; switch to Attribute name **without** reconsumption. |
 | Anything else | Append a new attribute with empty name/value to the current tag; reconsume in Attribute name. |
 
-Attribute name now executes on the next step; After attribute name remains a
-terminal `UnimplementedState` stub. In particular, `>` does not emit a tag here
-and EOF does not yet report `eof-in-tag`, abandon the tag, or emit EOF. NUL,
+Attribute name and After attribute name now execute on the next step. In
+particular, `>` does not emit a tag in Before attribute name itself; the
+reconsuming After attribute name emits it. EOF similarly reports `eof-in-tag`,
+abandons the selected tag, and emits EOF only on that destination step. NUL,
 quotes, uppercase, non-ASCII whitespace, and non-scalars all take the
 empty-attribute/reconsume branch; replacement, lowercasing, and attribute-name
 diagnostics belong to Attribute name on the next step.
@@ -475,13 +483,11 @@ and all two-chunk splits plus single-code-point chunks of representative inputs,
 including CRLF splits, trailing/consecutive CR, NUL, and downstream blocks.
 These local source-step checks are not full tokenizer streaming conformance.
 
-Before attribute name only creates pending attribute storage; it does not change
-execution/input or emit tokens. All three attribute-value states and After
-attribute value (quoted) execute in seeded contexts; Before attribute value
-and After attribute name remain stubs, as do ordinary comments, markup
-declarations, processing instructions, and character references. Shared
-attribute emission, diagnostics, and fixture comparisons are supported,
-but reachable attribute emission from Data awaits the remaining states.
+Before attribute name creates pending attribute storage, not emitted tokens.
+After attribute name now permits boolean-attribute emission. All three
+attribute-value states and After attribute value (quoted) execute in seeded
+contexts; Before attribute value remains a stub, as do ordinary comments,
+markup declarations, processing instructions, and character references.
 
 ## Attribute name coverage
 
@@ -502,9 +508,9 @@ Every departure compares the completed name to other retained attributes on the
 selected tag using exact code-point equality. A duplicate reports
 `duplicate-attribute` at the consumed delimiter/EOF, removes only the new entry,
 and retains its identity/name/value in the detached-current slot described above.
-This happens before the destination attempt even though both destinations remain
-terminal stubs. NeedMoreInput is not departure and never checks a prefix for
-duplicates. No new emission path, EOF output, `eof-in-tag`, or
+This happens before the destination attempt. Before attribute value remains a
+terminal stub; After attribute name now executes. NeedMoreInput is not departure
+and never checks a prefix for duplicates. No new emission path, EOF output, `eof-in-tag`, or
 `end-tag-with-attributes` diagnostic is supplied by this state.
 
 `crates/html/tests/attribute_name_state.rs` covers every ASCII branch, literal
@@ -519,10 +525,10 @@ terminal blocks and source effects. Every two-chunk split and single-point chunk
 match closed-input source-step traces, including name boundaries, duplicate
 prefix suspension versus final EOF, CRLF, malformed input, non-scalars, and
 blocked targets. These are local state checks, not whole-tokenizer conformance.
-There are no newly passing upstream identities for this state alone; the existing
-case-level pass baselines, including the separately merged RCDATA and RAWTEXT
-additions, are unchanged. Integration checks are rerun after rebasing onto those
-state implementations; their downstream states remain explicit stubs.
+Attribute name alone added no upstream passes. After attribute name now makes
+boolean-attribute paths comparable; its reviewed identities supplement, never
+replace, all prior case-level baselines (including RCDATA and RAWTEXT).
+Before attribute value remains a typed terminal destination.
 
 ## Self-closing start tag coverage
 
@@ -536,9 +542,9 @@ state** (`#self-closing-start-tag-state`):
 | Anything else | Report `unexpected-solidus-in-tag` at the consumed point; leave the flag and pending storage unchanged; reconsume in Before attribute name. |
 
 Open exhausted input suspends without setting the flag or emitting EOF. Recovery
-executes the merged Before attribute name implementation and then reports a typed
-terminal block at After attribute name or Before attribute value. A destination
-stub is not an HTML parse error or supported resumption.
+executes Before attribute name and After attribute name. Boolean attributes can
+complete; paths requiring Before attribute value report a typed terminal block.
+A destination stub is not an HTML parse error or supported resumption.
 NUL and Unicode follow the anything-else branch with no replacement or extra
 state diagnostic here; cursor preprocessing diagnostics remain intact.
 
@@ -573,11 +579,12 @@ This prerequisite adds no states or dispatch registrations and changes no upstre
 fixtures or passing-run baselines. It supplies shared support for six subsequent,
 separately reviewed states: After attribute name, Before attribute value,
 Attribute value (double-quoted), Attribute value (single-quoted), Attribute value
-(unquoted), and After attribute value (quoted). All three value states and
-After attribute value (quoted) are now implemented separately; After attribute
-name and Before attribute value remain stubs. Value entry is not yet reachable
-from Data. See the state-local evidence for branch mapping and entry limitations:
+(unquoted), and After attribute value (quoted). After attribute name, all three
+value states, and After attribute value (quoted) are now implemented separately;
+Before attribute value remains a stub. Value entry is not yet reachable from
+Data. See the state-local evidence for branch mapping and entry limitations:
 
+- [After attribute name](tokenizer-after-attribute-name.md)
 - [Double-quoted value](tokenizer-attribute-value-double-quoted.md)
 - [Single-quoted value](tokenizer-attribute-value-single-quoted.md)
 - [Unquoted value](tokenizer-attribute-value-unquoted.md)

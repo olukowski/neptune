@@ -210,8 +210,20 @@ fn end_tag_name_only_projection_keeps_both_emission_diagnostics_exact() {
 
 #[test]
 fn expected_attributes_do_not_hide_real_destination_stubs() {
+    let boolean = json!({"description":"reachable boolean attribute", "input":"<p id>",
+        "output":[["StartTag","p",{"id":""}]]});
+    assert_eq!(
+        run_with(&boolean, "Data state", None, execute),
+        Outcome::Passed
+    );
+    let mut wrong = boolean;
+    wrong["output"] = json!([["StartTag","p",{"id":"x"}]]);
+    assert!(matches!(
+        run_with(&wrong, "Data state", None, execute),
+        Outcome::Failed(_)
+    ));
     for (input, destination) in [
-        ("<p id>", State::AfterAttributeName),
+        ("<p id =x>", State::BeforeAttributeValue),
         ("<p id=x>", State::BeforeAttributeValue),
     ] {
         let case = json!({"description":"attribute adapter is not a state implementation", "input":input,

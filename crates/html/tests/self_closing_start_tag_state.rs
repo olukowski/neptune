@@ -396,12 +396,7 @@ fn recovery_error_and_attribute_name_replacement_use_normalized_code_point_locat
     e.context_mut().input.push(points("😀\r\n<a/\0>")).unwrap();
     e.context_mut().input.finish();
     assert!(drain(&mut e, &mut vec![]));
-    assert_eq!(
-        e.step(),
-        Err(UnimplementedState {
-            state: State::AfterAttributeName
-        })
-    );
+    assert_eq!(e.step(), Ok(Progress::Finished));
     assert_eq!(
         e.context().errors,
         [
@@ -411,65 +406,72 @@ fn recovery_error_and_attribute_name_replacement_use_normalized_code_point_locat
     );
     assert_eq!(
         e.context().tokens,
-        [Token::Character('😀'.into()), Token::Character('\n'.into())]
+        [
+            Token::Character('😀'.into()),
+            Token::Character('\n'.into()),
+            Token::StartTag {
+                name: points("a"),
+                self_closing: false,
+                attributes: vec![Attribute {
+                    name: points("�"),
+                    value: vec![]
+                }]
+            },
+            Token::Eof
+        ]
     );
-    assert_eq!(
-        e.context().pending_start_tag,
-        Some(PendingStartTag {
-            name: points("a"),
-            self_closing: false,
-            attributes: vec![Attribute {
-                name: points("�"),
-                value: vec![],
-            }],
-            discarded_current_attribute: None,
-        })
-    );
-    assert_eq!(
-        e.context_mut().input.consume(),
-        Input::CodePoint('>'.into())
-    );
+    assert!(e.context().pending_start_tag.is_none());
+    assert_eq!(e.context().last_start_tag, Some(points("a")));
     assert_eq!(
         e.context().input.position(),
-        Position { line: 2, column: 5 }
+        Position { line: 2, column: 6 }
     );
     assert_eq!(e.context_mut().input.consume(), Input::Eof);
 }
 
 #[test]
-fn recovery_executes_attribute_name_then_blocks_at_unimplemented_destinations() {
-    for (text, destination, attribute_count) in [
-        ("<a//>", State::AfterAttributeName, 0),
-        ("<a/ >", State::AfterAttributeName, 0),
-        ("<a/x>", State::AfterAttributeName, 1),
-        ("</a/x>", State::AfterAttributeName, 1),
+fn recovery_executes_after_attribute_name_and_emits_boolean_attributes() {
+    for (text, kind, attribute_count, self_closing) in [
+        ("<a//>", TagKind::Start, 0, true),
+        ("<a/ >", TagKind::Start, 0, false),
+        ("<a/x>", TagKind::Start, 1, false),
+        ("</a/x>", TagKind::End, 1, false),
     ] {
         let mut e = Execution::new(State::Data, Context::default());
         e.context_mut().input.push(points(text)).unwrap();
         e.context_mut().input.finish();
         assert!(drain(&mut e, &mut vec![]));
-        let blocked = Err(UnimplementedState { state: destination });
-        assert_eq!(e.step(), blocked);
+        assert_eq!(e.step(), Ok(Progress::Finished));
         let effects = snapshot(&e);
-        assert!(e.context().tokens.is_empty());
         let column = if text.starts_with("</") { 5 } else { 4 };
-        assert_eq!(
-            e.context().errors,
-            [error("unexpected-solidus-in-tag", 1, column)]
-        );
-        let (flag, attributes) = match e.context().current_tag.unwrap() {
-            TagKind::Start => {
-                let tag = e.context().pending_start_tag.as_ref().unwrap();
-                (tag.self_closing, &tag.attributes)
-            }
-            TagKind::End => {
-                let tag = e.context().pending_end_tag.as_ref().unwrap();
-                (tag.self_closing, &tag.attributes)
-            }
+        let mut errors = vec![error("unexpected-solidus-in-tag", 1, column)];
+        if kind == TagKind::End {
+            errors.push(error("end-tag-with-attributes", 1, text.len()));
+        }
+        assert_eq!(e.context().errors, errors);
+        let attributes = if attribute_count == 0 {
+            vec![]
+        } else {
+            vec![Attribute {
+                name: points("x"),
+                value: vec![],
+            }]
         };
-        assert!(!flag);
-        assert_eq!(attributes.len(), attribute_count);
-        assert_eq!(e.step(), blocked);
+        let tag = match kind {
+            TagKind::Start => Token::StartTag {
+                name: points("a"),
+                attributes,
+                self_closing,
+            },
+            TagKind::End => Token::EndTag {
+                name: points("a"),
+                attributes,
+                self_closing,
+            },
+        };
+        assert_eq!(e.context().tokens, [tag, Token::Eof]);
+        assert_eq!(e.context().current_tag, None);
+        assert_eq!(e.step(), Ok(Progress::Finished));
         assert_eq!(snapshot(&e), effects);
     }
 }

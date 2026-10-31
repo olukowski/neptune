@@ -215,7 +215,7 @@ fn appends_each_ascii_branch_and_literal_non_ascii_with_exact_diagnostics_and_co
 }
 
 #[test]
-fn every_departure_checks_duplicates_before_terminal_destination_and_preserves_current_identity() {
+fn every_departure_checks_duplicates_before_destination_and_preserves_current_identity() {
     for kind in [TagKind::Start, TagKind::End] {
         for (text, consumed, target, reconsume) in [
             (
@@ -292,7 +292,9 @@ fn every_departure_checks_duplicates_before_terminal_destination_and_preserves_c
                 assert_eq!(e.step(), Ok(Progress::Continue(target)));
                 assert_eq!(snapshot(&e), expected, "{kind:?}, {text:?}, {duplicate}");
                 // No fake EOF, no eof-in-tag/end-tag-with-attributes, no output.
-                assert_blocked(&mut e, target, &expected);
+                if target == State::BeforeAttributeValue {
+                    assert_blocked(&mut e, target, &expected);
+                }
                 assert_eq!(
                     e.context_mut().input.consume(),
                     if reconsume {
@@ -308,7 +310,9 @@ fn every_departure_checks_duplicates_before_terminal_destination_and_preserves_c
                     );
                 }
                 let inspected = snapshot(&e);
-                assert_blocked(&mut e, target, &inspected); // cannot resume a terminal block
+                if target == State::BeforeAttributeValue {
+                    assert_blocked(&mut e, target, &inspected); // cannot resume a terminal block
+                }
             }
         }
     }
@@ -350,9 +354,20 @@ fn suspension_never_finishes_a_name_or_removes_a_prefix_duplicate_but_final_eof_
                     Some(&error("duplicate-attribute", 1, 2))
                 );
             }
-            let expected = snapshot(&e);
-            assert_blocked(&mut e, State::AfterAttributeName, &expected);
-            assert_eq!(e.context_mut().input.consume(), Input::Eof);
+            let mut expected = snapshot(&e);
+            expected.kind = None;
+            match kind {
+                TagKind::Start => expected.start = None,
+                TagKind::End => expected.end = None,
+            }
+            expected
+                .errors
+                .push(error("eof-in-tag", 1, if extend { 3 } else { 2 }));
+            expected.tokens.push(Token::Eof);
+            for _ in 0..3 {
+                assert_eq!(e.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&e), expected);
+            }
         }
     }
 }
@@ -417,7 +432,7 @@ fn completed_names_compare_exactly_after_ascii_folding_replacement_and_diagnosti
 }
 
 #[test]
-fn real_tag_name_before_attribute_name_entry_accumulates_names_but_never_emits_attributes() {
+fn real_tag_name_before_attribute_name_entry_inspects_names_before_destination_effects() {
     for (input, kind, name, target, errors) in [
         (
             "<DIV AbC>",
@@ -467,11 +482,16 @@ fn real_tag_name_before_attribute_name_entry_accumulates_names_but_never_emits_a
         let mut saw = vec![];
         for _ in 0..input.chars().count() * 3 + 5 {
             saw.push(e.state());
-            if e.step().is_err() {
+            assert!(matches!(e.step(), Ok(Progress::Continue(_))));
+            if e.state() == target {
                 break;
             }
         }
-        assert_eq!(e.step(), Err(UnimplementedState { state: target }));
+        assert_eq!(e.state(), target);
+        if target == State::BeforeAttributeValue {
+            let expected = snapshot(&e);
+            assert_blocked(&mut e, target, &expected);
+        }
         assert!(saw.contains(&State::TagName));
         assert!(saw.contains(&State::BeforeAttributeName));
         assert!(saw.contains(&State::AttributeName));

@@ -4,9 +4,10 @@ Scope: only `State::AfterAttributeValueQuoted`, implemented in
 `crates/html/src/tokenizer/after_attribute_value_quoted.rs`; tests live in
 `crates/html/tests/after_attribute_value_quoted_state.rs`. Initially integrated
 on merged PRs #16 and #17, retaining both quoted value implementations and
-prerequisite PR #15's shared storage/emission support. PR #19 rebases onto
-`78e52d1e56183acb9730b200c8e5d0cd728030e6` (merged PRs #16/#17/#18)
-and adds the isolated unquoted value state while preserving this algorithm.
+prerequisite PR #15's shared storage/emission support. PR #20 integrates onto
+main `81eecf0955187a6b9be74a1a1d68afaa4b7ba399` (merged PRs #16/#17/#18/#19),
+preserving both quoted states, this algorithm, and the unquoted value state,
+and adding only After attribute name.
 The original After attribute value (quoted) implementation changed no adjacent
 algorithm, fixture, shared storage API, or dependency. Neighbor-state tests/docs
 follow this executable destination rather than expecting its former stub.
@@ -72,9 +73,11 @@ of reachable end-to-end quoted attribute parsing. Real `<a x='v'>` and end-tag
 variants remain blocked at Before attribute value, even after a matching emitted
 tag prefix. No blocked Execution is reconstructed or resumed.
 
-After attribute name and Before attribute value remain typed terminal
-`UnimplementedState` destinations. Whitespace followed by `>`/EOF reaches the
-former, not direct emission/abandonment in this state. After emission, `&` still
+After attribute name now executes: whitespace followed by `>`/EOF reaches that
+state, whose step emits/abandons the selected tag. Exact final snapshots also
+cover boolean-attribute/duplicate recovery and malformed solidus. Before
+attribute value remains a typed terminal `UnimplementedState` destination.
+After emission, `&` still
 blocks at Character reference and `<!` at Markup declaration open. Blocks never
 become EOF, HTML parse errors, or prefix passes. Both quoted-value test suites
 retain exact source snapshots and now verify subsequent whitespace recovery to
@@ -85,12 +88,13 @@ checks both quote sources, both tag kinds, retained/detached value mutation,
 closing quotes, `>` / `/>` emission, exact end-tag diagnostics, and EOF abandonment
 one source step at a time, including unrelated-context preservation.
 
-The pinned upstream runner's implementation and rebased integration reports agree:
-6,827 fixture cases; 7,053 runs; 6,190 dispatch-attempted; **657 executed,
-657 passed, 0 failed, 6,396 blocked**. These are upstream conformance runs,
-not the nine local focused test functions or the support/fixture inventory.
-No newly passing upstream identities: all prior case-level baseline files remain
-unchanged. No automatic blessing, exclusions, fixture edits, or baseline removals.
+This value state adds no upstream passes: Data entry remains blocked before it.
+PR #20's separate [After attribute name evidence](tokenizer-after-attribute-name.md)
+records reviewed boolean-attribute/attribute-free pass additions. All prior
+case-level baseline files remain unchanged. No automatic blessing, exclusions,
+fixture edits, or baseline removals. Exact integrated counts belong in the PR
+report, not in repeated state-local totals; local tests and inventory are not
+upstream conformance runs.
 The fixture revision remains `c777c408b61078ea2eb4acefc2535f54dbc8b28a`.
 Use the [report command and count definitions](tokenizer.md#fixture-runner)
 to reproduce. Validation on this branch (all passed):

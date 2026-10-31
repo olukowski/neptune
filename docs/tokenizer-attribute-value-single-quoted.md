@@ -6,10 +6,10 @@ Prerequisite PR #15 (merged at `046565d7c033ed2bff4934b83f689284113bb1b4`)
 supplies tag/attribute storage, shared emission/abandonment, and fixture support.
 This change implements **only** `State::AttributeValueSingleQuoted` in
 `crates/html/src/tokenizer/attribute_value_single_quoted.rs`, with narrow
-module/dispatch and independent support-inventory registration. PR #19's
-integration onto `78e52d1e56183acb9730b200c8e5d0cd728030e6` (merged
-PRs #16/#17/#18) preserves both quoted value states and After attribute value
-(quoted), and adds the isolated unquoted value state.
+module/dispatch and independent support-inventory registration. PR #20's
+integration onto main `81eecf0955187a6b9be74a1a1d68afaa4b7ba399` (merged
+PRs #16/#17/#18/#19) preserves both quoted value states, After attribute value
+(quoted), and the unquoted value state, and adds only After attribute name.
 
 Normative evidence is the immutable HTML Standard revision recorded in
 [sources.toml](sources.toml):
@@ -63,18 +63,21 @@ Direct isolated entry requires a selected pending tag with a current attribute.
 These seeded tests do **not** establish a reachable end-to-end path: real Data
 entry still stops at Before attribute value, as the focused integration test
 asserts. After attribute value (quoted) now executes: source snapshots still
-verify the closing quote independently, then whitespace recovery reaches the
-After attribute name stub. The normalized-input test inspects its
-missing-whitespace diagnostic and reconsumption without repeating preprocessing.
+verify the closing quote independently, then whitespace recovery executes After
+attribute name. Exact snapshots check selected-tag emission, detached exclusion,
+end-tag errors, Data continuation, suspension, and one terminal EOF. The
+normalized-input test inspects missing-whitespace diagnostics and reconsumption
+without repeating preprocessing.
 Character reference remains a typed terminal `UnimplementedState` stub: it
 consumes no tail, emits no EOF, and adds no parse error. Repeated blocked
 dispatch, even after feeding input, returns the same terminal error; blocked
 Execution is never reconstructed/resumed. Combined quoted-source emission and
 EOF checks live in `after_attribute_value_quoted_state.rs`.
 
-No upstream fixtures, pinned revisions, exclusions, or pass-baseline identities
-change. No newly passing upstream identities are expected: the runner's supported
-initial states cannot enter this state before an existing stub. The prior
+No upstream fixtures, pinned revisions, or exclusions change. This value state
+adds no upstream passes: the runner's initial states cannot enter it before an
+existing stub. PR #20's separate [After attribute name evidence](tokenizer-after-attribute-name.md)
+records its reviewed boolean-attribute/attribute-free pass additions. The prior
 case-level baseline remains enforced, with full token/diagnostic comparison for
 every comparable run; a blocked prefix is never a pass. Exact executed/passed/
 failed/blocked evidence and required check results belong in the PR report.

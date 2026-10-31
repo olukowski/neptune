@@ -1,6 +1,7 @@
 //! Partial tokenizer with explicit stubs for unsupported states.
 //! See docs/tokenizer.md for current scope and pinned specification provenance.
 
+mod after_attribute_name;
 mod after_attribute_value_quoted;
 mod attribute_name;
 mod attribute_value_double_quoted;
@@ -27,7 +28,7 @@ pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
 /// Emitted tokens, with ordered retained attributes (including non-scalars).
-/// Shared emission supports attributes; reachable attribute paths still hit stubs.
+/// Boolean attributes are reachable; Data-to-value paths still hit typed stubs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
@@ -159,6 +160,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::TagName => Ok(tag_name::step(context)),
         State::BeforeAttributeName => Ok(before_attribute_name::step(context)),
         State::AttributeName => Ok(attribute_name::step(context)),
+        State::AfterAttributeName => Ok(after_attribute_name::step(context)),
         State::AttributeValueDoubleQuoted => Ok(attribute_value_double_quoted::step(context)),
         State::AttributeValueSingleQuoted => Ok(attribute_value_single_quoted::step(context)),
         State::AttributeValueUnquoted => Ok(attribute_value_unquoted::step(context)),

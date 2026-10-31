@@ -7,9 +7,10 @@ Only `State::AttributeValueUnquoted` is added, in
 `crates/html/tests/attribute_value_unquoted_state.rs`. Dispatch/module registration
 and the independent support inventory are the only shared code edits. Shared
 storage, detached-current identity, emission, and fixture comparison come from
-prerequisite PR #15. This change is rebased onto
-`78e52d1e56183acb9730b200c8e5d0cd728030e6` (merged PRs #16/#17/#18),
-preserving both quoted value states and After attribute value (quoted).
+prerequisite PR #15. PR #20 integrates onto main
+`81eecf0955187a6b9be74a1a1d68afaa4b7ba399` (merged PRs #16/#17/#18/#19),
+preserving both quoted value states, After attribute value (quoted), and this
+unquoted state, and adding only After attribute name.
 
 Normative evidence is the [pinned HTML Standard source, lines 144356–144404](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L144356-L144404)
 at `404b3eb14a7a936dddefb2d78e224dbeb01d2358`, not the living algorithm or another
@@ -61,16 +62,18 @@ These are local state-specific streaming checks, not upstream conformance runs.
 
 ## Reachability and remaining stubs
 
-Before attribute value and After attribute name remain unimplemented. Both
-quoted value states and After attribute value (quoted) are implemented and
-preserved by this integration. Character reference remains a terminal
-`UnimplementedState` on the dispatch after `&`. Whitespace executes real
-Before attribute name/Attribute name, then may block at After attribute name or
-Before attribute value. A stub never emits EOF or a recoverable HTML parse error.
+Before attribute value remains unimplemented. Both quoted value states and
+After attribute value (quoted) are preserved by this integration. Character
+reference remains a terminal `UnimplementedState` on the dispatch after `&`.
+Whitespace executes Before attribute name/Attribute name/After attribute name:
+exact snapshots now check selected-tag emission, Data continuation, EOF
+abandonment, and detached-current clearing on new attribute creation. Recovery
+requiring a value still blocks at Before attribute value. A stub never emits EOF
+or a recoverable HTML parse error.
 Blocked executions cannot be reconstructed/resumed.
 
 Isolated value contexts are initialized before execution. They establish the
-state's behavior, **not** a reachable end-to-end attribute emission path. Real
+state's behavior, **not** reachable end-to-end value parsing. Real
 `<a x=value>` / `</a x=value>` Data tests still block at Before attribute value,
 with no tag/EOF emission; no adjacent state is implemented to make them finish.
 There is no tree construction, self-closing acknowledgement, automatic mode
@@ -78,11 +81,10 @@ selection, full-conformance claim or browser-security claim.
 
 ## Upstream evidence
 
-The pinned runner on the integrated #16/#17/#18 baseline reports 6,827 fixture
-cases / 7,053 runs: 6,190 dispatch-attempted; **657 executed, 657 passed,
-0 failed, 6,396 blocked**. The same report is rerun for this change. Existing case-level
-pass regression files remain untouched. There are **no newly passing identities**:
-none of the fixture initial states enters this state, and real Data entry still
-blocks before it. Synthetic seeded tests and fixture inventory are not additional
+Existing case-level pass regression files remain untouched. There are **no
+newly passing identities from this value state**: none of the fixture initial
+states enters it, and real Data entry still blocks before it. PR #20's separate
+[After attribute name evidence](tokenizer-after-attribute-name.md) records its
+reviewed boolean-attribute/attribute-free pass additions. Synthetic seeded tests and fixture inventory are not additional
 upstream conformance executions. Exact check outcomes and the rerun's counts are
 reported in the PR, separately from local tests.
