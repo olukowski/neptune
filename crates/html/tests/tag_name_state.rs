@@ -207,6 +207,7 @@ fn tag_name_greater_than_emits_only_selected_tag_then_consumes_next_character_in
                 expected.last_start_tag = Some(emitted_name.clone());
                 expected.tokens.push(Token::StartTag {
                     name: emitted_name,
+                    attributes: vec![],
                     self_closing: false,
                 });
             }
@@ -214,6 +215,7 @@ fn tag_name_greater_than_emits_only_selected_tag_then_consumes_next_character_in
                 expected.end = None;
                 expected.tokens.push(Token::EndTag {
                     name: emitted_name,
+                    attributes: vec![],
                     self_closing: false,
                 });
             }
@@ -292,12 +294,14 @@ fn tag_name_simple_tag_milestone_and_unicode_malformed_name_integration() {
         let execution = complete(&points(input), Context::default());
         let mut expected = vec![Token::StartTag {
             name: points(tag),
+            attributes: vec![],
             self_closing: false,
         }];
         expected.extend(points(text).into_iter().map(Token::Character));
         expected.extend([
             Token::EndTag {
                 name: points(tag),
+                attributes: vec![],
                 self_closing: false,
             },
             Token::Eof,
@@ -316,10 +320,12 @@ fn tag_name_simple_tag_milestone_and_unicode_malformed_name_integration() {
         [
             Token::StartTag {
                 name: points("a�b"),
+                attributes: vec![],
                 self_closing: false
             },
             Token::EndTag {
                 name: points("a�b"),
+                attributes: vec![],
                 self_closing: false
             },
             Token::Eof

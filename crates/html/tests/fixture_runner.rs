@@ -1,4 +1,6 @@
 //! Partial upstream execution report, distinct from fixture inventory.
+#[path = "support/attribute_emission.rs"]
+mod attribute_emission;
 #[path = "support/rawtext.rs"]
 mod rawtext;
 #[path = "support/rcdata.rs"]
@@ -140,6 +142,7 @@ fn synthetic_malformed_known_fixture_shapes_fail_loudly() {
         ("output", json!([["Character", 1]])),
         ("output", json!([["EndTag", "p", {}]])),
         ("output", json!([["StartTag", "p", [], false]])),
+        ("output", json!([["StartTag", "p", {"id":false}]])),
         ("output", json!([["StartTag", "p", {}, "true"]])),
     ] {
         let mut malformed = good.clone();
@@ -573,12 +576,13 @@ fn unsupported_capabilities_never_invoke_executor_or_compare_a_partial_token() {
         );
     }
     for token in [
-        json!(["StartTag", "p", {"id":"x"}]),
         json!(["DOCTYPE", null, "", "id", false]),
         json!(["ProcessingInstruction", "x"]),
     ] {
         let mut case = case.clone();
-        case["output"] = json!([token]);
+        // Unsupported output anywhere blocks the whole run, even after a
+        // supported attribute-bearing token. Never compare a partial prefix.
+        case["output"] = json!([["StartTag", "p", {"id":"x"}], token]);
         assert_eq!(
             run_with(&case, "Data state", None, |_| panic!("unsupported fields")),
             Outcome::Blocked(Blocked::TokenVariants)

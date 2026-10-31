@@ -72,16 +72,25 @@ instruction states and no separate decimal-character-reference-start state.
   of any unrelated retained pending storage. Tag name mutates only the selected
   name. Before attribute name appends only to the selected tag's attribute list.
   Tag name and Self-closing start tag reuse the selected-token take/emission path.
-  Emission preserves the name and flag in `Token::StartTag` / `Token::EndTag`;
+  Emission preserves the name, ordered retained attributes, and flag in
+  `Token::StartTag` / `Token::EndTag`; the detached duplicate is never emitted;
   EOF abandons only the selected tag. Both clear the selector. Direct isolated
   Tag name / Before attribute name / Self-closing start tag entry requires a
   selector and matching pending tag; Attribute name also requires an initialized
   current attribute. This is inspectable scaffolding, not a general current-token API. Self-closing start tag sets the flag only on `>`.
-  Emitting a flagged end tag reports `end-tag-with-trailing-solidus` at `>`.
-  Attribute creation necessarily leads to terminal destination stubs before
-  emission; no supported path emits attributes or reports `end-tag-with-attributes`.
-  Manually redirecting an attribute-bearing context into an emitting tag state
-  remains unsupported. No tree-builder acknowledgement or
+  Shared emission reports `end-tag-with-attributes` once for a nonempty retained
+  end-tag attribute list and independently `end-tag-with-trailing-solidus` once
+  for a flagged end tag. Both use the emitting state's current `>` position,
+  under our normalized code-point diagnostic convention. Detached-only storage
+  does not count as attributes. Abandonment reports neither emission error.
+  These independent rules follow the pinned opening
+  [Tokenization paragraphs](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143174-L143210);
+  the [Attribute name removal rule](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L144218-L144229)
+  excludes detached duplicates from the token.
+  Attribute creation still necessarily leads to terminal destination stubs before
+  emission. Initialized local contexts exercise this shared prerequisite support;
+  they do not establish reachable attribute emission or supported resumption after
+  a stub. No tree-builder acknowledgement or
   `non-void-html-element-start-tag-with-trailing-solidus` behavior is simulated.
 - Only start-tag **emission** updates `last_start_tag`, with the emitted normalized
   name; creation, mutation, EOF abandonment, and end-tag emission do not. The
@@ -107,8 +116,8 @@ separately.
 
 The runner lives in `crates/html/tests/support` as test-only infrastructure;
 `serde_json` remains a dev dependency. It is deliberately limited to the
-character/EOF, attribute-free tag (including self-closing flags), and comment
-surface emitted by the implemented states.
+character/EOF, tag (including attributes and self-closing flags), and comment
+surface. Adapter support does not imply a reachable attribute emission path.
 Run its upstream report with:
 
 ```sh
@@ -138,13 +147,23 @@ Supported conventions:
 
 Explicit limitations/policies (no silent skips or partial token comparisons):
 
-- Expected StartTag with empty attributes and either self-closing flag value is
-  supported; the flag is compared exactly. EndTag fixtures contain only a name,
-  so the adapter projects away the production end-tag flag for that upstream
-  shape, but compares the required trailing-solidus diagnostic exactly. Local
-  state tests assert the stored end-tag flag directly. Nonempty attributes block
-  the **whole run** as `TokenVariants`. DOCTYPE tokens (including IDs/force-quirks)
-  and processing instructions also block the whole run.
+- Expected StartTag attribute objects may be nonempty; names and values support
+  empty strings and double-escaped code points in both keys and values. Attributes
+  compare by exact code-point name/value, independent of object/list order; token
+  order and the self-closing flag still compare exactly. Production retains list
+  order (asserted separately by local support tests). Missing/extra/different
+  attributes fail. Actual duplicate names fail even with identical values: the
+  adapter never silently overwrites them or applies a second duplicate-removal
+  policy. Distinct fixture keys decoding to the same name block the whole run as
+  `FixtureCapability`, since that object has no unambiguous unique-name meaning.
+  Exact duplicate raw JSON members are not representable by the imported fixture
+  object; this is not a duplicate-preserving JSON reader.
+- EndTag fixtures are name-only, so the adapter explicitly projects away both
+  production attributes and the self-closing flag, but compares required
+  `end-tag-with-attributes` and `end-tag-with-trailing-solidus` diagnostics exactly.
+  Local support tests assert both stored fields directly. DOCTYPE tokens
+  (including IDs/force-quirks) and processing instructions still block the
+  **whole run** as `TokenVariants`.
 - All `xmlViolationTests` runs block as `XmlCoercion`; Neptune does not apply
   DOM-to-XML-infoset coercion in this runner.
 - All `pendingSpecChanges.test` runs block as `PendingSpecReview` until individually
@@ -445,8 +464,8 @@ These local source-step checks are not full tokenizer streaming conformance.
 Before attribute name only creates pending attribute storage; it does not change
 execution/input or emit tokens. Attribute value states, After attribute name,
 ordinary comments, markup declarations, processing instructions, and character
-references remain stubs. Emitted attributes, their emission diagnostics, and
-expanded fixture comparisons remain work for states that can reach attribute emission.
+references remain stubs. Shared attribute emission, diagnostics, and fixture
+comparisons are supported, but reachable attribute emission awaits those states.
 
 ## Attribute name coverage
 
@@ -520,7 +539,27 @@ There is no tree builder or flag acknowledgement. A self-closing start-tag token
 does not make an arbitrary HTML element void. Integration tests execute Before
 attribute name on recovery and retain explicit destination-block assertions.
 
-Before claiming broader coverage, extend attribute fields and comparisons,
+## Attribute emission prerequisite coverage
+
+`crates/html/tests/tag_emission_support.rs` initializes local Tag name and
+Self-closing start tag contexts to exercise both tag kinds, ordered retained
+attributes, detached duplicate exclusion (including detached-only storage),
+Unicode/non-scalars, unrelated storage, last-start-tag bookkeeping, flags,
+normalized emission positions, error multiplicity/coexistence, suspension, and
+EOF abandonment. Shared helper tests check take versus emission and current-value
+mutation after duplicate detachment. Test-only adapter regressions in
+`crates/html/tests/support/attribute_emission.rs` check attribute-object semantics,
+malformed values, duplicate rejection, double escaping, end-tag projection and
+exact diagnostics, completion, and continued destination blocks. These are local
+support checks, not new upstream conformance executions.
+
+This prerequisite adds no states or dispatch registrations and changes no upstream
+fixtures or passing-run baselines. It supplies shared support for six subsequent,
+separately reviewed states: After attribute name, Before attribute value,
+Attribute value (double-quoted), Attribute value (single-quoted), Attribute value
+(unquoted), and After attribute value (quoted). They remain stubs here.
+
+Before claiming broader coverage, implement the remaining states,
 review pending-spec-change expectations, and decide whether XML coercion belongs
 in scope. More complex states will justify scratch buffers and context gradually.
 Tree-builder control (including foreign-content/CDATA permission), synchronous

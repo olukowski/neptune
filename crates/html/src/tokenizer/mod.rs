@@ -22,17 +22,19 @@ mod support_inventory;
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
-/// Only emitted token variants needed by the implemented states.
-/// Reachable emission paths have empty attributes; attribute creation leads to stubs.
+/// Emitted tokens, with ordered retained attributes (including non-scalars).
+/// Shared emission supports attributes; reachable attribute paths still hit stubs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
     StartTag {
         name: Vec<CodePoint>,
+        attributes: Vec<Attribute>,
         self_closing: bool,
     },
     EndTag {
         name: Vec<CodePoint>,
+        attributes: Vec<Attribute>,
         self_closing: bool,
     },
     Comment {
@@ -69,7 +71,7 @@ pub struct PendingEndTag {
     pub discarded_current_attribute: Option<Attribute>,
 }
 
-/// A pending tag attribute, retaining code points (including non-scalars).
+/// A retained or pending tag attribute, including non-scalar code points.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Attribute {
     pub name: Vec<CodePoint>,

@@ -1,7 +1,8 @@
 //! Test-only html5lib adapter. Unsupported capabilities are explicit outcomes.
 
 use neptune_html::tokenizer::{
-    CodePoint, Context, Execution, ParseError, Position, Progress, State, Token, UnimplementedState,
+    Attribute, CodePoint, Context, Execution, ParseError, Position, Progress, State, Token,
+    UnimplementedState,
 };
 use serde_json::Value;
 
@@ -154,20 +155,31 @@ fn prepare(case: &Value, state: &str) -> Result<Prepared, Blocked> {
                 .get(3)
                 .map(|flag| flag.as_bool().expect("flag bool"))
                 .unwrap_or(false);
-            // Attributes remain unsupported. Compare the representable flag exactly.
-            if !attributes.is_empty() {
-                return Err(Blocked::TokenVariants);
-            }
+            let mut attributes: Vec<_> = attributes
+                .iter()
+                .map(|(name, value)| Attribute {
+                    name: decode(name, double_escaped),
+                    value: decode(
+                        value.as_str().expect("attribute value string"),
+                        double_escaped,
+                    ),
+                })
+                .collect();
+            // Distinct JSON keys can decode to the same code-point name. That
+            // ambiguous fixture map has no faithful unique-name interpretation.
+            canonical_attributes(&mut attributes).map_err(|_| Blocked::FixtureCapability)?;
             expected.push(Token::StartTag {
                 name: decode(fields[1].as_str().expect("tag name"), double_escaped),
+                attributes,
                 self_closing,
             });
         } else if kind == decode("EndTag", false) {
             assert_eq!(fields.len(), 2, "EndTag token shape");
-            // Upstream EndTag output omits its flag; the trailing-solidus error
-            // remains compared exactly. Preserve the flag in production storage.
+            // Upstream EndTag output is name-only; attributes and flag are
+            // production-only fields. BOTH emission diagnostics still compare.
             expected.push(Token::EndTag {
                 name: decode(fields[1].as_str().expect("tag name"), double_escaped),
+                attributes: vec![],
                 self_closing: false,
             });
         } else {
@@ -217,6 +229,25 @@ fn prepare(case: &Value, state: &str) -> Result<Prepared, Blocked> {
     })
 }
 
+// Fixture attributes are an object: order is not observable, unlike the ordered
+// production list. Never collect actual attributes into a map (which could hide
+// an erroneously emitted duplicate, even with the same value).
+fn canonical_attributes(attributes: &mut [Attribute]) -> Result<(), String> {
+    attributes.sort_by(|a, b| {
+        a.name
+            .iter()
+            .map(|p| p.value())
+            .cmp(b.name.iter().map(|p| p.value()))
+    });
+    if attributes
+        .windows(2)
+        .any(|pair| pair[0].name == pair[1].name)
+    {
+        return Err("duplicate emitted/decoded attribute name".into());
+    }
+    Ok(())
+}
+
 /// Expected character strings expand to code points, equivalent to coalescing
 /// adjacent character tokens without crossing tags or comments. Require exactly one terminal
 /// EOF, omitted from fixture output. No truncated prefix can pass.
@@ -229,9 +260,22 @@ fn output(tokens: Vec<Token>) -> Result<Vec<Token>, String> {
         }
         match token {
             Token::Eof => eof = true,
-            // The upstream EndTag shape has no self-closing field.
+            Token::StartTag {
+                name,
+                mut attributes,
+                self_closing,
+            } => {
+                canonical_attributes(&mut attributes)?;
+                result.push(Token::StartTag {
+                    name,
+                    attributes,
+                    self_closing,
+                });
+            }
+            // Name-only upstream projection; never project away diagnostics.
             Token::EndTag { name, .. } => result.push(Token::EndTag {
                 name,
+                attributes: vec![],
                 self_closing: false,
             }),
             other => result.push(other),
