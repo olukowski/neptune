@@ -96,7 +96,7 @@ fn snapshot(execution: &Execution) -> Snapshot {
 }
 
 #[test]
-fn rawtext_less_than_consumes_once_then_terminally_blocks_without_output_or_error() {
+fn rawtext_less_than_consumes_once_without_output_error_or_reconsumption() {
     for finished in [false, true] {
         for suffix in [
             vec![],
@@ -129,18 +129,9 @@ fn rawtext_less_than_consumes_once_then_terminally_blocks_without_output_or_erro
             assert_eq!(execution.context().tokens, tokens);
             assert_eq!(execution.context().errors, errors);
             assert!(execution.context().input.errors().is_empty());
-            let blocked = snapshot(&execution);
-            for _ in 0..3 {
-                assert_eq!(
-                    execution.step(),
-                    Err(UnimplementedState {
-                        state: State::RawtextLessThanSign
-                    })
-                );
-                assert_eq!(snapshot(&execution), blocked);
-            }
-            // Inspect only the retained cursor, never reconstruct/resume execution.
-            // Neither the source nor the stub consumed the tail or reconsumed '<'.
+            // Inspect the source boundary only. Destination behavior is covered in
+            // rawtext_less_than_sign_state.rs; RAWTEXT neither consumed the tail
+            // nor reconsumed '<'.
             let next = suffix.first().copied().map_or(
                 if finished {
                     Input::Eof
@@ -150,12 +141,6 @@ fn rawtext_less_than_consumes_once_then_terminally_blocks_without_output_or_erro
                 Input::CodePoint,
             );
             assert_eq!(execution.context_mut().input.consume(), next);
-            assert_eq!(
-                execution.step(),
-                Err(UnimplementedState {
-                    state: State::RawtextLessThanSign
-                })
-            );
             assert_eq!(execution.context().tokens, tokens);
         }
     }
@@ -381,7 +366,7 @@ fn rawtext_all_two_chunk_splits_and_single_points_preserve_source_step_traces() 
                         .input
                         .push(chunk.iter().copied())
                         .unwrap();
-                    if drain(&mut execution, &mut trace, input.len() + 3) {
+                    if drain(&mut execution, &mut trace, input.len() * 3 + 4) {
                         // A stub is terminal, never feed/reconstruct/resume it.
                         return trace;
                     }
@@ -390,7 +375,7 @@ fn rawtext_all_two_chunk_splits_and_single_points_preserve_source_step_traces() 
                 }
                 execution.context_mut().input.finish();
             }
-            assert!(drain(&mut execution, &mut trace, input.len() + 3));
+            assert!(drain(&mut execution, &mut trace, input.len() * 3 + 4));
             trace
         };
         let expected = run(vec![], true);
