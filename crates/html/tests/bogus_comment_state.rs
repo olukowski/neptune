@@ -304,7 +304,7 @@ fn bogus_comment_recovery_separates_source_diagnostics_and_preserves_stub_failur
         ("&", State::CharacterReference),
         ("<!", State::MarkupDeclarationOpen),
         ("<?", State::ProcessingInstructionOpen),
-        ("<a ", State::BeforeAttributeName),
+        ("<a ", State::AfterAttributeName),
         ("<a/", State::SelfClosingStartTag),
     ] {
         let mut execution = isolated(&points(&format!("x>{tail}")), true);
