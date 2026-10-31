@@ -82,8 +82,12 @@ Suspensions must preserve the complete snapshot; trace collection stops at a
 stub without feeding it again.
 
 Entry is isolated through `Execution::new(State::ScriptDataEscaped, context)`.
-Script data escape start and escape start dash remain stubs in this baseline,
-so normal Script data input cannot yet reach the assigned state. PR #32's source
+Script data escape start and escape start dash were stubs on PR #33's baseline.
+PR #35 now adds escape start dash on merged main
+`a0cf68b77662fb482373f78fa15b69a540b53623`, preserving this implementation and
+its source assertions. Escape start alone still blocks normal Script data entry;
+isolated escape-start-dash entry now reaches the real escaped trio. See
+[PR #35 integrated tests and validation](tokenizer-script-data-escape-start-dash.md#focused-and-streaming-tests-after-integration). PR #32's source
 assertions remain unchanged. PR #34 deliberately updates its old escaped-dash
 stub assumption to the actual destination effects described above and extends
 streaming traces through both states. PR #33 extends those unchanged source
@@ -138,9 +142,10 @@ PR #32 originally implemented only this state against the common baseline.
 PR #34 inherited merged PR #32 from main
 `e2a9b926938d022820613c752b467e16130521bc` and adds Script data escaped dash;
 on that historical baseline, the escape-start states, escaped dash dash, and
-escaped less-than sign still blocked. PR #33 now inherits both merged states
-from main `04283260b9d467d198ab92cb8ccd5721c51fe21e` and adds escaped dash dash;
-only the escape-start states and escaped less-than sign remain those boundaries.
+escaped less-than sign still blocked. PR #33 then inherited both merged states
+from main `04283260b9d467d198ab92cb8ccd5721c51fe21e` and added escaped dash dash;
+on that baseline, both escape-start states and escaped less-than sign remained
+those boundaries. PR #35's current entry boundary is described above.
 No unmerged sibling branch is imported. Module/dispatch/support inventory
 registration is additive. Future integrations must rerun all checks/upstream
 reporting and review moved terminal blocks or newly comparable cases without

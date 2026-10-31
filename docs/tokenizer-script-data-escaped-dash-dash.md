@@ -158,8 +158,14 @@ and escaped less-than sign were stubs on the standalone baseline. After inheriti
 merged #32/#34, Escaped and EscapedDash now consume real input, handle NUL/EOF and
 suspension, and can return to DashDash; only escaped less-than sign is a direct
 terminal destination here. It returns `UnimplementedState` on the next step, not
-a recoverable HTML error or successful EOF. Escape start and escape start dash
-still prevent normal Script data entry from reaching this cycle. Ordinary
+a recoverable HTML error or successful EOF. On PR #33's base, escape start and
+escape start dash prevented normal entry into this cycle. PR #35 now adds escape
+start dash on merged main `a0cf68b77662fb482373f78fa15b69a540b53623`, preserving
+the trio algorithms and source assertions; escape start remains unsupported and
+still prevents normal Script data entry. Isolated escape-start-dash entry now
+executes this cycle; escaped less-than sign remains terminal. See
+[PR #35 integrated tests and validation](tokenizer-script-data-escape-start-dash.md#focused-and-streaming-tests-after-integration).
+Ordinary
 comments, character references, double-escaped script states and other unsupported
 states also remain stubs.
 
