@@ -42,7 +42,9 @@ The first component is a specification-first HTML tokenizer.
   returns to Script data.
   Isolated [escaped end tag name](docs/tokenizer-script-data-escaped-end-tag-name.md)
   entry supports appropriate closing tags with initialized End/scratch context;
-  its escaped-less-than-sign and escaped-end-tag-open predecessors remain stubs. No
+  [Escaped end tag open](docs/tokenizer-script-data-escaped-end-tag-open.md) now
+  creates the candidate and enters that name state on ASCII alpha; literal fallback
+  reconsumes in Escaped. Escaped less-than sign remains the gateway stub. No
   automatic mode switching, comment-token emission, or JavaScript parsing is implied; see
   [Script data integration evidence](docs/tokenizer-script-data-end-tag-name.md).
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely

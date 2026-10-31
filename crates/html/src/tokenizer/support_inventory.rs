@@ -33,6 +33,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptDataDoubleEscaped,
         State::ScriptDataDoubleEscapeStart,
         State::ScriptDataEscapedEndTagName,
+        State::ScriptDataEscapedEndTagOpen,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
@@ -67,6 +68,9 @@ fn explicit_support_inventory_matches_dispatch() {
                 if state == State::ScriptDataDoubleEscapeStart {
                     context.temporary_buffer = Vec::new();
                 }
+                // EscapedEndTagOpen needs no pending tag: alpha creates it.
+                // Direct entry supplies the predecessor-cleared (empty) buffer
+                // via Context::default(); stale-buffer preservation is tested locally.
                 // Supply invariants for isolated tag/comment entry at EOF.
                 context.current_tag = Some(TagKind::Start);
                 context.pending_start_tag = Some(PendingStartTag::default());
