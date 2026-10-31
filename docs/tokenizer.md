@@ -10,9 +10,10 @@ Tag open, End tag open, Tag name, Before attribute name, Attribute name,
 After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, Bogus comment, and
-[Script data end tag open](tokenizer-script-data-end-tag-open.md) are implemented.
-All other states, including ordinary Comment and Character reference, remain
-`UnimplementedState` stubs.**
+[Script data end tag open](tokenizer-script-data-end-tag-open.md) and
+[Script data end tag name](tokenizer-script-data-end-tag-name.md) are implemented.
+All other states, including Script data escape start, ordinary Comment and
+Character reference, remain `UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
 Implementation evidence is the immutable HTML Standard source in
