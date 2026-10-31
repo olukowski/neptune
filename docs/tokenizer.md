@@ -17,6 +17,7 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data escaped](tokenizer-script-data-escaped.md),
 [Script data escaped dash](tokenizer-script-data-escaped-dash.md),
 [Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md), isolated-entry
+[Script data escaped end tag name](tokenizer-script-data-escaped-end-tag-name.md),
 [Script data double escape start](tokenizer-script-data-double-escape-start.md),
 [Script data double escaped](tokenizer-script-data-double-escaped.md),
 [Script data double escaped dash](tokenizer-script-data-double-escaped-dash.md),
@@ -44,7 +45,9 @@ DoubleEscaped. `>` in double escaped dash dash returns to Script data.
 Isolated Double escape start entry accumulates ASCII-normalized scratch while
 emitting original spelling; exact `script` delimiters now enter the real
 DoubleEscaped loop, while mismatches and fallback return to Escaped.
-The EscapedLessThanSign and escaped-end-tag gateway states remain terminal stubs.
+Isolated escaped end tag name entry supports appropriate closing tags and literal
+fallback with initialized selected End storage and original-spelling scratch.
+The EscapedLessThanSign and EscapedEndTagOpen gateway states remain terminal stubs.
 Ordinary Script data closing-tag support remains separate. No tree builder or automatic element-based
 mode switching is implied. See the [integrated branch/fixture audit](tokenizer-script-data-escape-start.md).
 
@@ -147,7 +150,8 @@ instruction states and no separate decimal-character-reference-start state.
   Tag name / Before attribute name / After attribute name /
   After attribute value (quoted) /
   Self-closing start tag entry requires a selector and matching pending tag;
-  RCDATA/RAWTEXT/Script data end tag name require selected End storage plus original-spelling
+  RCDATA/RAWTEXT/Script data end tag name and Script data escaped end tag name
+  require selected End storage plus original-spelling
   temporary-buffer context;
   Attribute name, Before attribute value, and Attribute value (double-quoted) / (single-quoted) /
   (unquoted) also require an initialized current attribute. This is inspectable

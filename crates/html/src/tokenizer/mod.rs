@@ -36,6 +36,7 @@ mod script_data_escape_start_dash;
 mod script_data_escaped;
 mod script_data_escaped_dash;
 mod script_data_escaped_dash_dash;
+mod script_data_escaped_end_tag_name;
 mod script_data_less_than_sign;
 mod self_closing_start_tag;
 mod state;
@@ -207,6 +208,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::ScriptDataDoubleEscapeEnd => Ok(script_data_double_escape_end::step(context)),
         State::ScriptDataDoubleEscapedDash => Ok(script_data_double_escaped_dash::step(context)),
         State::ScriptDataDoubleEscapeStart => Ok(script_data_double_escape_start::step(context)),
+        State::ScriptDataEscapedEndTagName => Ok(script_data_escaped_end_tag_name::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),

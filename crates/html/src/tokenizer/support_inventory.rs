@@ -32,6 +32,7 @@ fn explicit_support_inventory_matches_dispatch() {
         // Isolated double-escaped entry needs no pending tag or scratch setup.
         State::ScriptDataDoubleEscaped,
         State::ScriptDataDoubleEscapeStart,
+        State::ScriptDataEscapedEndTagName,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
@@ -90,7 +91,9 @@ fn explicit_support_inventory_matches_dispatch() {
                 }
                 if matches!(
                     state,
-                    State::RawtextEndTagName | State::ScriptDataEndTagName
+                    State::RawtextEndTagName
+                        | State::ScriptDataEndTagName
+                        | State::ScriptDataEscapedEndTagName
                 ) {
                     context.current_tag = Some(TagKind::End);
                     context.pending_end_tag = Some(PendingEndTag::default());
