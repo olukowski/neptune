@@ -1,6 +1,7 @@
-//! Partial tokenizer: Data, PLAINTEXT, Tag open, End tag open, and Tag name.
+//! Partial tokenizer: Data, PLAINTEXT, Tag open, End tag open, Tag name, and Bogus comment.
 //! All other states remain explicit stubs.
 
+mod bogus_comment;
 mod data;
 mod end_tag_open;
 mod input;
@@ -12,7 +13,7 @@ mod tag_open;
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
-/// Only emitted token variants needed by the five implemented states.
+/// Only emitted token variants needed by the six implemented states.
 /// Tag attributes are implicitly empty and self-closing flags implicitly unset.
 /// No implemented state can change these defaults (HTML Tokenization preamble).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,6 +21,7 @@ pub enum Token {
     Character(CodePoint),
     StartTag { name: Vec<CodePoint> },
     EndTag { name: Vec<CodePoint> },
+    Comment { data: Vec<CodePoint> },
     Eof,
 }
 
@@ -72,7 +74,8 @@ pub struct Context {
     pub pending_start_tag: Option<PendingStartTag>,
     /// Created, not emitted; absent until End tag open's ASCII-alpha branch.
     pub pending_end_tag: Option<PendingEndTag>,
-    /// Created, not emitted; absent until End tag open's anything-else branch.
+    /// Created by End tag open's recovery; taken on Bogus comment emission.
+    /// Direct Bogus comment entry requires an initialized pending comment.
     pub pending_comment: Option<PendingComment>,
     /// Code-point scratch storage; Tag open clears it on `?`.
     pub temporary_buffer: Vec<CodePoint>,
@@ -113,6 +116,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),
+        State::BogusComment => Ok(bogus_comment::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }
@@ -175,7 +179,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_support_inventory_has_five_implemented_states_and_seventy_nine_stubs() {
+    fn explicit_support_inventory_has_six_implemented_states_and_seventy_eight_stubs() {
         // Deliberate support inventory, independent of dispatch outcomes.
         const IMPLEMENTED: &[State] = &[
             State::Data,
@@ -183,6 +187,7 @@ mod tests {
             State::TagOpen,
             State::EndTagOpen,
             State::TagName,
+            State::BogusComment,
         ];
         assert_eq!(State::ALL.len(), 84);
         let stubs: Vec<_> = State::ALL
@@ -190,7 +195,7 @@ mod tests {
             .copied()
             .filter(|state| !IMPLEMENTED.contains(state))
             .collect();
-        assert_eq!(stubs.len(), 79);
+        assert_eq!(stubs.len(), 78);
         for state in stubs {
             for finished in [false, true] {
                 let mut context = Context::default();

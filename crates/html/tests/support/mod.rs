@@ -142,6 +142,11 @@ fn prepare(case: &Value, state: &str) -> Result<Prepared, Blocked> {
             assert_eq!(fields.len(), 2, "Character token shape");
             let data = decode(fields[1].as_str().expect("character data"), double_escaped);
             expected.extend(data.into_iter().map(Token::Character));
+        } else if kind == decode("Comment", false) {
+            assert_eq!(fields.len(), 2, "Comment token shape");
+            expected.push(Token::Comment {
+                data: decode(fields[1].as_str().expect("comment data"), double_escaped),
+            });
         } else if kind == decode("StartTag", false) {
             assert!(matches!(fields.len(), 3 | 4), "StartTag token shape");
             let attributes = fields[2].as_object().expect("attributes object");
@@ -210,7 +215,7 @@ fn prepare(case: &Value, state: &str) -> Result<Prepared, Blocked> {
 }
 
 /// Expected character strings expand to code points, equivalent to coalescing
-/// adjacent character tokens without crossing tags. Require exactly one terminal
+/// adjacent character tokens without crossing tags or comments. Require exactly one terminal
 /// EOF, omitted from fixture output. No truncated prefix can pass.
 fn output(tokens: Vec<Token>) -> Result<Vec<Token>, String> {
     let mut result = Vec::new();
