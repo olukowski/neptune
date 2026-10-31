@@ -305,7 +305,7 @@ fn bogus_comment_recovery_separates_source_diagnostics_and_preserves_stub_failur
         ("<!", State::MarkupDeclarationOpen),
         ("<?", State::ProcessingInstructionOpen),
         ("<a ", State::AfterAttributeName),
-        ("<a/x", State::AttributeName),
+        ("<a/x", State::AfterAttributeName),
     ] {
         let mut execution = isolated(&points(&format!("x>{tail}")), true);
         let mut trace = vec![];

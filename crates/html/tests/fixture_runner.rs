@@ -173,7 +173,7 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
             "p</A/x",
             "p",
             json!([{"code":"unexpected-solidus-in-tag", "line":1, "col":6}]),
-            State::AttributeName,
+            State::AfterAttributeName,
         ),
         (
             "p</0>&",
@@ -557,7 +557,7 @@ fn production_self_closing_comparison_checks_start_flags_and_end_tag_diagnostics
         "errors":[{"code":"unexpected-solidus-in-tag","line":1,"col":8}]});
     assert_eq!(
         run_with(&prefix, "Data state", None, execute),
-        Outcome::Blocked(Blocked::Unimplemented(State::AttributeName))
+        Outcome::Blocked(Blocked::Unimplemented(State::AfterAttributeName))
     );
 }
 

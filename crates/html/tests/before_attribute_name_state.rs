@@ -179,9 +179,8 @@ fn before_attribute_name_equals_diagnoses_and_appends_named_empty_attribute_then
                 Ok(Progress::Continue(State::AttributeName))
             );
             assert_eq!(snapshot(&execution), expected);
-            assert_blocked(&mut execution, State::AttributeName, &expected);
-            // Inspection only; execution cannot resume after the stub. '=' was
-            // NOT scheduled for reconsumption; the next point is untouched Z.
+            // Source-local cursor inspection: '=' was NOT scheduled for
+            // reconsumption; the next point is untouched Z.
             assert_eq!(
                 execution.context_mut().input.consume(),
                 Input::CodePoint('Z'.into())
@@ -190,8 +189,6 @@ fn before_attribute_name_equals_diagnoses_and_appends_named_empty_attribute_then
                 execution.context().input.position(),
                 Position { line: 2, column: 4 }
             );
-            let inspected = snapshot(&execution);
-            assert_blocked(&mut execution, State::AttributeName, &inspected);
         }
     }
 }
@@ -238,7 +235,6 @@ fn before_attribute_name_anything_else_creates_empty_attribute_and_reconsumes_un
                     "{value:x}"
                 );
                 assert_eq!(snapshot(&execution), expected, "{value:x}");
-                assert_blocked(&mut execution, State::AttributeName, &expected);
                 assert_eq!(
                     execution.context_mut().input.consume(),
                     Input::CodePoint(point)
@@ -252,8 +248,6 @@ fn before_attribute_name_anything_else_creates_empty_attribute_and_reconsumes_un
                     execution.context().input.position(),
                     Position { line: 1, column: 2 }
                 );
-                let inspected = snapshot(&execution);
-                assert_blocked(&mut execution, State::AttributeName, &inspected);
             }
         }
     }
@@ -377,7 +371,7 @@ fn before_attribute_name_real_tag_name_entry_preserves_tag_and_initializes_only_
             Position { line: 1, column },
         ));
         assert_eq!(snapshot(&execution), expected);
-        assert_blocked(&mut execution, State::AttributeName, &expected);
+        // Attribute name now executes next; this test isolates creation effects.
     }
 }
 

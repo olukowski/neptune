@@ -3,32 +3,7 @@
 //! "Before attribute name state" (#before-attribute-name-state).
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source>
 
-use super::{Attribute, Context, Input, ParseError, Progress, State, TagKind};
-
-// Tag open / End tag open select the current tag before Tag name enters here.
-// The appended (last) attribute is current; no separate selector is needed yet.
-fn start_attribute(context: &mut Context, attribute: Attribute) {
-    let attributes = match context
-        .current_tag
-        .expect("Before attribute name requires a current tag")
-    {
-        TagKind::Start => {
-            &mut context
-                .pending_start_tag
-                .as_mut()
-                .expect("current start tag")
-                .attributes
-        }
-        TagKind::End => {
-            &mut context
-                .pending_end_tag
-                .as_mut()
-                .expect("current end tag")
-                .attributes
-        }
-    };
-    attributes.push(attribute);
-}
+use super::{Attribute, Context, Input, ParseError, Progress, State, tag};
 
 pub(super) fn step(context: &mut Context) -> Progress {
     match context.input.consume() {
@@ -47,7 +22,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
                 code: "unexpected-equals-sign-before-attribute-name",
                 position: context.input.position(),
             });
-            start_attribute(
+            tag::start_attribute(
                 context,
                 Attribute {
                     name: vec![point],
@@ -58,7 +33,7 @@ pub(super) fn step(context: &mut Context) -> Progress {
         }
         // Anything else: initialize EMPTY name/value, then reconsume.
         Input::CodePoint(_) => {
-            start_attribute(context, Attribute::default());
+            tag::start_attribute(context, Attribute::default());
             context
                 .input
                 .reconsume()

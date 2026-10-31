@@ -14,7 +14,8 @@ The first component is a specification-first HTML tokenizer.
 - Registry of all 84 tokenizer states in the pinned HTML Standard.
 - [Partial tokenizer scope](docs/tokenizer.md#status-and-source), with typed
   `UnimplementedState` stubs for unsupported states.
-  Attribute destinations are still stubs; tags with whitespace/attributes cannot complete.
+  After attribute name and attribute-value states are still stubs;
+  tags with whitespace/attributes cannot complete.
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.
