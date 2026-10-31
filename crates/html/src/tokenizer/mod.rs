@@ -25,6 +25,7 @@ mod rcdata_less_than_sign;
 mod script_data;
 mod script_data_end_tag_name;
 mod script_data_end_tag_open;
+mod script_data_escaped;
 mod script_data_less_than_sign;
 mod self_closing_start_tag;
 mod state;
@@ -177,6 +178,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::ScriptDataLessThanSign => Ok(script_data_less_than_sign::step(context)),
         State::ScriptDataEndTagOpen => Ok(script_data_end_tag_open::step(context)),
         State::ScriptDataEndTagName => Ok(script_data_end_tag_name::step(context)),
+        State::ScriptDataEscaped => Ok(script_data_escaped::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),

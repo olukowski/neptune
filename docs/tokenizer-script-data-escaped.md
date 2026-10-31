@@ -1,0 +1,124 @@
+# Script data escaped state
+
+## Scope and pinned evidence
+
+This PR implements only `State::ScriptDataEscaped`, anchor
+`#script-data-escaped-state`, on main baseline
+`28131e11437941928eb7246885fb70e1160b2700` (PR #31). It uses existing
+Context, Cursor, character tokens, diagnostics and Execution; no shared framework,
+dependency, storage, adapter, fixture, pin, or policy changes are needed.
+
+The immutable HTML Standard source revision is
+[`404b3eb14a7a936dddefb2d78e224dbeb01d2358`](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source).
+The complete source was retrieved from that revision's raw GitHub URL, not the
+living Standard or another engine. Reviewed sections/definitions:
+
+- [Assigned state, lines 143775–143802](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143775-L143802).
+- [Preprocessing, next/current input and conceptual EOF, lines 142560–142607](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L142560-L142607).
+  Newline normalization is delegated to the existing Cursor; CR/CRLF become LF,
+  including across chunks. Surrogates, noncharacters and controls retain their
+  code points and receive preprocessing diagnostics on consumption, not on push.
+- [Tokenization and reconsumption, lines 143149–143179](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143149-L143179):
+  character and EOF token output, switching versus reconsumption. No branch of
+  this state requests reconsumption.
+- [Parse errors, lines 140986–141008](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L140986-L141008),
+  [unexpected-null-character, lines 141479–141482](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L141479-L141482), and
+  [eof-in-script-html-comment-like-text, lines 141138–141149](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L141138-L141149).
+  State algorithms are normative; error-table explanations are non-normative.
+
+## Branch mapping
+
+Implementation: `crates/html/src/tokenizer/script_data_escaped.rs`.
+Focused tests: `crates/html/tests/script_data_escaped_state.rs`.
+
+| Consumed input | Required source effects / destination | Focused evidence |
+| --- | --- | --- |
+| `-` U+002D | Emit `-`; switch to Script data escaped dash | Exhaustive ASCII source snapshot, untouched suffix, separate terminal destination test |
+| `<` U+003C | Emit nothing; switch to Script data escaped less-than sign | Exhaustive ASCII source snapshot, untouched suffix, separate terminal destination test |
+| NUL U+0000 | Report `unexpected-null-character`; emit U+FFFD; stay | Exhaustive branch and repeated NUL/newline test with exact error positions and multiplicity |
+| EOF | Report `eof-in-script-html-comment-like-text`; emit EOF | Empty/nonempty and seeded/default contexts, normalized EOF position, repeated terminal steps |
+| Anything else | Emit current point unchanged; stay | All other ASCII points, Unicode/non-scalars, literal entity-like and malformed script text |
+
+Every source step consumes exactly one normalized point (or conceptual EOF).
+Delimiters are consumed, not reconsumed. The suffix probe is a source-boundary
+inspection, not an attempt to resume a stub. Actual destination attempts are
+separate tests: both Script data escaped dash and Script data escaped less-than
+sign remain terminal `UnimplementedState`, with no suffix consumption, diagnostic,
+substitute EOF, or reconstructed execution. Closing input cannot revive them.
+
+Exhausted open input and empty chunks are effect-free `NeedMoreInput`, preserving
+the previous current item/position. Only explicit `finish` supplies EOF. EOF adds
+exactly one error and one EOF token, even on repeated terminal calls. Diagnostic
+coordinates follow the repository's normalized one-based code-point convention,
+not byte/UTF-16 offsets. NUL is replaced here, not by preprocessing; literal
+U+FFFD, surrogates, noncharacters and controls are not replaced here.
+
+Full snapshots assert unrelated storage preservation for every branch: selected
+tag, both pending tags (including retained/detached attributes and flags), pending
+comment, temporary buffer, last start tag and return state. Existing token/error
+prefixes remain ordered. No comment/tag is created, abandoned or emitted.
+Ampersands are literal and do not invoke Character reference or alter return state.
+
+## Streaming and entry boundaries
+
+The six focused tests cover every branch, all ASCII points, Unicode/non-scalars,
+exact diagnostics/positions/multiplicities, malformed input, consumption, repeated
+suspension/completion, and default/seeded contexts. All two-chunk splits and
+single-code-point streaming compare every non-suspension source-step snapshot
+against closed input. Inputs include CRLF splits, consecutive/trailing CR,
+repeated NUL, surrogate/noncharacter/control points, literal entity-like text,
+and terminal `-`/`<` destinations with unconsumed tails. Suspensions must preserve
+the complete snapshot; trace collection stops at a stub without feeding it again.
+
+Entry is isolated through `Execution::new(State::ScriptDataEscaped, context)`.
+Script data escape start and escape start dash remain stubs in this baseline,
+so normal Script data input cannot yet reach the assigned state. Existing source
+and terminal-block assertions are deliberately unchanged: no old test named this
+state as a stub; the independent support inventory is registered additively.
+No tree-builder mode switching or JavaScript parsing is implemented.
+
+## Upstream fixture review and results
+
+Fixtures remain pinned at `c777c408b61078ea2eb4acefc2535f54dbc8b28a`.
+Inspected unchanged `domjs.test` cases 7–12: all start in Script data and expect
+literal comment-like text plus `eof-in-script-html-comment-like-text` at EOF.
+Case 7 is `<!--test` with its error at 1:9; cases 8/9 end after dash/dash-dash
+and cases 10–12 reach double-escaped forms. These need earlier and/or later
+states as well: all still stop at Script data escape start, not a comparable
+prefix pass. They are not added to a pass baseline.
+
+The standalone runner report remains exactly:
+
+- 6,827 fixture cases; 7,053 runs; 6,190 dispatch-attempted.
+- **Executed 1,117 = passed 1,117 + failed 0; blocked 5,936.**
+- 31 runs still block at Script data escape start.
+- Delta from parent: executed +0, passed +0, failed +0, blocked +0.
+
+No newly comparable upstream identity exists for this isolated state; no
+state-specific pass-baseline file is warranted. All existing reviewed baseline
+identities remain unchanged and passing. Local tests/support inventory are not
+upstream conformance executions. Neither full conformance nor browser security
+is claimed.
+
+## Validation and parallel integration
+
+All required validation commands passed locally (exit 0). The workspace suite
+passed 253 Rust tests with 0 failed and 0 ignored, including the six focused
+state tests. These Rust test totals are separate from upstream run counts.
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+cargo test --workspace --locked pinned_upstream_runner -- --nocapture
+```
+
+Only this state is implemented; upstream/downstream Script escaping states remain
+stubs. No unmerged sibling branches are imported. This standalone PR is against
+the common baseline, not a promise of conflict-free integration: the parent
+must reconcile additive module/dispatch/support registration after neighboring
+merges and rerun all checks/upstream reporting. Newly reachable destinations can
+move terminal blocks or admit complete cases; review those individually rather
+than skipping tests, auto-blessing identities or resuming a blocked execution.
+The parent handles integration after the user declares the wave done.
