@@ -184,25 +184,41 @@ fn end_tag_open_anything_else_creates_empty_comment_and_reconsumes_in_bogus_comm
                         .push(error(code, pos.line, pos.column));
                 }
                 assert_eq!(snapshot(&execution), expected);
-                assert_terminal_stub(&mut execution, State::BogusComment);
-                // The first point has not been appended, discarded, or replaced.
-                // Inspection only: a blocked execution has no resumability guarantee.
-                assert_eq!(
-                    execution.context_mut().input.consume(),
-                    Input::CodePoint(normalized)
-                );
-                assert_eq!(execution.context().input.position(), pos);
-                assert_eq!(execution.context().input.errors(), expected.input_errors);
-                assert_eq!(
-                    execution.context_mut().input.consume(),
-                    Input::CodePoint('>'.into())
-                );
+                // Bogus comment reconsumes once, appending/replacing only here.
                 assert_eq!(
                     execution.step(),
-                    Err(UnimplementedState {
-                        state: State::BogusComment
-                    })
+                    Ok(Progress::Continue(State::BogusComment))
                 );
+                expected.comment = Some(PendingComment {
+                    data: vec![if value == 0 {
+                        '\u{fffd}'.into()
+                    } else {
+                        normalized
+                    }],
+                });
+                if value == 0 {
+                    expected
+                        .errors
+                        .push(error("unexpected-null-character", pos.line, pos.column));
+                }
+                assert_eq!(snapshot(&execution), expected);
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::Data)));
+                expected.state = State::Data;
+                expected.current = Some((
+                    Input::CodePoint('>'.into()),
+                    Position {
+                        line: pos.line + usize::from(normalized == '\n'.into()),
+                        column: if normalized == '\n'.into() {
+                            1
+                        } else {
+                            pos.column + 1
+                        },
+                    },
+                ));
+                expected.tokens.push(Token::Comment {
+                    data: expected.comment.take().unwrap().data,
+                });
+                assert_eq!(snapshot(&execution), expected);
             }
         }
     }

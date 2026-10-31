@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn pinned_upstream_runner_reports_through_tag_name_coverage() {
+fn pinned_upstream_runner_reports_bogus_comment_coverage() {
     let directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
     let mut paths: Vec<_> = fs::read_dir(directory)
@@ -25,6 +25,36 @@ fn pinned_upstream_runner_reports_through_tag_name_coverage() {
     let mut reasons = BTreeMap::<String, usize>::new();
     let mut passed_by_initial = BTreeMap::<String, usize>::new();
     let mut retained_data_passes = 0;
+    let mut retained_pre_comment_passes = 0;
+    let mut comment_passes = BTreeMap::new();
+    // Explicit newly comparable upstream identities, not inferred from dispatch.
+    const BOGUS_COMMENT_PASSES: &[(&str, &str)] = &[
+        ("test2.test", "Illegal end tag name"),
+        ("test3.test", r"</\u0000"),
+        ("test3.test", r"</\u0009"),
+        ("test3.test", r"</\u000A"),
+        ("test3.test", r"</\u000B"),
+        ("test3.test", r"</\u000C"),
+        ("test3.test", "</ "),
+        ("test3.test", r"</ \u0000"),
+        ("test3.test", "</!"),
+        ("test3.test", "</\""),
+        ("test3.test", "</&"),
+        ("test3.test", "</'"),
+        ("test3.test", "</-"),
+        ("test3.test", "<//"),
+        ("test3.test", "</0"),
+        ("test3.test", "</1"),
+        ("test3.test", "</9"),
+        ("test3.test", "</<"),
+        ("test3.test", "</="),
+        ("test3.test", "</?"),
+        ("test3.test", "</@"),
+        ("test3.test", "</["),
+        ("test3.test", "</`"),
+        ("test3.test", "</{"),
+        ("test3.test", r"</\uDBC0\uDC00"),
+    ];
     let mut newly_comparable_tag_passes = 0;
     let mut retained_tag_open_passes = 0;
     let mut former_tag_open = BTreeMap::<String, usize>::new();
@@ -170,6 +200,24 @@ fn pinned_upstream_runner_reports_through_tag_name_coverage() {
                 match result {
                     Outcome::Passed => {
                         if case["output"].as_array().unwrap().iter().any(|token| {
+                            decode(
+                                token[0].as_str().unwrap(),
+                                case.get("doubleEscaped")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false),
+                            ) == decode("Comment", false)
+                        }) {
+                            assert_eq!(state, "Data state");
+                            *comment_passes
+                                .entry((
+                                    path.file_name().unwrap().to_str().unwrap().to_owned(),
+                                    case["description"].as_str().unwrap().to_owned(),
+                                ))
+                                .or_insert(0) += 1;
+                        } else {
+                            retained_pre_comment_passes += 1;
+                        }
+                        if case["output"].as_array().unwrap().iter().any(|token| {
                             let kind = decode(
                                 token[0].as_str().unwrap(),
                                 case.get("doubleEscaped")
@@ -209,19 +257,20 @@ fn pinned_upstream_runner_reports_through_tag_name_coverage() {
         attempted > 0,
         "must reach production dispatch, not just inventory"
     );
-    assert_eq!((passed + failed + blocked, attempted), (7053, 5524));
+    assert_eq!((passed + failed + blocked, attempted), (7053, 5818));
     // Review deliberately when changing support; never silently widen blocking.
     assert_eq!(
         reasons,
         BTreeMap::from([
             ("PendingSpecReview".into(), 1),
-            ("TokenVariants".into(), 1524),
+            ("TokenVariants".into(), 1230),
             ("Unimplemented(BeforeAttributeName)".into(), 24),
             ("Unimplemented(CdataSection)".into(), 56),
             ("Unimplemented(CharacterReference)".into(), 4659),
-            ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
-            ("Unimplemented(Rawtext)".into(), 70),
-            ("Unimplemented(Rcdata)".into(), 73),
+            ("Unimplemented(MarkupDeclarationOpen)".into(), 240),
+            ("Unimplemented(ProcessingInstructionOpen)".into(), 52),
+            ("Unimplemented(Rawtext)".into(), 71),
+            ("Unimplemented(Rcdata)".into(), 74),
             ("Unimplemented(ScriptData)".into(), 89),
             ("Unimplemented(SelfClosingStartTag)".into(), 6),
             ("XmlCoercion".into(), 4),
@@ -229,13 +278,21 @@ fn pinned_upstream_runner_reports_through_tag_name_coverage() {
     );
     assert_eq!(
         (passed, failed, blocked),
-        (522, 0, 6531),
-        "Data through Tag name baseline"
+        (547, 0, 6506),
+        "Data through Tag name plus Bogus comment baseline"
     );
     assert_eq!(
         passed_by_initial,
-        BTreeMap::from([("Data state".into(), 470), ("PLAINTEXT state".into(), 52)]),
-        "retain PLAINTEXT coverage; 56 Data-initial runs newly compare"
+        BTreeMap::from([("Data state".into(), 495), ("PLAINTEXT state".into(), 52)]),
+        "retain prior coverage; 25 comment-output Data-initial runs newly compare"
+    );
+    assert_eq!(retained_pre_comment_passes, 522);
+    assert_eq!(
+        comment_passes,
+        BOGUS_COMMENT_PASSES
+            .iter()
+            .map(|(file, description)| ((file.to_string(), description.to_string()), 1))
+            .collect()
     );
     assert_eq!(retained_data_passes, 385);
     assert_eq!(retained_tag_open_passes, 24);
@@ -278,10 +335,10 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
         ("p<!", "p", json!([]), State::MarkupDeclarationOpen),
         ("p</A/", "p", json!([]), State::SelfClosingStartTag),
         (
-            "p</0",
+            "p</0>&",
             "p",
             json!([{"code":"invalid-first-character-of-tag-name", "line":1, "col":4}]),
-            State::BogusComment,
+            State::CharacterReference,
         ),
         ("p<?", "p", json!([]), State::ProcessingInstructionOpen),
         (
@@ -549,6 +606,82 @@ fn production_tag_comparison_checks_kind_name_order_and_double_escaped_code_poin
 }
 
 #[test]
+fn production_comment_comparison_checks_data_kind_order_boundaries_and_double_escaping() {
+    // Local adapter tests, not additional upstream conformance runs.
+    let case = json!({"description":"comment recovery and EOF", "input":"</0>t</1",
+        "output":[["Comment","0"],["Character","t"],["Comment","1"]],
+        "errors":[{"code":"invalid-first-character-of-tag-name","line":1,"col":3},
+            {"code":"invalid-first-character-of-tag-name","line":1,"col":8}]});
+    assert_eq!(
+        run_with(&case, "Data state", None, execute),
+        Outcome::Passed
+    );
+    for output in [
+        json!([["Comment", "wrong"], ["Character", "t"], ["Comment", "1"]]),
+        json!([["Character", "0t"], ["Comment", "1"]]),
+        json!([["Comment", "0"], ["Comment", "1"], ["Character", "t"]]),
+        json!([["Comment", "01"], ["Character", "t"]]),
+        json!([["Comment", "0"], ["Character", "t"]]),
+    ] {
+        let mut wrong = case.clone();
+        wrong["output"] = output;
+        assert!(matches!(
+            run_with(&wrong, "Data state", None, execute),
+            Outcome::Failed(_)
+        ));
+    }
+    let escaped = json!({"description":"comment code points, not scalar strings",
+        "doubleEscaped":true, "input":"</\\uD800\\uDFFF\\u0000>",
+        "output":[["\\u0043omment","\\uD800\\uDFFF\\uFFFD"]],
+        "errors":[{"code":"invalid-first-character-of-tag-name","line":1,"col":3},
+            {"code":"surrogate-in-input-stream","line":1,"col":3},
+            {"code":"surrogate-in-input-stream","line":1,"col":4},
+            {"code":"unexpected-null-character","line":1,"col":5}]});
+    assert_eq!(
+        run_with(&escaped, "Data state", None, execute),
+        Outcome::Passed
+    );
+    let empty = json!({"description":"synthetic empty comment boundaries", "input":"",
+        "output":[["Comment",""],["Comment",""]]});
+    let compare = |tokens| {
+        run_with(&empty, "Data state", None, |_| Completion::Complete {
+            tokens,
+            errors: vec![],
+        })
+    };
+    assert_eq!(
+        compare(vec![
+            Token::Comment { data: vec![] },
+            Token::Comment { data: vec![] },
+            Token::Eof
+        ]),
+        Outcome::Passed
+    );
+    assert!(matches!(
+        compare(vec![Token::Comment { data: vec![] }, Token::Eof]),
+        Outcome::Failed(_)
+    ));
+    // An exact comment prefix is still blocked if the next algorithm is missing.
+    let prefix = json!({"description":"comment prefix then stub", "input":"</0><!",
+        "output":[["Comment","0"]],
+        "errors":[{"code":"invalid-first-character-of-tag-name","line":1,"col":3}]});
+    assert_eq!(
+        run_with(&prefix, "Data state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::MarkupDeclarationOpen))
+    );
+}
+
+#[test]
+#[should_panic(expected = "Comment token shape")]
+fn comment_adapter_rejects_extra_fields_instead_of_dropping_them() {
+    let case =
+        json!({"description":"malformed known token", "input":"", "output":[["Comment","x",true]]});
+    run_with(&case, "Data state", None, |_| {
+        panic!("must reject before execution")
+    });
+}
+
+#[test]
 fn unsupported_capabilities_never_invoke_executor_or_compare_a_partial_token() {
     let case = json!({"description":"synthetic", "input":"", "output":[["StartTag","p",{},true]]});
     for reason in [Blocked::XmlCoercion, Blocked::PendingSpecReview] {
@@ -563,7 +696,6 @@ fn unsupported_capabilities_never_invoke_executor_or_compare_a_partial_token() {
         json!(["StartTag", "p", {}, true]),
         json!(["StartTag", "p", {"id":"x"}]),
         json!(["DOCTYPE", null, "", "id", false]),
-        json!(["Comment", "x"]),
         json!(["ProcessingInstruction", "x"]),
     ] {
         let mut case = case.clone();
