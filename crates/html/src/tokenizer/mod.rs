@@ -24,6 +24,7 @@ mod rcdata_end_tag_open;
 mod rcdata_less_than_sign;
 mod script_data;
 mod script_data_double_escape_end;
+mod script_data_double_escape_start;
 mod script_data_double_escaped;
 mod script_data_double_escaped_dash;
 mod script_data_double_escaped_dash_dash;
@@ -205,6 +206,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::ScriptDataEscapedDashDash => Ok(script_data_escaped_dash_dash::step(context)),
         State::ScriptDataDoubleEscapeEnd => Ok(script_data_double_escape_end::step(context)),
         State::ScriptDataDoubleEscapedDash => Ok(script_data_double_escaped_dash::step(context)),
+        State::ScriptDataDoubleEscapeStart => Ok(script_data_double_escape_start::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),

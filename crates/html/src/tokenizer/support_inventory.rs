@@ -31,6 +31,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptDataDoubleEscapedDash, // Direct entry needs no pending storage.
         // Isolated double-escaped entry needs no pending tag or scratch setup.
         State::ScriptDataDoubleEscaped,
+        State::ScriptDataDoubleEscapeStart,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
@@ -60,6 +61,11 @@ fn explicit_support_inventory_matches_dispatch() {
                 context.input.finish();
             }
             if IMPLEMENTED.contains(&state) {
+                // Double escape start appends to caller-supplied scratch. Normal
+                // predecessor entry clears it and reconsumes the first ASCII alpha.
+                if state == State::ScriptDataDoubleEscapeStart {
+                    context.temporary_buffer = Vec::new();
+                }
                 // Supply invariants for isolated tag/comment entry at EOF.
                 context.current_tag = Some(TagKind::Start);
                 context.pending_start_tag = Some(PendingStartTag::default());

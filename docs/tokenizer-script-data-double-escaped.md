@@ -1,6 +1,21 @@
 # Script data double escaped state
 
-## Current PR #42 integration after merged #43, #38, #39 and #40
+## Current PR #37 integration update
+
+On exact merged main **`b67a7ee7445965257d0733569ac3c4e4f0bde8c8`** (#43/#38/#39/#40/#42)
+plus #37, isolated DoubleEscapeStart now enters the completed double-escaped loop
+at exact `script` delimiters. All five merged algorithms, registrations, inventory
+setup and test suites remain unchanged; new cross-state source snapshots live in
+the DoubleEscapeStart suite. EscapedLessThanSign remains the real ordinary-entry
+gateway stub. All checks pass: **339 Rust tests, 0 failed, 0 ignored**; upstream
+**1,126 executed/passed, 0 failed, 5,927 blocked**, zero new passes.
+See [#37's current integration evidence](tokenizer-script-data-double-escape-start.md#current-integration-after-merged-43-38-39-40-and-42)
+for exact paths, hashes, checks and final-head location. Reports below are historical
+for support boundaries and test totals; their original source evidence is preserved.
+
+<a id="current-pr-42-integration-after-merged-43-38-39-and-40"></a>
+
+## Historical PR #42 integration after merged #43, #38, #39 and #40
 
 The user authorized clean sequential integration with a fresh independent
 final-head review. This revision is rebased onto exact main
