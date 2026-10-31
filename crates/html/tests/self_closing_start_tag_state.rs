@@ -317,7 +317,8 @@ fn slash_is_consumed_by_tag_name_and_need_more_input_does_not_set_flag() {
         Some(PendingStartTag {
             name: points("br"),
             self_closing: false,
-            attributes: vec![]
+            attributes: vec![],
+            discarded_current_attribute: None,
         })
     );
     assert!(e.context().tokens.is_empty());
@@ -384,7 +385,7 @@ fn creation_resets_selected_tag_defaults_without_touching_unrelated_storage() {
 }
 
 #[test]
-fn recovery_error_uses_normalized_code_point_location_before_attribute_name_stub() {
+fn recovery_error_and_attribute_name_replacement_use_normalized_code_point_locations() {
     let mut e = Execution::new(State::Data, Context::default());
     e.context_mut().input.push(points("😀\r\n<a/\0>")).unwrap();
     e.context_mut().input.finish();
@@ -392,12 +393,15 @@ fn recovery_error_uses_normalized_code_point_location_before_attribute_name_stub
     assert_eq!(
         e.step(),
         Err(UnimplementedState {
-            state: State::AttributeName
+            state: State::AfterAttributeName
         })
     );
     assert_eq!(
         e.context().errors,
-        [error("unexpected-solidus-in-tag", 2, 4)]
+        [
+            error("unexpected-solidus-in-tag", 2, 4),
+            error("unexpected-null-character", 2, 4),
+        ]
     );
     assert_eq!(
         e.context().tokens,
@@ -408,30 +412,31 @@ fn recovery_error_uses_normalized_code_point_location_before_attribute_name_stub
         Some(PendingStartTag {
             name: points("a"),
             self_closing: false,
-            attributes: vec![Attribute::default()]
+            attributes: vec![Attribute {
+                name: points("�"),
+                value: vec![],
+            }],
+            discarded_current_attribute: None,
         })
-    );
-    assert_eq!(
-        e.context_mut().input.consume(),
-        Input::CodePoint('\0'.into())
-    );
-    assert_eq!(
-        e.context().input.position(),
-        Position { line: 2, column: 4 }
     );
     assert_eq!(
         e.context_mut().input.consume(),
         Input::CodePoint('>'.into())
     );
+    assert_eq!(
+        e.context().input.position(),
+        Position { line: 2, column: 5 }
+    );
+    assert_eq!(e.context_mut().input.consume(), Input::Eof);
 }
 
 #[test]
-fn recovery_executes_before_attribute_name_then_blocks_at_its_unimplemented_destinations() {
+fn recovery_executes_attribute_name_then_blocks_at_unimplemented_destinations() {
     for (text, destination, attribute_count) in [
         ("<a//>", State::AfterAttributeName, 0),
         ("<a/ >", State::AfterAttributeName, 0),
-        ("<a/x>", State::AttributeName, 1),
-        ("</a/x>", State::AttributeName, 1),
+        ("<a/x>", State::AfterAttributeName, 1),
+        ("</a/x>", State::AfterAttributeName, 1),
     ] {
         let mut e = Execution::new(State::Data, Context::default());
         e.context_mut().input.push(points(text)).unwrap();

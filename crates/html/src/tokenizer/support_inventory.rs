@@ -14,6 +14,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::EndTagOpen,
         State::TagName,
         State::BeforeAttributeName,
+        State::AttributeName,
         State::SelfClosingStartTag,
         State::BogusComment,
     ];
@@ -28,6 +29,14 @@ fn explicit_support_inventory_matches_dispatch() {
                 // Supply invariants for isolated tag/comment entry at EOF.
                 context.current_tag = Some(TagKind::Start);
                 context.pending_start_tag = Some(PendingStartTag::default());
+                if state == State::AttributeName {
+                    context
+                        .pending_start_tag
+                        .as_mut()
+                        .unwrap()
+                        .attributes
+                        .push(Attribute::default());
+                }
                 context.pending_comment = Some(PendingComment::default());
                 let mut execution = Execution::new(state, context);
                 let result = execution.step();

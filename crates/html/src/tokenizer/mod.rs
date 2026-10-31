@@ -1,6 +1,7 @@
 //! Partial tokenizer with explicit stubs for unsupported states.
 //! See docs/tokenizer.md for current scope and pinned specification provenance.
 
+mod attribute_name;
 mod before_attribute_name;
 mod bogus_comment;
 mod data;
@@ -42,24 +43,30 @@ pub enum Token {
 
 /// Unfinished start tag created by Tag open, not an emitted token.
 ///
-/// Creation unsets the self-closing flag. Attributes start empty; the last
-/// entry is the current attribute. No attribute-name/value algorithms run yet.
+/// Creation unsets the self-closing flag and starts with no attributes.
+/// The current attribute is `discarded_current_attribute` when present, otherwise
+/// the last retained entry. Removing a duplicate must NEVER select its predecessor.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PendingStartTag {
     pub name: Vec<CodePoint>,
     pub self_closing: bool,
     pub attributes: Vec<Attribute>,
+    /// Removed duplicate, still current for subsequent tokenizer operations.
+    /// Cleared when starting another attribute; never part of emitted attributes.
+    pub discarded_current_attribute: Option<Attribute>,
 }
 
 /// Unfinished end tag created by End tag open, not an emitted token.
 ///
-/// As with `PendingStartTag`, creation unsets the self-closing flag and the
-/// attribute list starts empty; its last entry is the current attribute.
+/// Uses the same creation defaults and current-attribute invariant as
+/// `PendingStartTag`, including a removed duplicate remaining current.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PendingEndTag {
     pub name: Vec<CodePoint>,
     pub self_closing: bool,
     pub attributes: Vec<Attribute>,
+    /// Removed duplicate, still current; see `PendingStartTag`.
+    pub discarded_current_attribute: Option<Attribute>,
 }
 
 /// A pending tag attribute, retaining code points (including non-scalars).
@@ -93,8 +100,8 @@ pub struct Context {
     /// Set by states invoking Character reference; absent before any invocation.
     pub return_state: Option<State>,
     /// Selected by tag creation; cleared on emission or abandonment at EOF.
-    /// Direct Tag name / Before attribute name / Self-closing start tag entry
-    /// requires this and its matching pending tag.
+    /// Direct tag-state entry requires this and its matching pending tag;
+    /// Attribute name additionally requires an initialized current attribute.
     pub current_tag: Option<TagKind>,
     /// Created, not emitted; absent until Tag open's ASCII-alpha branch.
     pub pending_start_tag: Option<PendingStartTag>,
@@ -145,6 +152,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),
         State::BeforeAttributeName => Ok(before_attribute_name::step(context)),
+        State::AttributeName => Ok(attribute_name::step(context)),
         State::SelfClosingStartTag => Ok(self_closing_start_tag::step(context)),
         State::BogusComment => Ok(bogus_comment::step(context)),
         _ => Err(UnimplementedState { state }),
@@ -223,16 +231,16 @@ mod tests {
                 position: context.input.position(),
             });
             context.input.reconsume().unwrap();
-            Ok(Progress::Continue(State::AttributeName))
+            Ok(Progress::Continue(State::BeforeAttributeValue))
         });
-        assert_eq!(result, Ok(Progress::Continue(State::AttributeName)));
-        assert_eq!(execution.state(), State::AttributeName);
+        assert_eq!(result, Ok(Progress::Continue(State::BeforeAttributeValue)));
+        assert_eq!(execution.state(), State::BeforeAttributeValue);
         assert_eq!(execution.context().tokens, [Token::Character('!'.into())]);
         assert_eq!(execution.context().errors.len(), 1);
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::AttributeName
+                state: State::BeforeAttributeValue
             })
         );
         assert_eq!(
@@ -242,7 +250,7 @@ mod tests {
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::AttributeName
+                state: State::BeforeAttributeValue
             })
         );
     }

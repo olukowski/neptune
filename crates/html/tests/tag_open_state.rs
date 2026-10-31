@@ -89,7 +89,8 @@ fn tag_open_switch_branches_consume_once_and_preserve_effects_at_terminal_stubs(
                             points("old")
                         },
                         attributes: vec![],
-                        self_closing: false
+                        self_closing: false,
+                        discarded_current_attribute: None,
                     })
                 );
                 assert_eq!(
