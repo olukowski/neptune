@@ -1,12 +1,14 @@
 # Script data end tag open
 
 Implements exactly `State::ScriptDataEndTagOpen`. Originally independent from
-main `c8ec2da`, PR #28 is now user-directed to rebase onto main
+main `c8ec2da`, PR #28 subsequently rebased onto main
 `3fc6b310a6ea3b3e229a795336eaca72218a14ca`, after independently reviewed
-Script data PR #30 and less-than-sign PR #29 merged. Their algorithms and all
-prior baselines are preserved. Script data and less-than-sign execute; only
-Script data end tag name and escape start remain stubs in this chain. No
-unmerged sibling branch is imported.
+Script data PR #30 and less-than-sign PR #29 merged. PR #31 now rebases onto
+main `59bc9ec055074a04419af7fb7068f95a836ff13d`, inheriting all three algorithms
+unchanged and adding end tag name. Only escape start remains a stub in the simple
+script chain. No unmerged sibling branch is imported. See the
+[current name-state report](tokenizer-script-data-end-tag-name.md#validation-and-current-limits);
+the PR #28 merge counts and fixture review below are explicitly historical.
 
 ## Retrieved and inspected specification evidence
 
@@ -49,6 +51,9 @@ and normalized positions; reconsumption does not duplicate them.
 - All 52 ASCII letters, unchanged at the source boundary, with absent/stale
   candidate storage, all selector choices, and open/closed input. Creation
   defaults are independently explicit, including the cleared detached attribute.
+  The next name step separately checks normalized accumulation and original
+  scratch spelling at the same position; following literal mismatch recovery
+  and Script data reconsumption/EOF preserve unrelated storage.
 - Every other ASCII point plus non-ASCII letters/whitespace, supplementary
   scalars, actual surrogates, noncharacters and controls. Exact literal token
   order, source diagnostics, preprocessing codes/positions, CR normalization,
@@ -61,7 +66,9 @@ and normalized positions; reconsumption does not duplicate them.
   `</` here and schedules EOF reconsumption; only the following Script data
   step emits terminal EOF, at the same conceptual position.
 - Resumption from suspension with fresh default context for both branches,
-  including NUL. Alpha still blocks at name; real fallback completes at EOF.
+  including NUL. Alpha creates an empty candidate, then the real name step
+  accumulates it; open exhaustion suspends before actual EOF literal recovery.
+  Only the following Script data step emits EOF.
 - Every two-chunk split and single-code-point chunking of representative suffixes
   matches closed-input productive source-step snapshots and terminal results.
   Empty chunks, CRLF, consecutive/trailing CR, EOF, malformed input and non-scalars
@@ -72,25 +79,28 @@ Isolated cursor prefixes are positioned directly, not simulated algorithms.
 `script_data_state.rs` additionally asserts each real Script data → less-than-sign
 → end-tag-open source boundary, buffer clearing, repeated end-tag-open
 suspension, candidate creation versus fallback/NUL/EOF destination steps and
-exact preserved context. Name-state blocks remain terminal even after input is
-fed/finished. `script_data_less_than_sign_state.rs` retains all source assertions
-and now checks real end-tag-open creation on a following letter and EOF fallback;
+exact preserved context. Name reconsumption, original-spelling accumulation,
+suspension and literal EOF recovery now execute with separate exact snapshots.
+`script_data_less_than_sign_state.rs` retains all source assertions and checks
+real end-tag-open creation on a following letter, name accumulation and EOF fallback;
 its split/single-point traces include real entry, non-alpha `</` recovery, NUL,
 CRLF and later blocks. No expectations dynamically detect implementation support.
 
 The production-adapter checks require complete literal fallback output and exact
 errors, deliberately reject wrong prefixes/missing or duplicated diagnostics,
-and retain name/escape-start blocks despite matching output/error prefixes.
+and require complete matching-tag and literal name recovery/EOF results.
+Escape-start and later Data/attribute blocks persist despite matching prefixes.
 Stored non-scalars are never preprocessed again. Repeated terminal EOF/stub
-steps preserve their result and all effects. Cursor-only inspection confirms
-alpha's original reconsumed item and untouched tail; no blocked execution is
+steps preserve their result and all effects. Real name steps confirm alpha's
+original reconsumed item before the tail is consumed; no blocked execution is
 reconstructed/resumed. Traces execute every real step through completion or the
 first genuine stub; unread tails after a stub are not coverage. These are local
 streaming checks, not whole-tokenizer conformance.
 
-## Checks and upstream results
+## Historical PR #28 checks and upstream results
 
-All required checks passed:
+At PR #28's merge, all required checks passed (current counts are in the
+[name-state report](tokenizer-script-data-end-tag-name.md#validation-and-current-limits)):
 
 - `cargo fmt --all -- --check`
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`
@@ -115,10 +125,11 @@ not full conformance or browser security.
 
 ## Integrated fixture review
 
-The original isolated PR reported zero new passes because Script data was a stub.
-Main after PR #29 has 1,111 executed/passed, 0 failed, 5,942 blocked. All six
-end-tag-open-blocked Script data runs were inspected in the unchanged pinned
-fixtures. Five now block at Script data end tag name; one completes:
+This is the historical PR #28 fixture audit. The original isolated PR reported
+zero new passes because Script data was a stub. Main after PR #29 had 1,111
+executed/passed, 0 failed, 5,942 blocked. All six end-tag-open-blocked Script data
+runs were inspected in the unchanged pinned fixtures. At PR #28's merge five
+then blocked at Script data end tag name; one completed:
 
 | Fixture / tests index | Initial-state index | Unchanged input/output and pinned branch reasoning |
 | --- | --- | --- |
@@ -131,25 +142,28 @@ the union is now **916**. Expectations are not generated from execution.
 
 The other five runs are `domjs.test` cases 27, 29–31 (Script data initial-state
 index 2) and 42 (index 0). Their unchanged inputs are `</XMP>`, `</xm>`,
-`</xm `, `</xm/`, and `<b>hello world</b>`, respectively. Each reaches ASCII alpha
-after `</`, creates an empty selected end tag and blocks terminally at name.
-Case 42 first emits `<b>hello world` literally, but that matching prefix is not
-a pass. None of these five identities is added; no name-state semantics are
-claimed. The 31 escape-start blocks and broader limitations remain explicit.
+`</xm `, `</xm/`, and `<b>hello world</b>`, respectively. Each reached ASCII alpha
+after `</`, created an empty selected end tag and then blocked terminally at
+name at PR #28's merge. Case 42 first emitted `<b>hello world` literally, but
+that matching prefix was not a pass. PR #28 added none of those identities.
+PR #31 now implements the name state and individually reviews all five in its
+[separate audit/baseline](tokenizer-script-data-end-tag-name.md#integrated-fixture-review).
+The 31 escape-start blocks and broader limitations remain explicit.
 
 ## Sibling integration considerations
 
-No name-state logic, additional predecessor algorithm, automatic element-based
-mode switching, tree builder, dependency, abstraction or shared storage is added.
+PR #28 added no name-state logic, additional predecessor algorithm, automatic
+element-based mode switching, tree builder, dependency, abstraction or shared storage.
 Module/dispatch and independent support-inventory conflicts were resolved
 additively, preserving the merged states. Current-scope comments/docs and explicit
 source/destination tests are updated; no tests are skipped or implementation-
 detection expectations introduced.
 
 The user authorized sequential integration, independently reviewing each exact
-pushed revision immediately before merge. PRs #30/#29 are inherited from main;
-PR #28 does not merge, start reviewers/subagents or enable auto-merge. The parent
-will review the exact pushed revision. When the name-state sibling is integrated,
-retain source effects but deliberately review destination assertions, rerun all
-checks/upstream reporting, and individually review new pass identities. Escape
-start remains an explicit block. Never resume an execution that hit a stub.
+pushed revision immediately before merge. PRs #30/#29/#28 are now inherited from
+main. PR #31 adds name recognition/recovery, preserving each source effect while
+updating obsolete destination-stub assertions across all four suites/adapters.
+All checks/upstream reporting are rerun; the five new pass identities are
+individually reviewed. The parent will freshly review the exact pushed revision;
+this branch neither merges, starts reviewers/subagents nor enables auto-merge.
+Escape start remains an explicit block. Never resume an execution that hit a stub.

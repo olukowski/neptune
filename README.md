@@ -23,6 +23,11 @@ The first component is a specification-first HTML tokenizer.
   handles literal mismatches/EOF, and returns to Data through existing tag support.
   RAWTEXT ampersands stay literal. No automatic element-based mode switching or
   tree-builder behavior is implied; see [RAWTEXT integration evidence](docs/tokenizer-rawtext-end-tag-name.md).
+- Explicit Script data entry now recognizes appropriate closing tags and returns
+  to Data, with literal mismatch/EOF recovery and existing attribute/tag support.
+  `<!` still stops terminally at unimplemented Script data escape start. No
+  automatic mode switching or JavaScript parsing is implied; see
+  [Script data integration evidence](docs/tokenizer-script-data-end-tag-name.md).
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.

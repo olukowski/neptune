@@ -258,31 +258,46 @@ fn real_end_tag_open_entry_suspends_then_creates_or_falls_back_at_exact_boundari
                 Err(CursorError::AlreadyReconsuming)
             );
             if suffix == "A" {
-                for _ in 0..3 {
-                    assert_eq!(
-                        execution.step(),
-                        Err(UnimplementedState {
-                            state: State::ScriptDataEndTagName
-                        })
-                    );
-                    assert_eq!(snapshot(&execution), expected);
-                }
-                // Feeding/closing cannot clear the terminal block or append a name.
-                if !finished {
-                    execution
-                        .context_mut()
-                        .input
-                        .push(points("tail\0"))
-                        .unwrap();
-                    execution.context_mut().input.finish();
-                }
+                // The name state reconsumes A at the same position, normalizes
+                // only the candidate and preserves original spelling in scratch.
+                expected
+                    .retained
+                    .end
+                    .as_mut()
+                    .unwrap()
+                    .name
+                    .push('a'.into());
+                expected.retained.temporary_buffer.push('A'.into());
                 assert_eq!(
                     execution.step(),
-                    Err(UnimplementedState {
-                        state: State::ScriptDataEndTagName
-                    })
+                    Ok(Progress::Continue(State::ScriptDataEndTagName))
                 );
                 assert_eq!(snapshot(&execution), expected);
+                if !finished {
+                    for _ in 0..3 {
+                        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                        assert_eq!(snapshot(&execution), expected);
+                    }
+                    execution.context_mut().input.finish();
+                }
+                expected.state = State::ScriptData;
+                expected.current = Some((Input::Eof, Position { line: 1, column: 4 }));
+                expected
+                    .tokens
+                    .extend(points("</A").into_iter().map(Token::Character));
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                assert_eq!(snapshot(&execution), expected);
+                assert_eq!(
+                    execution.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
+                );
+                expected.tokens.push(Token::Eof);
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&execution), expected);
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(&execution), expected);
+                }
                 continue;
             }
             if !suffix.is_empty() {

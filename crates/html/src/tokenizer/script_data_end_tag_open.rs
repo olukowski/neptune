@@ -2,14 +2,14 @@
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, lines 143676–143692.
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143676-L143692>
 //! Creation defaults and reconsumption: lines 143160–143189.
-//! Fallback executes Script data; the end-tag-name destination remains a terminal stub.
+//! Fallback executes Script data; alpha reconsumption accumulates in end tag name.
 
 use super::{Context, Input, PendingEndTag, Progress, State, TagKind, Token};
 
 pub(super) fn step(context: &mut Context) -> Progress {
     match context.input.consume() {
         Input::CodePoint(point) if matches!(point.value(), 0x41..=0x5a | 0x61..=0x7a) => {
-            // Creation only: accumulation belongs to the (still stubbed) name state.
+            // Creation only: accumulation belongs to the following name-state step.
             context.pending_end_tag = Some(PendingEndTag::default());
             context.current_tag = Some(TagKind::End);
             context

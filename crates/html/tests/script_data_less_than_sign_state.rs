@@ -1,7 +1,7 @@
 //! Local branch evidence, not upstream conformance runs. HTML revision
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, #script-data-less-than-sign-state,
-//! source lines 143654–143673. Script data and end tag open execute; only
-//! end tag name and escape start remain terminal stubs in this chain.
+//! source lines 143654–143673. Script data, end tag open and end tag name
+//! execute separately; escape start remains terminal in this chain.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -197,12 +197,38 @@ fn every_ascii_branch_and_non_scalar_has_exact_effects_before_destination_dispat
                         execution.context_mut().input.reconsume(),
                         Err(CursorError::AlreadyReconsuming)
                     );
-                    assert_terminal_stub(&mut execution, State::ScriptDataEndTagName);
+                    expected.storage.end.as_mut().unwrap().name.push('z'.into());
+                    expected.storage.buffer.push('z'.into());
                     assert_eq!(
-                        execution.context_mut().input.consume(),
-                        Input::CodePoint('z'.into())
+                        execution.step(),
+                        Ok(Progress::Continue(State::ScriptDataEndTagName))
                     );
-                    assert_eq!(execution.context().input.position(), tail_position);
+                    assert_eq!(snapshot(&execution), expected);
+                    if !finished {
+                        for _ in 0..3 {
+                            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                            assert_eq!(snapshot(&execution), expected);
+                        }
+                        execution.context_mut().input.finish();
+                    }
+                    expected.state = State::ScriptData;
+                    expected.current = Some((Input::Eof, Position { line: 2, column: 4 }));
+                    expected
+                        .tokens
+                        .extend(points("</z").into_iter().map(Token::Character));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                    assert_eq!(snapshot(&execution), expected);
+                    assert_eq!(
+                        execution.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                    expected.tokens.push(Token::Eof);
+                    assert_eq!(execution.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(&execution), expected);
+                    for _ in 0..3 {
+                        assert_eq!(execution.step(), Ok(Progress::Finished));
+                        assert_eq!(snapshot(&execution), expected);
+                    }
                     continue;
                 }
                 if value == 0x21 {

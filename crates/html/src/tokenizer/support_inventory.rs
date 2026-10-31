@@ -19,6 +19,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptData,
         State::ScriptDataLessThanSign,
         State::ScriptDataEndTagOpen,
+        State::ScriptDataEndTagName,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
@@ -63,7 +64,10 @@ fn explicit_support_inventory_matches_dispatch() {
                         .attributes
                         .push(Attribute::default());
                 }
-                if state == State::RawtextEndTagName {
+                if matches!(
+                    state,
+                    State::RawtextEndTagName | State::ScriptDataEndTagName
+                ) {
                     context.current_tag = Some(TagKind::End);
                     context.pending_end_tag = Some(PendingEndTag::default());
                 }

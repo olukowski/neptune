@@ -131,7 +131,9 @@ RAWTEXT initial state (its RCDATA counterpart still blocks at Character referenc
 The 17 RCDATA pass identities from PR #27 and every other existing baseline are
 unchanged; no fixture, expectation, pin, comparison or policy is modified.
 
-The protected union grows from **886 to 903** identities with only these 17
+### Historical RAWTEXT integration report
+
+The protected union grew from **886 to 903** identities with only these 17
 reviewed additions, without result-derived generation or automatic blessing.
 Historical integrated main had 1,042 executed/passed, 0 failed, 6,011 blocked.
 This integrated RAWTEXT state reports:
@@ -148,8 +150,10 @@ Use the [central runner command/count definitions](tokenizer.md#fixture-runner).
 
 ## Remaining blocks and integration caveats
 
-Character reference, ordinary comments/markup declarations, script states and
-other unsupported states remain terminal `UnimplementedState` errors. RAWTEXT and
+Character reference, ordinary comments/markup declarations, script escape states
+and other unsupported states remain terminal `UnimplementedState` errors.
+The four simple Script data states now execute; see the
+[current script integration report](tokenizer-script-data-end-tag-name.md#validation-and-current-limits). RAWTEXT and
 RCDATA closing-tag recognition now execute, with no automatic tree-builder mode
 switching. All CONTRIBUTING checks and the pinned runner must pass after conflict
 resolution. Shared module/dispatch, support inventory, docs and baseline-list

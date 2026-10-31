@@ -1,7 +1,7 @@
 //! Source-local checks for #script-data-end-tag-open-state, pinned HTML source
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, lines 143676–143692.
 //! Real Script data / less-than-sign steps execute separately from this source;
-//! end tag name and escape start remain explicit terminal stubs.
+//! end tag name executes separately; escape start remains an explicit terminal stub.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -136,24 +136,48 @@ fn all_ascii_letters_create_and_select_empty_end_tag_without_appending_or_lowerc
                     execution.context_mut().input.reconsume(),
                     Err(CursorError::AlreadyReconsuming)
                 );
-                assert_terminal_stub(&mut execution, State::ScriptDataEndTagName);
-                // Inspect cursor scheduling only; never reconstruct/resume the stub.
+                let normalized =
+                    CodePoint::new(if value <= 0x5a { value + 0x20 } else { value }).unwrap();
+                expected.end.as_mut().unwrap().name.push(normalized);
+                expected.buffer.push(point);
                 assert_eq!(
-                    execution.context_mut().input.consume(),
-                    Input::CodePoint(point)
+                    execution.step(),
+                    Ok(Progress::Continue(State::ScriptDataEndTagName))
                 );
+                assert_eq!(snapshot(&execution), expected);
+                expected.state = State::ScriptData;
+                expected.current = Some((
+                    Input::CodePoint('!'.into()),
+                    Position { line: 1, column: 4 },
+                ));
+                expected.tokens.extend(
+                    points("</")
+                        .into_iter()
+                        .chain(expected.buffer.iter().copied())
+                        .map(Token::Character),
+                );
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                assert_eq!(snapshot(&execution), expected);
                 assert_eq!(
-                    execution.context().input.position(),
-                    Position { line: 1, column: 3 }
+                    execution.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
                 );
-                assert_eq!(
-                    execution.context_mut().input.consume(),
-                    Input::CodePoint('!'.into())
-                );
-                assert_eq!(
-                    execution.context().input.position(),
-                    Position { line: 1, column: 4 }
-                );
+                expected.tokens.push(Token::Character('!'.into()));
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                assert_eq!(snapshot(&execution), expected);
+                if !finished {
+                    assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                    assert_eq!(snapshot(&execution), expected);
+                    execution.context_mut().input.finish();
+                }
+                expected.current = Some((Input::Eof, Position { line: 1, column: 5 }));
+                expected.tokens.push(Token::Eof);
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&execution), expected);
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(&execution), expected);
+                }
             }
         }
     }
@@ -344,7 +368,36 @@ fn suspension_can_resume_with_either_branch_using_default_storage() {
         assert_eq!(execution.step(), Ok(Progress::Continue(target)));
         assert_eq!(snapshot(&execution), expected);
         if alpha {
-            assert_terminal_stub(&mut execution, State::ScriptDataEndTagName);
+            expected.end.as_mut().unwrap().name.push('a'.into());
+            expected.buffer.push('A'.into());
+            assert_eq!(
+                execution.step(),
+                Ok(Progress::Continue(State::ScriptDataEndTagName))
+            );
+            assert_eq!(snapshot(&execution), expected);
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            execution.context_mut().input.finish();
+            expected.state = State::ScriptData;
+            expected.current = Some((Input::Eof, Position { line: 1, column: 2 }));
+            expected
+                .tokens
+                .extend(points("</A").into_iter().map(Token::Character));
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
+            expected.tokens.push(Token::Eof);
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&execution), expected);
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&execution), expected);
+            }
         } else {
             if input == "\0" {
                 expected
@@ -385,10 +438,7 @@ fn drain(execution: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
         trace.push((result, snapshot(execution)));
         match result {
             Err(UnimplementedState { state }) => {
-                assert!(matches!(
-                    state,
-                    State::ScriptDataEndTagName | State::ScriptDataEscapeStart
-                ));
+                assert_eq!(state, State::ScriptDataEscapeStart);
                 assert_terminal_stub(execution, state);
                 return true;
             }
