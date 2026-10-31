@@ -2,8 +2,8 @@
 
 ## Status and source
 
-**Only Data, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before attribute
-name, Self-closing start tag, and Bogus comment are implemented. All other states,
+**Only Data, RCDATA, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before
+attribute name, Self-closing start tag, and Bogus comment are implemented. All other states,
 including Attribute name, After attribute name, ordinary Comment, and Character
 reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a
 stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
@@ -16,8 +16,9 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 **Tag open state** (`#tag-open-state`), **End tag open state** (`#end-tag-open-state`),
 **Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
-**Self-closing start tag state** (`#self-closing-start-tag-state`), and
-**Bogus comment state** (`#bogus-comment-state`).
+**Self-closing start tag state** (`#self-closing-start-tag-state`),
+**Bogus comment state** (`#bogus-comment-state`), and **RCDATA state**
+(`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)).
 Newline normalization follows the linked Infra
 [normalize newlines](https://infra.spec.whatwg.org/#normalize-newlines) operation.
 The test adapter follows the pinned
@@ -238,8 +239,8 @@ fixture runner already maps `RAWTEXT state` to that initial state. No tree build
 or automatic switching on `<style>` is added. RAWTEXT less-than sign, RAWTEXT end
 tag open, and RAWTEXT end tag name remain terminal `UnimplementedState` stubs.
 A matching output prefix before a stub is blocked, never EOF or a passing run;
-blocked execution must not be reconstructed/resumed. Attribute name and RCDATA
-remain outside this PR and are still stubs.
+blocked execution must not be reconstructed/resumed. Attribute name remains a
+stub; [RCDATA is implemented separately](tokenizer-rcdata.md).
 
 Focused tests in `crates/html/tests/rawtext_state.rs` check literal ampersands and
 markup-like punctuation, NUL replacement/errors, exact normalized positions,

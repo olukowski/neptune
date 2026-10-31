@@ -30,6 +30,14 @@ are scalar input, not the fixture's `doubleEscaped` convention. Only U+000B has 
 preprocessing diagnostic in that group. No `<`-containing run is a new pass:
 those terminate at RAWTEXT less-than sign, still a stub.
 
+`rcdata.json` records reviewed RCDATA identities: `domjs.test` cases 3 and 24,
+and `test3.test` cases 0–16, 20–66, and 1576–1604 (even indices only). The former
+check NUL replacement with its exact error and literal U+FEFF. The latter check
+empty input, literal whitespace/punctuation/letters/supplementary scalars, and
+VT's preprocessing error. Case 18 (`&`) is deliberately absent: Character
+reference is a terminal block, not a pass. See the
+[RCDATA branch evidence](../../../../docs/tokenizer-rcdata.md).
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an

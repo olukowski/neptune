@@ -8,6 +8,7 @@ mod end_tag_open;
 mod input;
 mod plaintext;
 mod rawtext;
+mod rcdata;
 mod self_closing_start_tag;
 mod state;
 mod tag;
@@ -137,6 +138,7 @@ impl std::error::Error for UnimplementedState {}
 fn dispatch(state: State, context: &mut Context) -> Result<Progress, UnimplementedState> {
     match state {
         State::Data => Ok(data::step(context)),
+        State::Rcdata => Ok(rcdata::step(context)),
         State::Plaintext => Ok(plaintext::step(context)),
         State::Rawtext => Ok(rawtext::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),

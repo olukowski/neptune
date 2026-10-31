@@ -7,6 +7,7 @@ fn explicit_support_inventory_matches_dispatch() {
     // Deliberate support inventory, independent of dispatch outcomes.
     const IMPLEMENTED: &[State] = &[
         State::Data,
+        State::Rcdata,
         State::Plaintext,
         State::Rawtext,
         State::TagOpen,
