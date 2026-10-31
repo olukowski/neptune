@@ -2,7 +2,8 @@
 
 ## Status and source
 
-**Only Data, RCDATA, RCDATA less-than sign, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before
+**Only Data, RCDATA, RCDATA less-than sign, PLAINTEXT, RAWTEXT, RAWTEXT less-than
+sign, Tag open, End tag open, Tag name, Before
 attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, and Bogus comment are
@@ -15,6 +16,8 @@ Implementation evidence is the immutable HTML Standard source in
 and the opening **Tokenization** paragraphs (current/next input, reconsumption,
 and token creation/emission), plus **Data state** (`#data-state`), **PLAINTEXT
 state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
+**RAWTEXT less-than sign state** (`#rawtext-less-than-sign-state`;
+[state-local evidence](tokenizer-rawtext-less-than-sign.md)),
 **Tag open state** (`#tag-open-state`), **End tag open state** (`#end-tag-open-state`),
 **Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
@@ -83,7 +86,8 @@ instruction states and no separate decimal-character-reference-start state.
   `Token::Comment { data }`. Isolated Bogus comment entry requires initialized
   pending-comment storage; existing data is preserved literally, not preprocessed again.
   Each creation replaces only its own pending storage; unrelated storage remains.
-  The code-point `temporary_buffer` is cleared by Tag open on `?`.
+  The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA
+  and RAWTEXT less-than sign on `/`.
 - Tag creation selects `current_tag: Option<TagKind>` (Start or End), independently
   of any unrelated retained pending storage. Tag name mutates only the selected
   name. Before attribute name appends only to the selected tag's attribute list.
@@ -286,8 +290,9 @@ return state. No branch schedules reconsumption. Open exhausted input suspends.
 
 Select RAWTEXT explicitly with `Execution::new(State::Rawtext, context)`; the
 fixture runner already maps `RAWTEXT state` to that initial state. No tree builder
-or automatic switching on `<style>` is added. RAWTEXT less-than sign, RAWTEXT end
-tag open, and RAWTEXT end tag name remain terminal `UnimplementedState` stubs.
+or automatic switching on `<style>` is added. [RAWTEXT less-than sign is now
+implemented](tokenizer-rawtext-less-than-sign.md); RAWTEXT end tag open and RAWTEXT
+end tag name remain terminal `UnimplementedState` stubs.
 A matching output prefix before a stub is blocked, never EOF or a passing run;
 blocked execution must not be reconstructed/resumed.
 [RCDATA is implemented separately](tokenizer-rcdata.md).
@@ -302,7 +307,7 @@ every source-step snapshot, including `<`, CRLF, consecutive/trailing CR, NUL,
 and terminal blocks. State-local adapter tests in
 `crates/html/tests/support/rawtext.rs` check explicit initial-state mapping,
 Data defaults, no automatic style handling,
-exact output/diagnostics, and matching-prefix rejection at the destination stub.
+exact output/diagnostics, and matching-prefix rejection at the end-tag-open stub.
 These are state-specific checks, not full tokenizer streaming conformance.
 
 ## Tag open coverage

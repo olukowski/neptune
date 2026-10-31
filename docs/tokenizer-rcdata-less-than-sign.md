@@ -62,8 +62,9 @@ reference); executing a longer prefix is not conformance. No baseline file or
 policy is changed. Use the [runner command/count definitions](tokenizer.md#fixture-runner)
 for reproducible executed/passed/failed/blocked counts.
 
-This implements exactly one production state. RCDATA end tag open/name and all
-three neighboring RAWTEXT states remain stubs; no shared API/storage prerequisite,
+This implements exactly one production state. RCDATA end tag open/name remain
+stubs. RAWTEXT less-than sign is implemented separately in PR #25; RAWTEXT end
+tag open/name remain stubs. No shared API/storage prerequisite,
 dependency, token variant, automatic mode selection or tree builder is added.
 After sibling merges, rebase and rerun all CONTRIBUTING checks and the pinned
 upstream runner. Resolve small module/dispatch/support/docs registration conflicts
