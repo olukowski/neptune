@@ -4,6 +4,7 @@
 
 **Only Data, RCDATA, RCDATA less-than sign, RCDATA end tag open, RCDATA end tag name,
 PLAINTEXT, RAWTEXT, RAWTEXT less-than sign, RAWTEXT end tag open, RAWTEXT end tag name,
+Script data ([state-local evidence](tokenizer-script-data.md)),
 Tag open, End tag open, Tag name, Before
 attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),

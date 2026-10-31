@@ -15,6 +15,8 @@ mod rcdata_end_tag_open;
 mod rcdata_less_than_sign;
 #[path = "support/regression.rs"]
 mod regression;
+#[path = "support/script_data.rs"]
+mod script_data;
 mod support;
 
 use std::{collections::BTreeMap, fs, path::Path};

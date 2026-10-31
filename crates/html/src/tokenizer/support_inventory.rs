@@ -16,6 +16,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::RawtextLessThanSign,
         State::RawtextEndTagOpen,
         State::RawtextEndTagName,
+        State::ScriptData,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
