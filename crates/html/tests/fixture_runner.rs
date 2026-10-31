@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn pinned_upstream_runner_reports_data_plaintext_and_tag_open_coverage() {
+fn pinned_upstream_runner_reports_data_plaintext_tag_open_and_end_tag_open_coverage() {
     let directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
     let mut paths: Vec<_> = fs::read_dir(directory)
@@ -25,7 +25,18 @@ fn pinned_upstream_runner_reports_data_plaintext_and_tag_open_coverage() {
     let mut reasons = BTreeMap::<String, usize>::new();
     let mut passed_by_initial = BTreeMap::<String, usize>::new();
     let mut retained_data_passes = 0;
+    let mut retained_tag_open_passes = 0;
     let mut former_tag_open = BTreeMap::<String, usize>::new();
+    // Explicit case identities from the previous five End-tag-open blocks.
+    // Independent of production dispatch; fixtures and policies are unchanged.
+    const FORMER_END_TAG_OPEN: &[(&str, &str)] = &[
+        ("test1.test", "Empty end tag"),
+        ("test2.test", "Unescaped </"),
+        ("test2.test", "Empty end tag with following characters"),
+        ("test3.test", "</"),
+        ("test3.test", "</>"),
+    ];
+    let mut newly_passed = BTreeMap::new();
     for path in paths {
         let document: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -68,6 +79,18 @@ fn pinned_upstream_runner_reports_data_plaintext_and_tag_open_coverage() {
                         ) == decode("Character", false)
                     });
                 if state == "Data state" && adapter_supported {
+                    let identity = (
+                        path.file_name().unwrap().to_str().unwrap(),
+                        case["description"].as_str().unwrap(),
+                    );
+                    if FORMER_END_TAG_OPEN.contains(&identity) {
+                        assert_eq!(result, Outcome::Passed, "{identity:?}");
+                        *newly_passed
+                            .entry((identity.0.to_owned(), identity.1.to_owned()))
+                            .or_insert(0) += 1;
+                    } else if first_transition.is_some_and(|point| point.value() == 0x3c) {
+                        retained_tag_open_passes += usize::from(result == Outcome::Passed);
+                    }
                     if first_transition.is_none() {
                         retained_data_passes += usize::from(result == Outcome::Passed);
                     } else if first_transition.is_some_and(|point| point.value() == 0x3c) {
@@ -119,7 +142,6 @@ fn pinned_upstream_runner_reports_data_plaintext_and_tag_open_coverage() {
             ("TokenVariants".into(), 1625),
             ("Unimplemented(CdataSection)".into(), 56),
             ("Unimplemented(CharacterReference)".into(), 4659),
-            ("Unimplemented(EndTagOpen)".into(), 5),
             ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
             ("Unimplemented(Rawtext)".into(), 61),
             ("Unimplemented(Rcdata)".into(), 63),
@@ -130,21 +152,28 @@ fn pinned_upstream_runner_reports_data_plaintext_and_tag_open_coverage() {
     );
     assert_eq!(
         (passed, failed, blocked),
-        (461, 0, 6592),
-        "Data, PLAINTEXT, and Tag open baseline"
+        (466, 0, 6587),
+        "Data, PLAINTEXT, Tag open, and End tag open baseline"
     );
     assert_eq!(
         passed_by_initial,
-        BTreeMap::from([("Data state".into(), 409), ("PLAINTEXT state".into(), 52)]),
-        "retain PLAINTEXT coverage; 24 Data-initial runs newly compare"
+        BTreeMap::from([("Data state".into(), 414), ("PLAINTEXT state".into(), 52)]),
+        "retain PLAINTEXT coverage; five Data-initial runs newly compare"
     );
     assert_eq!(retained_data_passes, 385);
+    assert_eq!(retained_tag_open_passes, 24);
+    assert_eq!(
+        newly_passed,
+        FORMER_END_TAG_OPEN
+            .iter()
+            .map(|(file, description)| ((file.to_string(), description.to_string()), 1))
+            .collect()
+    );
     assert_eq!(
         former_tag_open,
         BTreeMap::from([
-            ("Passed".into(), 24),
+            ("Passed".into(), 29),
             ("Unimplemented(CharacterReference)".into(), 1),
-            ("Unimplemented(EndTagOpen)".into(), 5),
             ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
             ("Unimplemented(TagName)".into(), 11),
         ]),
@@ -167,7 +196,13 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
         ("p&", "p", json!([]), State::CharacterReference),
         ("p<a", "p", json!([]), State::TagName),
         ("p<!", "p", json!([]), State::MarkupDeclarationOpen),
-        ("p</", "p", json!([]), State::EndTagOpen),
+        ("p</A", "p", json!([]), State::TagName),
+        (
+            "p</0",
+            "p",
+            json!([{"code":"invalid-first-character-of-tag-name", "line":1, "col":4}]),
+            State::BogusComment,
+        ),
         ("p<?", "p", json!([]), State::ProcessingInstructionOpen),
         (
             "p<0&",

@@ -99,9 +99,12 @@ fn tag_open_switch_branches_consume_once_and_preserve_effects_at_terminal_stubs(
                 );
                 let effects = snapshot(&execution);
                 let blocked = Err(UnimplementedState { state: target });
-                for _ in 0..2 {
-                    assert_eq!(execution.step(), blocked);
-                    assert_eq!(snapshot(&execution), effects);
+                // End tag open now executes; only the other targets are stubs.
+                if target != State::EndTagOpen {
+                    for _ in 0..2 {
+                        assert_eq!(execution.step(), blocked);
+                        assert_eq!(snapshot(&execution), effects);
+                    }
                 }
                 // Inspection only, NOT supported resumption after a stub.
                 // Letters reconsume; punctuation switches without reconsuming.
@@ -121,7 +124,9 @@ fn tag_open_switch_branches_consume_once_and_preserve_effects_at_terminal_stubs(
                         column: column + usize::from(target != State::TagName)
                     }
                 );
-                assert_eq!(execution.step(), blocked);
+                if target != State::EndTagOpen {
+                    assert_eq!(execution.step(), blocked);
+                }
             }
         }
     }
