@@ -2,16 +2,17 @@
 
 ## Status and source
 
-**Only Data and PLAINTEXT are implemented. The other 82 states, including Tag open
-and Character reference, remain explicit `UnimplementedState` stubs.** This is a
-partial tokenizer, not a stable parsing API or a usable browser. No full
+**Only Data, PLAINTEXT, and Tag open are implemented. The other 81 states, including
+End tag open, Tag name, and Character reference, remain `UnimplementedState`
+stubs.** This is a partial tokenizer, not a stable parsing API or a usable browser. No full
 tokenizer-conformance or browser-security claim is made.
 
 Implementation evidence is the immutable HTML Standard source in
 [docs/sources.toml](sources.toml), specifically **Preprocessing the input stream**
 and the opening **Tokenization** paragraphs (current/next input, reconsumption,
-and token emission), plus **Data state** (`#data-state`) and **PLAINTEXT state**
-(`#plaintext-state`). Newline normalization follows the linked Infra
+and token creation/emission), plus **Data state** (`#data-state`), **PLAINTEXT
+state** (`#plaintext-state`), and **Tag open state** (`#tag-open-state`). Newline
+normalization follows the linked Infra
 [normalize newlines](https://infra.spec.whatwg.org/#normalize-newlines) operation.
 The test adapter follows the pinned
 [upstream format](../tests/html5lib-tests/tokenizer/README.md), not another engine.
@@ -42,7 +43,11 @@ instruction states and no separate decimal-character-reference-start state.
   optional last start tag, and optional character-reference return state. The
   return-state field is the only supporting context addition for Data: its `&`
   branch must set this to Data before transitioning, even while the destination
-  remains a stub. Other token variants and scratch storage remain absent.
+  remains a stub. Tag open adds `pending_start_tag: Option<PendingStartTag>`
+  (only the unfinished name) and a code-point `temporary_buffer`. Pending start
+  tags are not emitted tokens: their self-closing flag is implicitly unset and
+  attribute list implicitly empty. No downstream mutation, general attribute API,
+  or tag-emission variant exists yet.
 - `Execution::step` performs **one source step**, returning its intended target
   through `Progress::Continue`. Source effects can be inspected before the next
   step attempts the target. A handler schedules reconsumption on the cursor.
@@ -53,17 +58,19 @@ instruction states and no separate decimal-character-reference-start state.
   mutation does not clear terminal status. Reconstructing/resuming after a stub
   has **no supported semantics**.
 
-Production dispatch implements only Data and PLAINTEXT and has no synthetic
-handlers. Unit tests inject private, non-algorithmic source steps to validate the
-execution shell separately. The independent support-inventory test explicitly
-lists Data and PLAINTEXT as implemented and checks that the other 82 states block
-without effects at both suspension and EOF; it does not infer support from dispatch.
+Production dispatch implements only Data, PLAINTEXT, and Tag open and has no
+synthetic handlers. Unit tests inject private, non-algorithmic source steps to
+validate the execution shell separately. The independent support-inventory test
+explicitly lists those three as implemented and checks that the other 81 states
+block without effects at both suspension and EOF; it does not infer support from
+dispatch.
 
 ## Fixture runner
 
 The runner lives in `crates/html/tests/support` as test-only infrastructure;
 `serde_json` remains a dev dependency. It is deliberately limited to the
-character/EOF surface needed by Data and PLAINTEXT. Run its upstream report with:
+character/EOF surface emitted by Data, PLAINTEXT, and Tag open. Run its upstream
+report with:
 
 ```sh
 cargo test --workspace --locked pinned_upstream_runner -- --nocapture
@@ -119,22 +126,29 @@ pair. Every run has exactly one result:
 including blocked stubs. This avoids describing attempted-but-blocked runs as
 successfully executed conformance tests. Inventory tests execute no conformance.
 
-Current pinned Data + PLAINTEXT baseline: 14 files, 6,827 cases, **7,053 runs;
-5,423 dispatch-attempted; 437 executed, 437 passed, 0 failed, 6,616 blocked**:
+Current pinned Data + PLAINTEXT + Tag open baseline: 14 files, 6,827 cases,
+**7,053 runs; 5,423 dispatch-attempted; 461 executed, 461 passed, 0 failed,
+6,592 blocked**:
 
-- 4,658 blocked at Character reference after Data's source transition
-- 66 blocked at Tag open after Data's source transition
+- 4,659 blocked at Character reference (including one after Tag open recovery)
+- 5 blocked at End tag open
+- 11 blocked at Tag name
+- 25 blocked at Processing instruction open
 - 262 blocked at other initial-state stubs (56 CDATA section, 61 RAWTEXT,
   63 RCDATA, 82 Script data)
 - 1,625 unsupported-token runs
 - 4 XML-coercion runs
 - 1 pending-spec-review run
 
-Of the 5,109 Data-initial dispatch attempts, 385 complete and compare;
-4,724 are still blocked by later states, not passes. All 52 formerly blocked
-PLAINTEXT-initial runs now complete and pass. Data's 385 passes are retained and
-asserted separately. Adapter/policy precedence and dispatch-attempt counts are
-unchanged. No upstream fixture or pinned revision was modified.
+Of the 5,109 Data-initial dispatch attempts, 409 complete and compare;
+4,700 are still blocked by later states, not passes. All 385 prior Data passes
+and all 52 PLAINTEXT passes are retained and asserted separately. Of the 66 runs
+formerly blocked at Tag open, 24 now pass; 42 remain blocked (5 End tag open,
+11 Tag name, 25 Processing instruction open, 1 Character reference after recovery).
+The runner independently identifies those prior Data groups by their first
+transition character, not by dispatch outcomes. Adapter/policy precedence,
+exclusions, and dispatch-attempt counts are unchanged. No upstream fixture or
+pinned revision was modified.
 
 The baseline counts/reasons are asserted explicitly; widening blocking requires
 review, not an automatic skip. Synthetic executor tests independently demonstrate
@@ -148,9 +162,9 @@ stub. Only the pinned upstream runs contribute to the counts above.
 The implementation follows every branch of the pinned **Data state** section:
 `&` consumes the character, sets return state to Data, and transitions to Character
 reference; `<` consumes the character and transitions to Tag open. Neither branch
-emits a token, reports a parse error, or schedules reconsumption. The next step
-explicitly blocks at the named destination. NUL emits `unexpected-null-character`
-and the original NUL character token, **not U+FFFD**. EOF emits one terminal EOF;
+emits a token, reports a parse error, or schedules reconsumption. Character
+reference blocks on the next step; Tag open now executes its own algorithm. NUL
+emits `unexpected-null-character` and the original NUL character token, **not U+FFFD**. EOF emits one terminal EOF;
 anything else emits the current code point unchanged. Open exhausted input
 suspends through the existing execution/input contract rather than emitting EOF.
 
@@ -158,10 +172,10 @@ Focused tests in `crates/html/tests/data_state.rs` check source effects, context
 consumption, positions, diagnostics, terminal behavior, and all two-chunk splits
 plus single-code-point chunks of representative Data input. These include empty
 chunks, Unicode scalars, actual surrogate code points, noncharacters, controls,
-NUL, CR/CRLF preprocessing, trailing CR, and both blocked transitions. This is
+NUL, CR/CRLF preprocessing, trailing CR, and both Data transitions. This is
 Data-specific chunk equivalence, not whole-tokenizer streaming coverage.
 
-## PLAINTEXT coverage and remaining work
+## PLAINTEXT coverage
 
 The implementation follows every branch of the pinned **PLAINTEXT state** section:
 NUL reports `unexpected-null-character` at the consumed point and emits U+FFFD,
@@ -172,10 +186,10 @@ Open exhausted input suspends, never implying EOF.
 
 Select PLAINTEXT explicitly with `Execution::new(State::Plaintext, context)`.
 There is no tree builder or automatic handling of a `<plaintext>` start tag;
-Data still transitions to the Tag open stub on `<`. Existing context fields are
-preserved. Production support changes are limited to the new state handler and
-dispatch arm; no execution/input infrastructure or initial-state mapping changes
-were needed (the runner already recognized PLAINTEXT).
+Data transitions to Tag open on `<`. Existing context fields, including the
+pending start tag and temporary buffer, are preserved. PLAINTEXT needs no
+execution/input infrastructure or initial-state mapping changes (the runner
+already recognized PLAINTEXT).
 
 Focused tests in `crates/html/tests/plaintext_state.rs` check every branch,
 consumption/current input, exact tokens, diagnostic codes/positions, Unicode
@@ -188,14 +202,48 @@ streaming checks, not whole-tokenizer conformance. Local production-adapter test
 also cover explicit PLAINTEXT selection, repeated independent initial-state runs,
 Data defaults, empty input, and double-escaped NUL/surrogate diagnostics.
 
-The next state PR is **Tag open**, followed by End tag open and Tag name. It must
-implement only its own pinned algorithm. Tag open, Character reference, and all
-other states remain stubs; do not resume an execution that has already terminated
-at a stub. Tag token variants/creation storage and a processing-instruction
-scratch buffer are not yet present; introduce only the minimal support required
-by the pinned Tag open branches, preserving explicit blocks at unimplemented
-targets. No neighboring-state algorithms, tree-building behavior, new execution
-model, preprocessing changes, dependencies, or optimizations were added here.
+## Tag open coverage and remaining work
+
+The implementation follows the pinned **Tag open state** section literally:
+
+| Consumed input | Source effects and intended destination |
+| --- | --- |
+| `!` | Switch to Markup declaration open; no reconsumption. |
+| `/` | Switch to End tag open; no reconsumption. |
+| ASCII alpha (`A–Z`, `a–z`) | Create a new pending start tag with an **empty** name; reconsume in Tag name. No lowercasing or name append yet. |
+| `?` | Empty the temporary buffer; switch to Processing instruction open, without reconsumption or a Tag open parse error. |
+| EOF | Report `eof-before-tag-name` at EOF; emit `<` then one terminal EOF. |
+| Anything else | Report `invalid-first-character-of-tag-name` at the consumed point; emit `<`; reconsume in Data. |
+
+The `?` branch uses the pinned processing-instruction transition, **not** an
+older unexpected-question-mark/bogus-comment transition. All four unimplemented
+destinations report their own typed terminal block on the next step, after the
+source effects are independently inspectable. A pending token is creation only,
+never emitted output or a change to `last_start_tag`. Other branches preserve
+pending-token storage; only `?` clears the temporary buffer.
+
+Focused tests in `crates/html/tests/tag_open_state.rs` cover all 52 ASCII letters,
+case distinctions and ASCII-alpha boundaries, punctuation, non-ASCII letters,
+NUL, actual surrogates, noncharacters, controls, locations, consumption versus
+reconsumption, preserved/replaced context, default creation, terminal stubs, EOF,
+and incremental suspension. Both Data's `<` transition and isolated Tag open
+entry use the existing execution interface. Recovery executes real Data, including
+its original NUL emission/error and transitions on `&` and `<`. All two-chunk
+splits and single-code-point chunks of representative inputs match closed-input
+source-step traces, including CRLF splits, consecutive/trailing CR, EOF after
+`<`, malformed input, and downstream blocks. These are state-specific checks,
+not whole-tokenizer streaming conformance. Existing Data/PLAINTEXT tests also
+verify preservation of the new context storage.
+
+The next state PR is **End tag open**, followed by **Tag name**. Both remain
+stubs, as do comments, markup declarations, processing instructions, and character
+references. End tag open will need a minimal unfinished end-tag representation
+(and comment creation for its recovery branch); the current pending-start-tag
+storage deliberately does not preimplement those token APIs. Tag name will need
+real name mutation and eventually tag emission/field comparison support.
+Do not resume an execution already terminated at a stub. No neighboring-state
+algorithms, execution model changes, preprocessing changes, dependencies,
+tree-building behavior, or optimizations were added here.
 
 Before claiming broader coverage, add actual token variants/field comparisons,
 review pending-spec-change expectations, and decide whether XML coercion belongs

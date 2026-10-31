@@ -12,11 +12,11 @@ The first component is a specification-first HTML tokenizer.
 
 - Rust workspace and CI on Linux/macOS.
 - Registry of all 84 tokenizer states in the pinned HTML Standard.
-- Data and PLAINTEXT states implemented; the other 82 states remain typed
+- Data, PLAINTEXT, and Tag open states implemented; the other 81 remain typed
   `UnimplementedState` stubs.
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.
 - Tested incremental code-point cursor, preprocessing, and execution scaffolding.
-- Partial upstream runner: **437 executed, 437 passed, 0 failed, 6,616 blocked runs**
+- Partial upstream runner: **461 executed, 461 passed, 0 failed, 6,592 blocked runs**
   (7,053 runs across 6,827 fixture cases). Later-state blocks are not passes;
   this is not full tokenizer conformance.
   [Runner support and count definitions](docs/tokenizer.md#fixture-runner).
