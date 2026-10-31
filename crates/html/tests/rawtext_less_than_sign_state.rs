@@ -1,6 +1,6 @@
 //! State-local branch evidence for HTML revision 404b3eb14a7a936dddefb2d78e224dbeb01d2358:
 //! #rawtext-less-than-sign-state (source lines 143570–143586).
-//! Local tests are not upstream conformance runs; adjacent states stay stubs.
+//! Local tests are not upstream conformance runs; end tag name stays a stub.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -107,7 +107,7 @@ fn entry(mut context: Context, newline_prefix: bool) -> Execution {
 }
 
 #[test]
-fn solidus_clears_only_buffer_consumes_once_and_leaves_end_tag_creation_to_stub() {
+fn solidus_clears_only_buffer_before_end_tag_open_fallback_and_rawtext_null_effects() {
     for finished in [false, true] {
         for selected in [None, Some(TagKind::Start), Some(TagKind::End)] {
             let mut context = seeded_context();
@@ -129,21 +129,49 @@ fn solidus_clears_only_buffer_consumes_once_and_leaves_end_tag_creation_to_stub(
             ));
             expected.storage.buffer.clear();
             assert_eq!(snapshot(&execution), expected);
-            let blocked = Err(UnimplementedState {
-                state: State::RawtextEndTagOpen,
-            });
+            // Only the destination consumes NUL and emits the literal prefix.
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::Rawtext)));
+            expected.state = State::Rawtext;
+            expected.current = Some((
+                Input::CodePoint('\0'.into()),
+                Position { line: 2, column: 3 },
+            ));
+            expected
+                .tokens
+                .extend([Token::Character('<'.into()), Token::Character('/'.into())]);
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
+            // RAWTEXT, not either source state, replaces NUL and diagnoses it.
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::Rawtext)));
+            expected.tokens.push(Token::Character('\u{fffd}'.into()));
+            expected
+                .errors
+                .push(error("unexpected-null-character", 2, 3));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::Rawtext)));
+            expected.current = Some((
+                Input::CodePoint('z'.into()),
+                Position { line: 2, column: 4 },
+            ));
+            expected.tokens.push(Token::Character('z'.into()));
+            assert_eq!(snapshot(&execution), expected);
+            if !finished {
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                    assert_eq!(snapshot(&execution), expected);
+                }
+                execution.context_mut().input.finish();
+            }
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            expected.current = Some((Input::Eof, Position { line: 2, column: 5 }));
+            expected.tokens.push(Token::Eof);
             for _ in 0..3 {
-                assert_eq!(execution.step(), blocked);
+                assert_eq!(execution.step(), Ok(Progress::Finished));
                 assert_eq!(snapshot(&execution), expected);
             }
-            // Inspect the terminal cursor only, never resume/reconstruct execution.
-            assert_eq!(
-                execution.context_mut().input.consume(),
-                Input::CodePoint('\0'.into())
-            );
-            let inspected = snapshot(&execution);
-            assert_eq!(execution.step(), blocked);
-            assert_eq!(snapshot(&execution), inspected);
         }
     }
 }
@@ -306,7 +334,7 @@ fn open_exhaustion_repeatedly_suspends_but_eof_falls_back_then_rawtext_finishes_
 }
 
 #[test]
-fn suspended_entry_can_receive_solidus_and_stub_remains_terminal_after_feeding() {
+fn suspended_entry_receives_solidus_then_alpha_creates_empty_end_tag_before_name_stub() {
     let mut execution = entry(seeded_context(), false);
     assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
     execution.context_mut().input.push(points("/")).unwrap();
@@ -314,19 +342,53 @@ fn suspended_entry_can_receive_solidus_and_stub_remains_terminal_after_feeding()
         execution.step(),
         Ok(Progress::Continue(State::RawtextEndTagOpen))
     );
-    let expected = snapshot(&execution);
-    let blocked = Err(UnimplementedState {
-        state: State::RawtextEndTagOpen,
-    });
-    assert_eq!(execution.step(), blocked);
+    let mut expected = snapshot(&execution);
+    for _ in 0..3 {
+        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+        assert_eq!(snapshot(&execution), expected);
+    }
     execution
         .context_mut()
         .input
         .push(points("style>"))
         .unwrap();
     execution.context_mut().input.finish();
-    assert_eq!(execution.step(), blocked);
+    assert_eq!(
+        execution.step(),
+        Ok(Progress::Continue(State::RawtextEndTagName))
+    );
+    expected.state = State::RawtextEndTagName;
+    expected.current = Some((
+        Input::CodePoint('s'.into()),
+        Position { line: 1, column: 3 },
+    ));
+    expected.storage.current_tag = Some(TagKind::End);
+    expected.storage.end = Some(PendingEndTag {
+        name: vec![],
+        self_closing: false,
+        attributes: vec![],
+        discarded_current_attribute: None,
+    });
     assert_eq!(snapshot(&execution), expected);
+    let blocked = Err(UnimplementedState {
+        state: State::RawtextEndTagName,
+    });
+    for _ in 0..3 {
+        assert_eq!(execution.step(), blocked);
+        assert_eq!(snapshot(&execution), expected);
+    }
+    // Inspect the retained cursor only; no resumption after the terminal stub.
+    assert_eq!(
+        execution.context_mut().input.consume(),
+        Input::CodePoint('s'.into())
+    );
+    assert_eq!(
+        execution.context_mut().input.consume(),
+        Input::CodePoint('t'.into())
+    );
+    let inspected = snapshot(&execution);
+    assert_eq!(execution.step(), blocked);
+    assert_eq!(snapshot(&execution), inspected);
 }
 
 type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;

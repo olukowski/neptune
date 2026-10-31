@@ -3,7 +3,8 @@
 ## Status and source
 
 **Only Data, RCDATA, RCDATA less-than sign, RCDATA end tag open, PLAINTEXT,
-RAWTEXT, RAWTEXT less-than sign, Tag open, End tag open, Tag name, Before
+RAWTEXT, RAWTEXT less-than sign, RAWTEXT end tag open, Tag open, End tag open,
+Tag name, Before
 attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, and Bogus comment are
@@ -18,6 +19,8 @@ and token creation/emission), plus **Data state** (`#data-state`), **PLAINTEXT
 state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 **RAWTEXT less-than sign state** (`#rawtext-less-than-sign-state`;
 [state-local evidence](tokenizer-rawtext-less-than-sign.md)),
+**RAWTEXT end tag open state** (`#rawtext-end-tag-open-state`;
+[state-local branch and integrated fixture evidence](tokenizer-rawtext-end-tag-open.md)),
 **Tag open state** (`#tag-open-state`), **End tag open state** (`#end-tag-open-state`),
 **Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
@@ -292,9 +295,11 @@ return state. No branch schedules reconsumption. Open exhausted input suspends.
 
 Select RAWTEXT explicitly with `Execution::new(State::Rawtext, context)`; the
 fixture runner already maps `RAWTEXT state` to that initial state. No tree builder
-or automatic switching on `<style>` is added. [RAWTEXT less-than sign is now
-implemented](tokenizer-rawtext-less-than-sign.md); RAWTEXT end tag open and RAWTEXT
-end tag name remain terminal `UnimplementedState` stubs.
+or automatic switching on `<style>` is added. [RAWTEXT less-than sign](tokenizer-rawtext-less-than-sign.md)
+and [RAWTEXT end tag open](tokenizer-rawtext-end-tag-open.md) are implemented and
+reachable from RAWTEXT entry. Non-alpha `</` fallback, including EOF, can complete;
+ASCII alpha creates/selects the empty end tag and reconsumes into RAWTEXT end tag
+name, which remains a terminal `UnimplementedState` stub.
 A matching output prefix before a stub is blocked, never EOF or a passing run;
 blocked execution must not be reconstructed/resumed.
 [RCDATA is implemented separately](tokenizer-rcdata.md).
@@ -309,7 +314,8 @@ every source-step snapshot, including `<`, CRLF, consecutive/trailing CR, NUL,
 and terminal blocks. State-local adapter tests in
 `crates/html/tests/support/rawtext.rs` check explicit initial-state mapping,
 Data defaults, no automatic style handling,
-exact output/diagnostics, and matching-prefix rejection at the end-tag-open stub.
+exact output/diagnostics, and matching-prefix rejection at the RAWTEXT end tag
+name stub after ASCII-alpha input to RAWTEXT end tag open.
 These are state-specific checks, not full tokenizer streaming conformance.
 
 ## Tag open coverage

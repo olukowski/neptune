@@ -3,6 +3,8 @@
 mod attribute_emission;
 #[path = "support/rawtext.rs"]
 mod rawtext;
+#[path = "support/rawtext_end_tag_open.rs"]
+mod rawtext_end_tag_open;
 #[path = "support/rawtext_less_than_sign.rs"]
 mod rawtext_less_than_sign;
 #[path = "support/rcdata.rs"]

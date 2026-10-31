@@ -13,6 +13,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::Plaintext,
         State::Rawtext,
         State::RawtextLessThanSign,
+        State::RawtextEndTagOpen,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
