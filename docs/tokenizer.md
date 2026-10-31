@@ -17,6 +17,7 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data escaped](tokenizer-script-data-escaped.md),
 [Script data escaped dash](tokenizer-script-data-escaped-dash.md),
 [Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md), isolated-entry
+[Script data escaped end tag open](tokenizer-script-data-escaped-end-tag-open.md),
 [Script data escaped end tag name](tokenizer-script-data-escaped-end-tag-name.md),
 [Script data double escape start](tokenizer-script-data-double-escape-start.md),
 [Script data double escaped](tokenizer-script-data-double-escaped.md),
@@ -47,7 +48,9 @@ emitting original spelling; exact `script` delimiters now enter the real
 DoubleEscaped loop, while mismatches and fallback return to Escaped.
 Isolated escaped end tag name entry supports appropriate closing tags and literal
 fallback with initialized selected End storage and original-spelling scratch.
-The EscapedLessThanSign and EscapedEndTagOpen gateway states remain terminal stubs.
+Isolated [escaped end tag open](tokenizer-script-data-escaped-end-tag-open.md)
+entry creates the selected End candidate and reconsumes in the real name state.
+EscapedLessThanSign remains the one terminal Script data gateway stub.
 Ordinary Script data closing-tag support remains separate. No tree builder or automatic element-based
 mode switching is implied. See the [integrated branch/fixture audit](tokenizer-script-data-escape-start.md).
 
