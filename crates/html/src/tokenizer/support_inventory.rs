@@ -25,6 +25,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::ScriptDataEscaped,
         State::ScriptDataEscapedDash,
         State::ScriptDataEscapedDashDash,
+        State::ScriptDataDoubleEscapeEnd,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
@@ -75,6 +76,11 @@ fn explicit_support_inventory_matches_dispatch() {
                 ) {
                     context.current_tag = Some(TagKind::End);
                     context.pending_end_tag = Some(PendingEndTag::default());
+                }
+                if state == State::ScriptDataDoubleEscapeEnd {
+                    // Direct entry supplies the normalized prefix scratch buffer;
+                    // the predecessor clears it on '/', with no tag requirement.
+                    context.temporary_buffer = vec!['s'.into(), 'c'.into(), 'r'.into()];
                 }
                 context.pending_comment = Some(PendingComment::default());
                 let mut execution = Execution::new(state, context);

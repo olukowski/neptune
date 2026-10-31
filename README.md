@@ -29,8 +29,10 @@ The first component is a specification-first HTML tokenizer.
   and escaped/dash/dash-dash states, including NUL recovery and escaped EOF
   diagnostics; `-->` returns to Script data. An escaped `<` still stops terminally
   at unimplemented Script data escaped less-than sign; escaped end tags and
-  double escaping are not supported
-  ([integration evidence](docs/tokenizer-script-data-escape-start.md)). No
+  double escaping are not reachable from Script data entry
+  ([integration evidence](docs/tokenizer-script-data-escape-start.md)).
+  [Double escape end](docs/tokenizer-script-data-double-escape-end.md) is supported
+  in isolation with explicit scratch context; its predecessor remains a stub. No
   automatic mode switching, comment-token emission, or JavaScript parsing is implied; see
   [Script data integration evidence](docs/tokenizer-script-data-end-tag-name.md).
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely

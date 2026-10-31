@@ -23,6 +23,7 @@ mod rcdata_end_tag_name;
 mod rcdata_end_tag_open;
 mod rcdata_less_than_sign;
 mod script_data;
+mod script_data_double_escape_end;
 mod script_data_end_tag_name;
 mod script_data_end_tag_open;
 mod script_data_escape_start;
@@ -135,6 +136,9 @@ pub struct Context {
     pub pending_comment: Option<PendingComment>,
     /// Code-point scratch storage; Tag open clears it on `?`,
     /// RCDATA, RAWTEXT, and Script data less-than sign on `/`.
+    /// Script data double escape end appends ASCII-lowercased letters here while
+    /// emitting their original spelling. Direct entry supplies the prefix buffer
+    /// (empty at initial entry); no selected tag is required.
     pub temporary_buffer: Vec<CodePoint>,
 }
 
@@ -187,6 +191,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::ScriptDataEscaped => Ok(script_data_escaped::step(context)),
         State::ScriptDataEscapedDash => Ok(script_data_escaped_dash::step(context)),
         State::ScriptDataEscapedDashDash => Ok(script_data_escaped_dash_dash::step(context)),
+        State::ScriptDataDoubleEscapeEnd => Ok(script_data_double_escape_end::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),
