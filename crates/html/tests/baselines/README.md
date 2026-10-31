@@ -18,6 +18,18 @@ retains every one, including all earlier milestone groups. The fixture gitlink
 remains `c777c408b61078ea2eb4acefc2535f54dbc8b28a`; normative provenance is in
 [docs/sources.toml](../../../../docs/sources.toml).
 
+State PRs may add a state-specific JSON file and register it in
+`support/regression.rs`; all files use the same identity format and are checked
+as one duplicate-free regression floor. Keep existing files unchanged.
+
+`rawtext.json` adds independently reviewed RAWTEXT identities: literal entity-like
+text (`contentModelFlags.test`), NUL replacement and literal U+FEFF (`domjs.test`),
+and empty input, whitespace, punctuation (including `&`), case-preserved letters,
+and supplementary scalar input (`test3.test`). The latter's JSON surrogate pairs
+are scalar input, not the fixture's `doubleEscaped` convention. Only U+000B has a
+preprocessing diagnostic in that group. No `<`-containing run is a new pass:
+those terminate at RAWTEXT less-than sign, still a stub.
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an
