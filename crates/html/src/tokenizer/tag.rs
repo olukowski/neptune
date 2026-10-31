@@ -72,6 +72,7 @@ pub(super) fn take_tag(context: &mut Context) -> Token {
             let tag = context.pending_start_tag.take().expect("current start tag");
             Token::StartTag {
                 name: tag.name,
+                attributes: tag.attributes,
                 self_closing: tag.self_closing,
             }
         }
@@ -79,6 +80,7 @@ pub(super) fn take_tag(context: &mut Context) -> Token {
             let tag = context.pending_end_tag.take().expect("current end tag");
             Token::EndTag {
                 name: tag.name,
+                attributes: tag.attributes,
                 self_closing: tag.self_closing,
             }
         }
@@ -86,8 +88,8 @@ pub(super) fn take_tag(context: &mut Context) -> Token {
 }
 
 // Shared by Tag name and Self-closing start tag: Tokenization emission rules.
-// Attribute creation reaches stubs before emission; emitting an attribute-bearing
-// context via manual redirection remains unsupported.
+// Attribute paths still reach stubs; initialized local contexts exercise this
+// support without resuming a blocked execution or implementing another state.
 pub(super) fn emit_tag(context: &mut Context) {
     let token = take_tag(context);
     match &token {
@@ -96,12 +98,24 @@ pub(super) fn emit_tag(context: &mut Context) {
             context.last_start_tag = Some(name.clone());
         }
         Token::EndTag {
-            self_closing: true, ..
+            attributes,
+            self_closing,
+            ..
         } => {
-            context.errors.push(ParseError {
-                code: "end-tag-with-trailing-solidus",
-                position: context.input.position(),
-            });
+            // Independent emission rules: once per token, not per attribute.
+            // Both use the current input position (the emitting state's '>').
+            if !attributes.is_empty() {
+                context.errors.push(ParseError {
+                    code: "end-tag-with-attributes",
+                    position: context.input.position(),
+                });
+            }
+            if *self_closing {
+                context.errors.push(ParseError {
+                    code: "end-tag-with-trailing-solidus",
+                    position: context.input.position(),
+                });
+            }
         }
         _ => {}
     }
@@ -215,7 +229,28 @@ mod tests {
                 current_attribute_mut(&mut context),
                 &attribute("same", "again")
             );
-            take_tag(&mut context); // Selected-token storage also owns the detached slot.
+            // Take transfers retained entries verbatim but is NOT emission:
+            // no diagnostics or last-start-tag bookkeeping, including end tags.
+            let token = take_tag(&mut context);
+            let attributes = [retained.clone(), vec![attribute("next", "v")]].concat();
+            assert_eq!(
+                token,
+                match kind {
+                    TagKind::Start => Token::StartTag {
+                        name: vec![],
+                        attributes,
+                        self_closing: false,
+                    },
+                    TagKind::End => Token::EndTag {
+                        name: vec![],
+                        attributes,
+                        self_closing: false,
+                    },
+                }
+            );
+            assert!(context.errors.is_empty());
+            assert!(context.tokens.is_empty());
+            assert!(context.last_start_tag.is_none());
             assert_eq!(context.current_tag, None);
             match kind {
                 TagKind::Start => {

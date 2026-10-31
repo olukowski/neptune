@@ -100,6 +100,7 @@ fn greater_than_sets_only_current_flag_and_emits_before_following_data() {
                     expected.last = Some(points("start"));
                     expected.tokens.push(Token::StartTag {
                         name: points("start"),
+                        attributes: vec![],
                         self_closing: true,
                     });
                 }
@@ -110,6 +111,7 @@ fn greater_than_sets_only_current_flag_and_emits_before_following_data() {
                         .push(error("end-tag-with-trailing-solidus", 1, 1));
                     expected.tokens.push(Token::EndTag {
                         name: points("end"),
+                        attributes: vec![],
                         self_closing: true,
                     });
                 }
@@ -261,15 +263,18 @@ fn real_data_path_emits_self_closing_tags_and_end_tag_diagnostic_in_order() {
         [
             Token::StartTag {
                 name: points("br"),
+                attributes: vec![],
                 self_closing: true
             },
             Token::StartTag {
                 name: points("div"),
+                attributes: vec![],
                 self_closing: true
             },
             Token::Character('x'.into()),
             Token::EndTag {
                 name: points("div"),
+                attributes: vec![],
                 self_closing: true
             },
             Token::Eof,
@@ -329,6 +334,7 @@ fn slash_is_consumed_by_tag_name_and_need_more_input_does_not_set_flag() {
         e.context().tokens,
         [Token::StartTag {
             name: points("br"),
+            attributes: vec![],
             self_closing: true
         }]
     );
@@ -478,10 +484,12 @@ fn shared_tag_name_emission_preserves_flags_and_applies_same_end_tag_rule() {
         let expected = match kind {
             TagKind::Start => Token::StartTag {
                 name: points("start"),
+                attributes: vec![],
                 self_closing: true,
             },
             TagKind::End => Token::EndTag {
                 name: points("end"),
+                attributes: vec![],
                 self_closing: true,
             },
         };
