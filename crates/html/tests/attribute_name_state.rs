@@ -284,8 +284,39 @@ fn every_departure_checks_duplicates_before_destination_and_preserves_current_id
                 }
                 assert_eq!(e.step(), Ok(Progress::Continue(target)));
                 assert_eq!(snapshot(&e), expected, "{kind:?}, {text:?}, {duplicate}");
-                // Source-only inspection: the destination has not run or emitted.
-                // Inspect the cursor directly to distinguish consumed from reconsumed.
+                if target == State::BeforeAttributeValue {
+                    // '=' was consumed. Before value consumes the next Z, then
+                    // unquoted value reconsumes it and mutates the same identity.
+                    expected.state = State::AttributeValueUnquoted;
+                    expected.current = Some((
+                        Input::CodePoint('Z'.into()),
+                        Position { line: 1, column: 2 },
+                    ));
+                    assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&e), expected);
+                    let (attrs, discarded) = expected.storage(kind);
+                    discarded
+                        .as_mut()
+                        .unwrap_or_else(|| attrs.last_mut().unwrap())
+                        .value
+                        .push('Z'.into());
+                    assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&e), expected);
+                    expected.kind = None;
+                    match kind {
+                        TagKind::Start => expected.start = None,
+                        TagKind::End => expected.end = None,
+                    }
+                    expected.current = Some((Input::Eof, Position { line: 1, column: 3 }));
+                    expected.errors.push(error("eof-in-tag", 1, 3));
+                    expected.tokens.push(Token::Eof);
+                    for _ in 0..3 {
+                        assert_eq!(e.step(), Ok(Progress::Finished));
+                        assert_eq!(snapshot(&e), expected);
+                    }
+                    continue;
+                }
+                // Other branches inspect cursor reconsumption directly.
                 assert_eq!(
                     e.context_mut().input.consume(),
                     if reconsume {

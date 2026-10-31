@@ -160,22 +160,77 @@ fn whitespace_quotes_and_anything_else_preserve_values_identity_and_exact_consum
                     }
                     assert_eq!(e.step(), Ok(Progress::Continue(target)));
                     assert_eq!(snapshot(&e), expected, "{value:x}, {kind:?}, {detached}");
-                    // No NUL replacement, value clearing, appends, or state error.
-                    assert_eq!(
-                        e.context_mut().input.consume(),
-                        Input::CodePoint(if target == State::AttributeValueUnquoted {
-                            normalized
-                        } else {
-                            'Z'.into()
-                        })
-                    );
-                    if target == State::AttributeValueUnquoted {
+                    // The source has not mutated values. Now execute the real
+                    // destination separately and compare its exact next step.
+                    if target == State::BeforeAttributeValue {
                         assert_eq!(
                             e.context_mut().input.consume(),
                             Input::CodePoint('Z'.into())
                         );
+                        continue;
                     }
+                    let unquoted = target == State::AttributeValueUnquoted;
+                    let reference = unquoted && value == 0x26;
+                    if reference {
+                        expected.state = State::CharacterReference;
+                        expected.return_state = Some(State::AttributeValueUnquoted);
+                    } else {
+                        let appended = if !unquoted {
+                            expected.current = Some((
+                                Input::CodePoint('Z'.into()),
+                                Position { line: 1, column: 2 },
+                            ));
+                            'Z'.into()
+                        } else if value == 0 {
+                            expected
+                                .errors
+                                .push(error("unexpected-null-character", 1, 1));
+                            '\u{fffd}'.into()
+                        } else {
+                            if matches!(value, 0x3c | 0x3d | 0x60) {
+                                expected.errors.push(error(
+                                    "unexpected-character-in-unquoted-attribute-value",
+                                    1,
+                                    1,
+                                ));
+                            }
+                            normalized
+                        };
+                        let (attrs, discarded) = match kind {
+                            TagKind::Start => {
+                                let tag = expected.start.as_mut().unwrap();
+                                (&mut tag.attributes, &mut tag.discarded_current_attribute)
+                            }
+                            TagKind::End => {
+                                let tag = expected.end.as_mut().unwrap();
+                                (&mut tag.attributes, &mut tag.discarded_current_attribute)
+                            }
+                        };
+                        discarded
+                            .as_mut()
+                            .unwrap_or_else(|| attrs.last_mut().unwrap())
+                            .value
+                            .push(appended);
+                    }
+                    assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&e), expected, "{value:x}, {kind:?}, {detached}");
+                    if reference {
+                        assert_blocked(&mut e, State::CharacterReference);
+                    }
+                    assert_eq!(
+                        e.context_mut().input.consume(),
+                        if unquoted {
+                            Input::CodePoint('Z'.into())
+                        } else if closed {
+                            Input::Eof
+                        } else {
+                            Input::NeedMoreInput
+                        }
+                    );
                     assert_eq!(e.context().input.errors(), expected.input_errors);
+                    if reference {
+                        assert_blocked(&mut e, State::CharacterReference);
+                    }
                 }
             }
         }
@@ -603,20 +658,43 @@ fn real_non_scalar_and_control_input_diagnostics_have_normalized_positions_once(
                 TagKind::End => &e.context().pending_end_tag.as_ref().unwrap().attributes,
             };
             assert_eq!(attributes, &[attribute("x", "")]);
-            // Source-local inspection confirms reconsumption, not an append, and
-            // preprocessing diagnostics are not duplicated on that reconsumption.
-            assert_eq!(e.context_mut().input.consume(), Input::CodePoint(point));
+            // The destination reconsumes the same point at its original
+            // position, appending literally without repeating preprocessing.
+            assert_eq!(
+                e.step(),
+                Ok(Progress::Continue(State::AttributeValueUnquoted))
+            );
+            assert_eq!(
+                e.context().input.current(),
+                Some((Input::CodePoint(point), Position { line: 3, column: 1 }))
+            );
+            assert_eq!(e.context().input.errors(), [error(code, 3, 1)]);
+            let attrs = match kind {
+                TagKind::Start => &e.context().pending_start_tag.as_ref().unwrap().attributes,
+                TagKind::End => &e.context().pending_end_tag.as_ref().unwrap().attributes,
+            };
+            assert_eq!(attrs[0].value, [point]);
+            assert_eq!(
+                e.step(),
+                Ok(Progress::Continue(State::AttributeValueUnquoted))
+            );
+            let attrs = match kind {
+                TagKind::Start => &e.context().pending_start_tag.as_ref().unwrap().attributes,
+                TagKind::End => &e.context().pending_end_tag.as_ref().unwrap().attributes,
+            };
+            assert_eq!(attrs[0].value, [point, 'Z'.into()]);
+            assert_eq!(e.step(), Ok(Progress::Finished));
+            assert_eq!(e.context().current_tag, None);
+            assert_eq!(e.context().errors, [error("eof-in-tag", 3, 3)]);
             assert_eq!(e.context().input.errors(), [error(code, 3, 1)]);
             assert_eq!(
-                e.context_mut().input.consume(),
-                Input::CodePoint('Z'.into())
+                e.context().tokens,
+                [
+                    Token::Character('😀'.into()),
+                    Token::Character('\n'.into()),
+                    Token::Eof
+                ]
             );
-            assert_eq!(
-                e.context().input.position(),
-                Position { line: 3, column: 2 }
-            );
-            // Direct cursor inspection above consumed the two points solely to
-            // prove source reconsumption; destination behavior is tested separately.
         }
     }
 }

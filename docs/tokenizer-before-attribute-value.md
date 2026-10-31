@@ -47,11 +47,12 @@ block was historically correct before PRs #16–#20 were integrated, not the cur
 combined behavior. Abandonment must never be moved into Before attribute value.
 
 No branch initializes, clears, or appends an attribute value. The ASCII/non-scalar
-point matrix checks source snapshots and directly inspects cursor consumption;
-it deliberately does not dispatch destinations in every seeded matrix case.
-Separate tests execute destinations: duplicate detachment remains current,
-value appends use `tag::current_attribute_mut`, and retained predecessors are
-unchanged. Only `>` takes the selected tag through shared emission. Unrelated
+matrix first checks source snapshots, then executes the real destination step:
+literal/NUL/forbidden-character appends or terminal ampersand transition, with
+exact value identity, diagnostics and preprocessing multiplicity. Real non-scalar
+Data tests likewise inspect reconsumption before appending and EOF abandonment.
+Duplicate detachment remains current; value appends use
+`tag::current_attribute_mut`, and retained predecessors are unchanged. Only `>` takes the selected tag through shared emission. Unrelated
 pending tags/comments, return/scratch state, prior output/diagnostics are preserved.
 Both tag kinds/flags and detached-only storage are covered; detached-only storage
 does not trigger `end-tag-with-attributes`.
