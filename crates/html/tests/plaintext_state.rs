@@ -23,6 +23,7 @@ fn plaintext_null_replaces_output_not_current_input_and_reports_each_location() 
     let mut context = Context {
         pending_start_tag: Some(PendingStartTag {
             name: points("pending"),
+            attributes: vec![],
         }),
         temporary_buffer: points("scratch"),
         return_state: Some(State::Rcdata),
@@ -57,7 +58,8 @@ fn plaintext_null_replaces_output_not_current_input_and_reports_each_location() 
         assert_eq!(
             execution.context().pending_start_tag,
             Some(PendingStartTag {
-                name: points("pending")
+                name: points("pending"),
+                attributes: vec![],
             })
         );
         assert_eq!(execution.context().temporary_buffer, points("scratch"));

@@ -24,9 +24,11 @@ fn seeded(kind: TagKind) -> Context {
         current_tag: Some(kind),
         pending_start_tag: Some(PendingStartTag {
             name: points("start"),
+            attributes: vec![],
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("end"),
+            attributes: vec![],
         }),
         pending_comment: Some(PendingComment {
             data: points("comment"),
@@ -146,7 +148,7 @@ fn tag_name_appends_every_ascii_letter_and_anything_else_once_with_ascii_only_fo
 }
 
 #[test]
-fn tag_name_whitespace_and_solidus_consume_without_emitting_before_terminal_destination_stub() {
+fn tag_name_whitespace_and_solidus_consume_without_emitting_before_destination_entry() {
     for kind in [TagKind::Start, TagKind::End] {
         for (text, consumed, target) in [
             ("\t", '\t', State::BeforeAttributeName),
@@ -172,18 +174,23 @@ fn tag_name_whitespace_and_solidus_consume_without_emitting_before_terminal_dest
                     Position { line: 1, column: 1 },
                 ));
                 assert_eq!(snapshot(&execution), expected);
-                for _ in 0..2 {
-                    assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-                    assert_eq!(snapshot(&execution), expected);
+                if target == State::SelfClosingStartTag {
+                    for _ in 0..2 {
+                        assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
+                        assert_eq!(snapshot(&execution), expected);
+                    }
                 }
-                // Inspect the tail only, not a supported resumption after a stub.
+                // Source-local inspection; Before attribute name integration is
+                // covered in before_attribute_name_state.rs. A stub cannot resume.
                 assert_eq!(
                     execution.context_mut().input.consume(),
                     Input::CodePoint('Z'.into())
                 );
-                let inspected = snapshot(&execution);
-                assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-                assert_eq!(snapshot(&execution), inspected);
+                if target == State::SelfClosingStartTag {
+                    let inspected = snapshot(&execution);
+                    assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
+                    assert_eq!(snapshot(&execution), inspected);
+                }
             }
         }
     }

@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn pinned_upstream_runner_reports_bogus_comment_coverage() {
+fn pinned_upstream_runner_reports_before_attribute_name_and_bogus_comment_coverage() {
     let directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
     let mut paths: Vec<_> = fs::read_dir(directory)
@@ -72,7 +72,7 @@ fn pinned_upstream_runner_reports_bogus_comment_coverage() {
         (
             "test4.test",
             "CR EOF in tag name",
-            Some(State::BeforeAttributeName),
+            Some(State::AfterAttributeName),
         ),
         (
             "test4.test",
@@ -83,42 +83,42 @@ fn pinned_upstream_runner_reports_bogus_comment_coverage() {
         (
             "test4.test",
             "EOF in before attribute name state",
-            Some(State::BeforeAttributeName),
+            Some(State::AfterAttributeName),
         ),
         (
             "test4.test",
             "EOF in attribute name state",
-            Some(State::BeforeAttributeName),
+            Some(State::AttributeName),
         ),
         (
             "test4.test",
             "EOF in after attribute name state",
-            Some(State::BeforeAttributeName),
+            Some(State::AttributeName),
         ),
         (
             "test4.test",
             "EOF in before attribute value state",
-            Some(State::BeforeAttributeName),
+            Some(State::AttributeName),
         ),
         (
             "test4.test",
             "EOF in attribute value (double quoted) state",
-            Some(State::BeforeAttributeName),
+            Some(State::AttributeName),
         ),
         (
             "test4.test",
             "EOF in attribute value (single quoted) state",
-            Some(State::BeforeAttributeName),
+            Some(State::AttributeName),
         ),
         (
             "test4.test",
             "EOF in attribute value (unquoted) state",
-            Some(State::BeforeAttributeName),
+            Some(State::AttributeName),
         ),
         (
             "test4.test",
             "EOF in after attribute value state",
-            Some(State::BeforeAttributeName),
+            Some(State::AttributeName),
         ),
     ];
     let mut former_tag_name_seen = 0;
@@ -264,7 +264,8 @@ fn pinned_upstream_runner_reports_bogus_comment_coverage() {
         BTreeMap::from([
             ("PendingSpecReview".into(), 1),
             ("TokenVariants".into(), 1230),
-            ("Unimplemented(BeforeAttributeName)".into(), 24),
+            ("Unimplemented(AfterAttributeName)".into(), 14),
+            ("Unimplemented(AttributeName)".into(), 10),
             ("Unimplemented(CdataSection)".into(), 56),
             ("Unimplemented(CharacterReference)".into(), 4659),
             ("Unimplemented(MarkupDeclarationOpen)".into(), 240),
@@ -279,7 +280,7 @@ fn pinned_upstream_runner_reports_bogus_comment_coverage() {
     assert_eq!(
         (passed, failed, blocked),
         (547, 0, 6506),
-        "Data through Tag name plus Bogus comment baseline"
+        "Before attribute name plus Bogus comment baseline (all prior passes retained)"
     );
     assert_eq!(
         passed_by_initial,
@@ -309,7 +310,8 @@ fn pinned_upstream_runner_reports_bogus_comment_coverage() {
         former_tag_open,
         BTreeMap::from([
             ("Passed".into(), 30),
-            ("Unimplemented(BeforeAttributeName)".into(), 9),
+            ("Unimplemented(AfterAttributeName)".into(), 2),
+            ("Unimplemented(AttributeName)".into(), 7),
             ("Unimplemented(CharacterReference)".into(), 1),
             ("Unimplemented(ProcessingInstructionOpen)".into(), 25),
             ("Unimplemented(SelfClosingStartTag)".into(), 1),
@@ -331,7 +333,7 @@ fn production_data_output_prefix_never_turns_a_destination_stub_into_a_pass() {
     // Local adapter regression tests, not additional upstream conformance cases.
     for (input, output, errors, destination) in [
         ("p&", "p", json!([]), State::CharacterReference),
-        ("p<a ", "p", json!([]), State::BeforeAttributeName),
+        ("p<a ", "p", json!([]), State::AfterAttributeName),
         ("p<!", "p", json!([]), State::MarkupDeclarationOpen),
         ("p</A/", "p", json!([]), State::SelfClosingStartTag),
         (
@@ -594,7 +596,7 @@ fn production_tag_comparison_checks_kind_name_order_and_double_escaped_code_poin
         "output":[["StartTag","p",{}]]});
     assert_eq!(
         run_with(&prefix, "Data state", None, execute),
-        Outcome::Blocked(Blocked::Unimplemented(State::BeforeAttributeName))
+        Outcome::Blocked(Blocked::Unimplemented(State::AfterAttributeName))
     );
     let abandoned = json!({"description":"abandoned tag", "input":"<A",
         "output":[["StartTag","a",{}]],

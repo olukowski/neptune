@@ -12,8 +12,9 @@ The first component is a specification-first HTML tokenizer.
 
 - Rust workspace and CI on Linux/macOS.
 - Registry of all 84 tokenizer states in the pinned HTML Standard.
-- Data, PLAINTEXT, Tag open, End tag open, Tag name, and Bogus comment implemented;
-  the other 78 remain typed `UnimplementedState` stubs.
+- Data, PLAINTEXT, Tag open, End tag open, Tag name, Before attribute name, and
+  Bogus comment implemented; the other 77 remain typed `UnimplementedState` stubs.
+  Attribute destinations are still stubs; tags with whitespace/attributes cannot complete.
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.

@@ -2,9 +2,10 @@
 
 ## Status and source
 
-**Only Data, PLAINTEXT, Tag open, End tag open, Tag name, and Bogus comment are
-implemented. The other 78 states, including Before attribute name, Self-closing
-start tag, ordinary Comment, and Character reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a stable parsing API
+**Only Data, PLAINTEXT, Tag open, End tag open, Tag name, Before attribute name,
+and Bogus comment are implemented. The other 77 states, including Attribute name,
+After attribute name, Self-closing start tag, ordinary Comment, and Character
+reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a stable parsing API
 or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
 Implementation evidence is the immutable HTML Standard source in
@@ -13,6 +14,7 @@ and the opening **Tokenization** paragraphs (current/next input, reconsumption,
 and token creation/emission), plus **Data state** (`#data-state`), **PLAINTEXT
 state** (`#plaintext-state`), **Tag open state** (`#tag-open-state`), **End tag
 open state** (`#end-tag-open-state`), **Tag name state** (`#tag-name-state`), and
+**Before attribute name state** (`#before-attribute-name-state`) and
 **Bogus comment state** (`#bogus-comment-state`).
 Newline normalization follows the linked Infra
 [normalize newlines](https://infra.spec.whatwg.org/#normalize-newlines) operation.
@@ -46,26 +48,30 @@ instruction states and no separate decimal-character-reference-start state.
   `&` sets the return state to Data even while Character reference remains a stub.
   Tag open creates `pending_start_tag: Option<PendingStartTag>`; End tag open
   creates `pending_end_tag: Option<PendingEndTag>` or
-  `pending_comment: Option<PendingComment>`. Tags store code-point names only;
-  their self-closing flag is implicitly unset and attributes implicitly empty,
-  as required at creation. Comments store code-point data; Bogus comment appends
-  to it and takes the pending comment on emission as `Token::Comment { data }`.
-  Isolated Bogus comment entry requires initialized pending-comment storage;
-  existing data is preserved literally, not preprocessed again.
+  `pending_comment: Option<PendingComment>`. Tags store code-point names and an
+  ordered `Vec<Attribute>` with code-point names/values; the last entry is the
+  current attribute. Their self-closing flag is implicitly unset and attribute
+  lists initially empty, as required at creation. Comments store code-point data;
+  Bogus comment appends to it and takes the pending comment on emission as
+  `Token::Comment { data }`. Isolated Bogus comment entry requires initialized
+  pending-comment storage; existing data is preserved literally, not preprocessed again.
   Each creation replaces only its own pending storage; unrelated storage remains.
   The code-point `temporary_buffer` is cleared by Tag open on `?`.
 - Tag creation selects `current_tag: Option<TagKind>` (Start or End), independently
   of any unrelated retained pending storage. Tag name mutates only the selected
-  name. On `>` it takes that pending tag and emits `Token::StartTag { name }` or
+  name. Before attribute name appends only to the selected tag's attribute list.
+  On `>` Tag name takes that pending tag and emits `Token::StartTag { name }` or
   `Token::EndTag { name }`; on EOF it discards the selected tag. Both clear the
-  selector. Direct isolated Tag name entry requires a selector and matching
-  pending tag; normal entry through Tag open / End tag open establishes this
-  invariant. This remains inspectable scaffolding, not a general current-token API.
-  The emitted variants also have implicit empty attributes/unset self-closing flag;
-  no implemented algorithm can change those fields. Thus neither end-tag emission
-  diagnostic (`end-tag-with-attributes`, `end-tag-with-trailing-solidus`) can arise
-  here, nor is self-closing acknowledgement applicable. These checks must be added
-  when those fields become representable, not simulated now.
+  selector. Direct isolated Tag name / Before attribute name entry requires a
+  selector and matching pending tag; normal entry through Tag open / End tag open
+  establishes this invariant. This remains inspectable scaffolding, not a general current-token API.
+  The emitted variants still have implicit empty attributes/unset self-closing
+  flag. Attribute creation necessarily leads to a terminal destination stub before
+  emission; no supported path emits attributes. Neither end-tag emission diagnostic
+  (`end-tag-with-attributes`, `end-tag-with-trailing-solidus`) can arise on reachable
+  paths, nor is self-closing acknowledgement applicable. Expanded emitted fields,
+  comparisons, and diagnostics are deferred until an algorithm can emit them;
+  manually redirecting an attribute-bearing context into Tag name is unsupported.
 - Only start-tag **emission** updates `last_start_tag`, with the emitted normalized
   name; creation, mutation, EOF abandonment, and end-tag emission do not. The
   appropriate-end-tag definition still compares against the last emitted start tag,
@@ -81,9 +87,10 @@ instruction states and no separate decimal-character-reference-start state.
   has **no supported semantics**.
 
 Production dispatch implements only Data, PLAINTEXT, Tag open, End tag open,
-Tag name, and Bogus comment and has no synthetic handlers. Unit tests inject private, non-algorithmic
-source steps to validate the execution shell separately. The independent support-
-inventory test explicitly lists those six and checks that the other 78 states
+Tag name, Before attribute name, and Bogus comment and has no synthetic handlers.
+Unit tests inject private, non-algorithmic source steps to validate the execution
+shell separately. The independent support-
+inventory test explicitly lists those seven and checks that the other 77 states
 block without effects at both suspension and EOF; it does not infer support from
 dispatch.
 
@@ -124,8 +131,8 @@ Explicit limitations/policies (no silent skips or partial token comparisons):
 - Expected StartTag with empty attributes/unset self-closing flag, and EndTag
   with a name, are supported. A nonempty attribute object or set self-closing
   flag blocks the **whole run** as `TokenVariants`, not a partial field comparison.
-  Production can only represent the supported creation defaults. DOCTYPE tokens
-  (including IDs/force-quirks) and processing instructions also block
+  Production emission can only represent the supported creation defaults.
+  DOCTYPE tokens (including IDs/force-quirks) and processing instructions also block
   the whole run; they are not treated as equal or defaulted away.
 - All `xmlViolationTests` runs block as `XmlCoercion`; Neptune does not apply
   DOM-to-XML-infoset coercion in this runner.
@@ -153,12 +160,13 @@ pair. Every run has exactly one result:
 including blocked stubs. This avoids describing attempted-but-blocked runs as
 successfully executed conformance tests. Inventory tests execute no conformance.
 
-Current pinned baseline including Bogus comment: 14 files, 6,827 cases,
-**7,053 runs; 5,818 dispatch-attempted; 547 executed, 547 passed, 0 failed,
-6,506 blocked**:
+Current pinned baseline including Before attribute name and Bogus comment:
+14 files, 6,827 cases, **7,053 runs; 5,818 dispatch-attempted; 547 executed,
+547 passed, 0 failed, 6,506 blocked**:
 
 - 4,659 blocked at Character reference (including one after Tag open recovery)
-- 24 blocked at Before attribute name
+- 14 blocked at After attribute name
+- 10 blocked at Attribute name
 - 6 blocked at Self-closing start tag
 - 52 blocked at Processing instruction open
 - 240 blocked at Markup declaration open
@@ -172,10 +180,11 @@ At the preceding Tag name milestone, all **466 prior passes were retained**: 385
 open additions, and five End tag open additions. The runner asserts these groups
 independently of dispatch, including explicit identities for the five End tag
 open cases. Of the 11 former Tag-name-blocked runs (also explicitly identified),
-only `test4.test` “EOF in tag name state ” now passes; nine block at Before
-attribute name and one at Self-closing start tag. Thus 30 of the original 66
-Tag-open-blocked runs now pass; 36 still block (9 Before attribute name, 1 Self-
-closing start tag, 25 Processing instruction open, 1 Character reference).
+only `test4.test` “EOF in tag name state ” passes; two block at After attribute
+name, seven at Attribute name, and one at Self-closing start tag. Thus 30 of the
+original 66 Tag-open-blocked runs pass; 36 still block (2 After attribute name,
+7 Attribute name, 1 Self-closing start tag, 25 Processing instruction open,
+1 Character reference).
 
 That milestone's adapter admitted **101 additional runs** with supported tag outputs: 55 pass,
 20 reach missing attribute/self-closing states, and 26 reach still-missing initial
@@ -183,8 +192,11 @@ states. Together with the EOF-in-name pass this adds **56 passes**, all Data-
 initial: 470 Data and 52 PLAINTEXT passes in total. There are 5,184 Data-initial
 dispatch attempts, of which 4,714 remain blocked. No failed run was excluded to
 obtain these counts; policy precedence and existing exclusions are unchanged.
-Unsupported-token runs decrease from 1,625 to 1,524, while the admitted runs can
-still block at dispatch. Fixtures and pinned revisions remain unchanged.
+Unsupported-token runs decreased from 1,625 to 1,524 with Tag name, while the
+admitted runs can still block at dispatch. Before attribute name retains all
+547 passes after the Bogus comment merge and adds none: its 24 former blocks now
+reach After attribute name (14) or Attribute name (10). No policy, adapter support,
+fixture, or pinned revision changed.
 
 Bogus comment retains **all 522 Tag name baseline passes** and adds **25 Data-
 initial passes**, explicitly identified in the runner (one `test2.test` case and
@@ -332,8 +344,9 @@ The implementation follows every branch of the pinned **Tag name state**:
 Every branch consumes once and none reconsumes. Open exhausted input preserves
 pending state and returns NeedMoreInput, not EOF. Whitespace and `/` consume but
 do not append, emit, or report a state parse error. Their source effects remain
-inspectable before the next step terminates with `UnimplementedState` identifying
-Before attribute name or Self-closing start tag. Do not resume a blocked execution.
+inspectable before the next step executes Before attribute name or terminates
+with `UnimplementedState` identifying Self-closing start tag. Before attribute
+name subsequently blocks at its own destinations. Do not resume a blocked execution.
 VT and NBSP are name characters, not separators; VT also gets the cursor's
 preprocessing diagnostic. Surrogates/noncharacters are preserved as code points,
 with their original preprocessing errors, not converted through scalar strings.
@@ -392,17 +405,42 @@ empty-token boundaries, and double-escaped non-scalar data, deliberately mismatc
 outputs, reject malformed shapes, and retain downstream stub blocks after a
 matching comment prefix. Only upstream runs contribute to the counts above.
 
-## Before attribute-state work
+## Before attribute name coverage
 
-Before attribute name and Self-closing start tag remain stubs; neither whitespace
-nor `/` can currently complete a tag. Attribute/flag storage, end-tag emission
-diagnostics for nondefault fields, and expanded fixture comparisons will be
-needed when implementing the relevant states. Ordinary comments, markup
-declarations, processing instructions, and character references also remain stubs.
-Before attribute name and Self-closing start tag are parallel, separate PRs;
-integration checks/counts must be rerun after rebasing onto their merges.
-No neighboring-state algorithms, execution/input model changes, tree-building
-behavior, or optimizations were added.
+The implementation follows every branch of the pinned **Before attribute name
+state** (`#before-attribute-name-state`):
+
+| Consumed input | Source effects and intended destination |
+| --- | --- |
+| TAB U+0009, LF U+000A, FF U+000C, SPACE U+0020 | Ignore; stay in Before attribute name. CR is normalized to LF by the cursor. |
+| `/`, `>`, EOF | Reconsume in After attribute name; no attribute creation, emission, or state diagnostic. |
+| `=` U+003D | Report `unexpected-equals-sign-before-attribute-name`; append a new attribute with name `=` and empty value to the current tag; switch to Attribute name **without** reconsumption. |
+| Anything else | Append a new attribute with empty name/value to the current tag; reconsume in Attribute name. |
+
+Both destinations remain terminal `UnimplementedState` stubs. In particular,
+`>` does not emit a tag here and EOF does not yet report `eof-in-tag`, abandon the
+tag, or emit EOF. NUL, quotes, uppercase, non-ASCII whitespace, and non-scalars
+all take the empty-attribute/reconsume branch; replacement, lowercasing, and
+attribute-name diagnostics belong to the still-missing Attribute name algorithm.
+Preprocessing errors occur once on initial consumption, at their original positions.
+Open exhaustion repeatedly suspends without effects, never implying EOF.
+
+Focused tests in `crates/html/tests/before_attribute_name_state.rs` inspect both
+tag kinds, existing attribute preservation and append order, empty value/name
+initialization, exact diagnostics/locations, unchanged unrelated context,
+consumption/reconsumption (including conceptual EOF), intended targets and
+terminal blocks. They cover all ASCII branches plus Unicode whitespace/letters,
+actual surrogates/noncharacters/controls, real Tag name entry, whitespace runs,
+and all two-chunk splits plus single-code-point chunks of representative inputs,
+including CRLF splits, trailing/consecutive CR, NUL, and downstream blocks.
+These local source-step checks are not full tokenizer streaming conformance.
+
+Only pending attribute storage was needed; execution/input, emitted token APIs,
+fixture adapter policy, and neighboring algorithms are unchanged. Attribute
+name/value states, After attribute name, Self-closing start tag,
+ordinary comments, markup declarations, processing instructions, and character references
+remain stubs. Nondefault emitted fields/diagnostics and expanded fixture
+comparisons remain work for states that can reach emission.
 
 Before claiming broader coverage, extend token fields and comparisons,
 review pending-spec-change expectations, and decide whether XML coercion belongs
