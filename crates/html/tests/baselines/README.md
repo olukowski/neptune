@@ -78,6 +78,17 @@ see the [state-local review](../../../../docs/tokenizer-rawtext-end-tag-open.md#
 The sibling RCDATA case 28 identity (entry index 0), its registration and every
 prior baseline are unchanged. There are now 869 protected identities.
 
+`rcdata_end_tag_name.json` adds 17 individually reviewed RCDATA identities:
+`contentModelFlags.test` cases 2–11, `domjs.test` cases 27 and 29–31, and
+`escapeFlag.test` cases 0, 1, and 4, all initial-state index 0. The
+[state-local fixture audit](../../../../docs/tokenizer-rcdata-end-tag-name.md#integrated-fixture-review)
+records their unchanged expected tokens/errors and pinned branch reasoning,
+including literal EOF fallback versus tag-state EOF abandonment. The eighteenth
+formerly name-blocked run (`escapeFlag.test` case 2) now blocks at Markup
+declaration open and is not added. All 869 prior identities, files, and registrations
+remain unchanged; the protected union now has 886 identities. No result-derived
+baseline generation or policy weakening is used.
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an

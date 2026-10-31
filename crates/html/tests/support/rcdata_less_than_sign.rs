@@ -51,16 +51,23 @@ fn rcdata_less_than_sign_adapter_requires_complete_literal_recovery_and_exact_er
 
 #[test]
 fn rcdata_less_than_sign_adapter_preserves_terminal_blocks_after_literal_prefixes() {
-    for (input, output, target) in [
-        ("p</title>", "p", State::RcdataEndTagName),
-        ("p<!</title>", "p<!", State::RcdataEndTagName),
-        ("p<&", "p<", State::CharacterReference),
+    for (input, output) in [
+        (
+            "p</title>&",
+            json!([["Character", "p"], ["EndTag", "title"]]),
+        ),
+        (
+            "p<!</title>&",
+            json!([["Character", "p<!"], ["EndTag", "title"]]),
+        ),
+        ("p<&", json!([["Character", "p<"]])),
+        ("p</Other&", json!([["Character", "p</Other"]])),
     ] {
         let case = json!({"description":"local blocked prefix is not completion",
-            "input":input,"output":[["Character",output]],"lastStartTag":"title"});
+            "input":input,"output":output,"lastStartTag":"title"});
         assert_eq!(
             run_with(&case, "RCDATA state", None, execute),
-            Outcome::Blocked(Blocked::Unimplemented(target))
+            Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
         );
     }
 }

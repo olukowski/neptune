@@ -12,7 +12,7 @@ Pins and upstream fixtures are unchanged.
 
 | Consumed input | Source effects | Next step |
 | --- | --- | --- |
-| U+002F SOLIDUS `/` | Clear the temporary buffer; consume without reconsumption; emit nothing. | RCDATA end tag open executes: alpha creates/selects an empty tag and blocks at end tag name; non-alpha/EOF falls back in RCDATA. |
+| U+002F SOLIDUS `/` | Clear the temporary buffer; consume without reconsumption; emit nothing. | RCDATA end tag open executes: alpha creates/selects an empty tag and reconsumes in the implemented end tag name state; non-alpha/EOF falls back in RCDATA. |
 | Anything else, **including EOF** | Emit literal U+003C `<`; preserve the buffer; schedule the current item for reconsumption in RCDATA. | RCDATA handles that same item/position, including NUL replacement, `&` transition, another `<` transition, or terminal EOF. |
 
 Open exhaustion is not the anything-else branch: it repeatedly returns
@@ -34,7 +34,8 @@ asserts source effects before attempting destinations:
   pending tokens, open/closed input, and unread non-scalar/alpha tails. The source
   snapshot still precedes tag creation or fallback. Destination assertions cover
   repeated suspension, EOF completion, non-scalar reconsumption without duplicate
-  diagnostics, and exact repeated alpha/name-state blocks after context mutation.
+  diagnostics, and alpha/name-state accumulation followed by repeated suspension
+  or literal EOF fallback before RCDATA's terminal EOF.
 - Every other ASCII point plus Unicode scalars, actual surrogates, noncharacters,
   controls and NUL. Source diagnostics and storage are checked independently of
   RCDATA's subsequent errors/output/return-state changes. Reconsumption retains
@@ -53,8 +54,9 @@ complete literal output and exact diagnostic multiplicities/positions, reject
 deliberate mismatches, and retain explicit blocks after matching prefixes.
 The preexisting RCDATA tests still inspect its source transition independently;
 only the now-obsolete less-than-sign stub expectation is removed. Character
-reference and RCDATA end tag name block assertions remain explicit; end-tag-open
-EOF/non-alpha fallback now requires complete literal output.
+reference blocks remain explicit, including after a successful closing tag or
+name mismatch. End-tag-open EOF/non-alpha fallback and name-state completion
+require complete output; source snapshots remain separate from destination effects.
 
 ## Upstream and integration scope
 
@@ -62,15 +64,17 @@ PR #26 added no new upstream passes: every pinned RCDATA run with `<` also
 reaches `</` (then blocked at RCDATA end tag open) or an earlier `&` (Character
 reference). This historical result is preserved, not a claim that end tag open
 is still a stub. After PR #24's integration, one non-alpha run becomes comparable
-and passes; the other 18 end-tag-open blocks move to end tag name. See the
+and passes; at that point the other 18 end-tag-open blocks moved to end tag name. See the
 [state-specific fixture audit and additive baseline](tokenizer-rcdata-end-tag-open.md#integrated-fixture-review).
 All prior passing identities and policies remain unchanged. Use the [runner command/count definitions](tokenizer.md#fixture-runner)
 for reproducible executed/passed/failed/blocked counts.
 
-PR #26 implements exactly one production state. RCDATA end tag open is added
-separately in PR #24; RCDATA end tag name remains a stub. RAWTEXT less-than sign
-is implemented separately in merged PR #25; RAWTEXT end
-tag open/name remain stubs. No shared API/storage prerequisite,
+PR #26 implements exactly one production state. RCDATA end tag open was added
+separately in PR #24; [RCDATA end tag name](tokenizer-rcdata-end-tag-name.md) now
+completes the closing-tag/fallback chain, with 17 reviewed additional passes and
+one later Markup declaration open block. RAWTEXT less-than sign and end tag open
+are preserved from merged PRs #25 and #23; RAWTEXT end tag name remains a terminal
+stub. No shared API/storage prerequisite,
 dependency, token variant, automatic mode selection or tree builder is added.
 After sibling merges, rebase and rerun all CONTRIBUTING checks and the pinned
 upstream runner. Resolve small module/dispatch/support/docs registration conflicts

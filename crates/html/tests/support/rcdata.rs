@@ -35,15 +35,27 @@ fn rcdata_runner_uses_existing_explicit_mapping_and_keeps_prefixes_blocked() {
         run_with(&empty, "RCDATA state", None, execute),
         Outcome::Passed
     );
-    for (input, target) in [
-        ("p&", State::CharacterReference),
-        ("p</p>", State::RcdataEndTagName),
+    for (input, output) in [
+        ("p&", json!([["Character", "p"]])),
+        ("p</p>&", json!([["Character", "p"], ["EndTag", "p"]])),
     ] {
         let prefix = json!({"description":"local matching prefix is not completion", "input":input,
-            "output":[["Character","p"]], "lastStartTag":"p"});
+            "output":output, "lastStartTag":"p"});
         assert_eq!(
             run_with(&prefix, "RCDATA state", None, execute),
-            Outcome::Blocked(Blocked::Unimplemented(target))
+            Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
         );
     }
+    let complete = json!({"description":"RCDATA closing tag is now reachable",
+        "input":"p</P>", "lastStartTag":"p", "output":[["Character","p"],["EndTag","p"]]});
+    assert_eq!(
+        run_with(&complete, "RCDATA state", None, execute),
+        Outcome::Passed
+    );
+    let mut wrong = complete;
+    wrong["output"] = json!([["Character", "p"]]);
+    assert!(matches!(
+        run_with(&wrong, "RCDATA state", None, execute),
+        Outcome::Failed(_)
+    ));
 }

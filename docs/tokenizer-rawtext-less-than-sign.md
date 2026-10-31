@@ -50,9 +50,9 @@ suspend, recover literally on non-alpha/EOF, or create an empty selected end tag
 before blocking at `UnimplementedState(RawtextEndTagName)`. Integrated tests
 assert these effects separately, including destination-only NUL replacement and
 its exact diagnostic. No blocked execution is reconstructed or resumed.
-RAWTEXT end tag name and RCDATA end tag name remain stubs.
-RCDATA less-than sign is implemented separately in merged PR #26;
-[RCDATA end tag open is added separately in PR #24](tokenizer-rcdata-end-tag-open.md).
+RAWTEXT end tag name remains a terminal stub. RCDATA less-than sign and end tag
+open are preserved from merged PRs #26 and #24;
+[RCDATA end tag name now completes that separate chain](tokenizer-rcdata-end-tag-name.md).
 The upstream counts below record PR #25's historical integration, before #24.
 
 Every two-chunk split and single-code-point chunking of representative isolated

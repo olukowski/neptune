@@ -2,8 +2,8 @@
 
 ## Status and source
 
-**Only Data, RCDATA, RCDATA less-than sign, RCDATA end tag open, PLAINTEXT,
-RAWTEXT, RAWTEXT less-than sign, RAWTEXT end tag open, Tag open, End tag open,
+**Only Data, RCDATA, RCDATA less-than sign, RCDATA end tag open, RCDATA end tag name,
+PLAINTEXT, RAWTEXT, RAWTEXT less-than sign, RAWTEXT end tag open, Tag open, End tag open,
 Tag name, Before
 attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
@@ -36,12 +36,14 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 **Before attribute value state** (`#before-attribute-value-state`;
 [state-local evidence](tokenizer-before-attribute-value.md)),
 **Self-closing start tag state** (`#self-closing-start-tag-state`),
-**Bogus comment state** (`#bogus-comment-state`), and **RCDATA state**
-(`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)), plus
+**Bogus comment state** (`#bogus-comment-state`), **RCDATA state**
+(`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)),
 **RCDATA less-than sign state** (`#rcdata-less-than-sign-state`;
-[state-local branch evidence](tokenizer-rcdata-less-than-sign.md)), and
+[state-local branch evidence](tokenizer-rcdata-less-than-sign.md)),
 **RCDATA end tag open state** (`#rcdata-end-tag-open-state`;
-[state-local branch evidence](tokenizer-rcdata-end-tag-open.md)).
+[state-local branch evidence](tokenizer-rcdata-end-tag-open.md)), and
+**RCDATA end tag name state** (`#rcdata-end-tag-name-state`;
+[state-local branch and integrated fixture evidence](tokenizer-rcdata-end-tag-name.md)).
 [Attribute value (single-quoted) branch evidence](tokenizer-attribute-value-single-quoted.md)
 cites its exact pinned source lines.
 Newline normalization follows the linked Infra

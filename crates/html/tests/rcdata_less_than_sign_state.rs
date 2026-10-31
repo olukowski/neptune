@@ -169,17 +169,44 @@ fn solidus_clears_only_buffer_before_end_tag_open_destination_effects() {
                             execution.context_mut().input.reconsume(),
                             Err(CursorError::AlreadyReconsuming)
                         );
-                        let blocked = Err(UnimplementedState {
-                            state: State::RcdataEndTagName,
-                        });
-                        for _ in 0..3 {
-                            assert_eq!(execution.step(), blocked);
-                            assert_eq!(snapshot(&execution), expected);
-                        }
+                        // Name-state accumulation occurs only on its own step,
+                        // reconsuming T at the same position with original spelling.
+                        expected
+                            .pending_end_tag
+                            .as_mut()
+                            .unwrap()
+                            .name
+                            .push('t'.into());
+                        expected.temporary_buffer.push('T'.into());
+                        assert_eq!(
+                            execution.step(),
+                            Ok(Progress::Continue(State::RcdataEndTagName))
+                        );
+                        assert_eq!(snapshot(&execution), expected);
                         if !closed {
-                            execution.context_mut().input.push(points("later")).unwrap();
+                            for _ in 0..3 {
+                                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                                assert_eq!(snapshot(&execution), expected);
+                            }
                             execution.context_mut().input.finish();
-                            assert_eq!(execution.step(), blocked);
+                        }
+                        // EOF is literal name fallback, not eof-in-tag or tag emission.
+                        expected.state = State::Rcdata;
+                        expected.current = Some((Input::Eof, Position { line: 2, column: 4 }));
+                        expected
+                            .tokens
+                            .extend(points("</T").into_iter().map(Token::Character));
+                        assert_eq!(execution.step(), Ok(Progress::Continue(State::Rcdata)));
+                        assert_eq!(snapshot(&execution), expected);
+                        assert_eq!(
+                            execution.context_mut().input.reconsume(),
+                            Err(CursorError::AlreadyReconsuming)
+                        );
+                        expected.tokens.push(Token::Eof);
+                        assert_eq!(execution.step(), Ok(Progress::Finished));
+                        assert_eq!(snapshot(&execution), expected);
+                        for _ in 0..3 {
+                            assert_eq!(execution.step(), Ok(Progress::Finished));
                             assert_eq!(snapshot(&execution), expected);
                         }
                         continue;

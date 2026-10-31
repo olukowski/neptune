@@ -18,6 +18,7 @@ mod rawtext;
 mod rawtext_end_tag_open;
 mod rawtext_less_than_sign;
 mod rcdata;
+mod rcdata_end_tag_name;
 mod rcdata_end_tag_open;
 mod rcdata_less_than_sign;
 mod self_closing_start_tag;
@@ -161,6 +162,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::Rcdata => Ok(rcdata::step(context)),
         State::RcdataLessThanSign => Ok(rcdata_less_than_sign::step(context)),
         State::RcdataEndTagOpen => Ok(rcdata_end_tag_open::step(context)),
+        State::RcdataEndTagName => Ok(rcdata_end_tag_name::step(context)),
         State::Plaintext => Ok(plaintext::step(context)),
         State::Rawtext => Ok(rawtext::step(context)),
         State::RawtextLessThanSign => Ok(rawtext_less_than_sign::step(context)),

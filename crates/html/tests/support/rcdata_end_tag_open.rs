@@ -1,7 +1,6 @@
 //! Local integrated production-adapter checks, not upstream conformance runs.
 
 use crate::support::*;
-use neptune_html::tokenizer::State;
 use serde_json::json;
 
 #[test]
@@ -59,17 +58,29 @@ fn rcdata_end_tag_open_adapter_preserves_reconsumed_diagnostics_exactly_once() {
 }
 
 #[test]
-fn rcdata_end_tag_open_adapter_keeps_alpha_terminal_after_any_literal_prefix() {
+fn rcdata_end_tag_open_adapter_now_requires_complete_alpha_paths() {
     for (input, output) in [
-        ("p</TITLE>", "p"),
-        ("<!x</foo", "<!x"),
-        ("</0></title>", "</0>"),
+        (
+            "p</TITLE>",
+            json!([["Character", "p"], ["EndTag", "title"]]),
+        ),
+        ("<!x</foo", json!([["Character", "<!x</foo"]])),
+        (
+            "</0></title>",
+            json!([["Character", "</0>"], ["EndTag", "title"]]),
+        ),
     ] {
-        let case = json!({"description":"local alpha is a terminal name-state block",
-            "input":input, "output":[["Character",output]], "lastStartTag":"title"});
+        let case = json!({"description":"local reachable name-state completion",
+            "input":input, "output":output, "lastStartTag":"title"});
         assert_eq!(
             run_with(&case, "RCDATA state", None, execute),
-            Outcome::Blocked(Blocked::Unimplemented(State::RcdataEndTagName))
+            Outcome::Passed
         );
+        let mut wrong = case;
+        wrong["output"] = json!([]);
+        assert!(matches!(
+            run_with(&wrong, "RCDATA state", None, execute),
+            Outcome::Failed(_)
+        ));
     }
 }

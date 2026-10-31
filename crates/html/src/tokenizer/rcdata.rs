@@ -1,7 +1,8 @@
 //! RCDATA state only. Normative baseline: HTML Standard source at
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, "RCDATA state" (#rcdata-state).
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source>
-//! See docs/sources.toml; Character reference and end-tag destinations remain stubs.
+//! See docs/sources.toml; the RCDATA end-tag chain is implemented separately.
+//! Character reference remains a terminal stub; there is no automatic mode selection.
 
 use super::{Context, Input, ParseError, Progress, State, Token};
 

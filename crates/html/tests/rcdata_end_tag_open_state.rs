@@ -113,7 +113,7 @@ fn assert_terminal(execution: &mut Execution, result: Result<Progress, Unimpleme
 }
 
 #[test]
-fn ascii_alpha_creates_and_selects_empty_end_tag_before_terminal_name_stub() {
+fn ascii_alpha_creates_empty_end_tag_before_name_reconsumes_and_normalizes() {
     for value in (0x41..=0x5a).chain(0x61..=0x7a) {
         let point = CodePoint::new(value).unwrap();
         for seeded in [false, true] {
@@ -141,15 +141,40 @@ fn ascii_alpha_creates_and_selects_empty_end_tag_before_terminal_name_stub() {
                     run.context_mut().input.reconsume(),
                     Err(CursorError::AlreadyReconsuming)
                 );
-                let blocked = Err(UnimplementedState {
-                    state: State::RcdataEndTagName,
-                });
-                assert_eq!(run.step(), blocked);
+                // Only the destination appends/lowercases the reconsumed letter.
+                let normalized =
+                    CodePoint::new(if value <= 0x5a { value + 0x20 } else { value }).unwrap();
+                expected
+                    .pending_end_tag
+                    .as_mut()
+                    .unwrap()
+                    .name
+                    .push(normalized);
+                expected.temporary_buffer.push(point);
+                assert_eq!(run.step(), Ok(Progress::Continue(State::RcdataEndTagName)));
                 assert_eq!(snapshot(&run), expected);
-                assert_terminal(&mut run, blocked);
+                // The next non-alpha point is not part of the candidate: name-state
+                // fallback emits the original-spelling buffer and reconsumes '!'.
+                expected.state = State::Rcdata;
+                expected.current = Some((
+                    Input::CodePoint('!'.into()),
+                    Position { line: 2, column: 4 },
+                ));
+                expected.tokens.extend(
+                    points("</")
+                        .into_iter()
+                        .chain(expected.temporary_buffer.iter().copied())
+                        .map(Token::Character),
+                );
+                assert_eq!(run.step(), Ok(Progress::Continue(State::Rcdata)));
+                assert_eq!(snapshot(&run), expected);
+                assert_eq!(
+                    run.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
+                );
             }
         }
-        // Inspect cursor source effects independently; do NOT execute/resume a stub.
+        // Inspect cursor source effects independently of destination processing.
         let mut run = execution(&[point, '!'.into()], true, true);
         assert_eq!(run.step(), Ok(Progress::Continue(State::RcdataEndTagName)));
         assert_eq!(run.context_mut().input.consume(), Input::CodePoint(point));
@@ -412,33 +437,59 @@ fn all_two_chunk_splits_and_single_point_chunks_preserve_every_source_step() {
 }
 
 #[test]
-fn end_tag_name_entry_remains_terminal_and_does_not_fake_completion() {
-    for state in [State::RcdataEndTagName] {
-        for closed in [false, true] {
-            // Fresh isolated entry, not reconstruction of blocked execution.
-            let mut context = context(true);
-            context.input.push(points("title>")).unwrap();
-            if closed {
-                context.input.finish();
-            }
-            context.current_tag = Some(TagKind::End);
-            context.pending_end_tag = Some(PendingEndTag::default());
-            // Keep the freshly initialized context with its required end-tag storage.
-            let mut run = Execution::new(state, context);
-            let expected = snapshot(&run);
-            let blocked = Err(UnimplementedState { state });
-            assert_eq!(run.step(), blocked);
-            assert_eq!(snapshot(&run), expected);
-            assert_terminal(&mut run, blocked);
-            if !closed {
-                run.context_mut()
-                    .input
-                    .push([CodePoint::new(0xd800).unwrap()])
-                    .unwrap();
-                run.context_mut().input.finish();
-                assert_terminal(&mut run, blocked);
-                assert_eq!(snapshot(&run), expected);
-            }
+fn end_tag_name_entry_now_requires_complete_emission_and_eof() {
+    for closed in [false, true] {
+        let mut context = context(true);
+        context.input.push(points("TiTlE>")).unwrap();
+        if closed {
+            context.input.finish();
         }
+        context.current_tag = Some(TagKind::End);
+        context.pending_end_tag = Some(PendingEndTag::default());
+        context.temporary_buffer.clear();
+        let mut run = Execution::new(State::RcdataEndTagName, context);
+        let mut expected = snapshot(&run);
+        for (index, point) in points("TiTlE").into_iter().enumerate() {
+            expected
+                .pending_end_tag
+                .as_mut()
+                .unwrap()
+                .name
+                .push(points("title")[index]);
+            expected.temporary_buffer.push(point);
+            expected.current = Some((
+                Input::CodePoint(point),
+                Position {
+                    line: 2,
+                    column: index + 3,
+                },
+            ));
+            assert_eq!(run.step(), Ok(Progress::Continue(State::RcdataEndTagName)));
+            assert_eq!(snapshot(&run), expected);
+        }
+        expected.state = State::Data;
+        expected.current = Some((
+            Input::CodePoint('>'.into()),
+            Position { line: 2, column: 8 },
+        ));
+        expected.pending_end_tag = None;
+        expected.current_tag = None;
+        expected.tokens.push(Token::EndTag {
+            name: points("title"),
+            attributes: vec![],
+            self_closing: false,
+        });
+        assert_eq!(run.step(), Ok(Progress::Continue(State::Data)));
+        assert_eq!(snapshot(&run), expected);
+        if !closed {
+            assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&run), expected);
+            run.context_mut().input.finish();
+        }
+        expected.current = Some((Input::Eof, Position { line: 2, column: 9 }));
+        expected.tokens.push(Token::Eof);
+        assert_eq!(run.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&run), expected);
+        assert_terminal(&mut run, Ok(Progress::Finished));
     }
 }

@@ -45,13 +45,15 @@ unconsumed tails, EOF versus repeated suspension, and repeated terminal results.
 Every two-chunk split and single-code-point chunking of representative inputs
 matches every closed-input source-step snapshot. Samples include malformed
 closing syntax, CRLF boundaries, consecutive/trailing CR, NUL/non-scalars, empty
-input, alpha/name blocks, and fallback to later stubs. These are local state
+input, alpha/name accumulation/completion, and fallback to later stubs. These are local state
 checks, not upstream conformance executions.
 
 Production scope added by this PR is **only** `State::RcdataEndTagOpen`.
 RCDATA less-than sign (merged PR #26) and RAWTEXT less-than sign (merged PR #25)
-are preserved unchanged. RCDATA end tag name remains an explicit terminal
-`UnimplementedState` stub.
+are preserved unchanged. [RCDATA end tag name](tokenizer-rcdata-end-tag-name.md)
+is now implemented separately in PR #27: source creation snapshots remain,
+followed by actual normalization, literal fallback, or tag emission. Character
+reference and other still-unsupported states remain terminal development errors.
 Isolated entry initializes the cursor after the consumed `</` prefix and uses an
 empty temporary buffer, or deliberately seeds unrelated storage to verify its
 preservation. No blocked execution is reconstructed or resumed. There is no
@@ -82,10 +84,13 @@ The other affected runs were inspected in the unchanged fixtures:
 `contentModelFlags.test` cases 2–11 (10), `domjs.test` cases 27 and 29–31 (4),
 and `escapeFlag.test` cases 0–2 and 4 (4), all RCDATA initial-state index 0.
 Each reaches an ASCII letter immediately after `</`, so creates an empty end tag
-and blocks at RCDATA end tag name. They are **not** comparable/pass identities.
-`escapeFlag.test` case 3 still blocks earlier at Character reference.
+and at PR #24's merge blocked at RCDATA end tag name. They were **not**
+comparable/pass identities for that PR. PR #27 now reviews their newly reachable
+outcomes in the [name-state audit](tokenizer-rcdata-end-tag-name.md#integrated-fixture-review):
+17 new passes, one later Markup declaration open block. `escapeFlag.test` case 3
+still blocks earlier at Character reference.
 
-Current report: 6,827 fixture cases / 7,053 runs; 6,190 dispatch-attempted;
+Historical PR #24 report (before PRs #23/#27): 6,827 fixture cases / 7,053 runs; 6,190 dispatch-attempted;
 **1,024 executed, 1,024 passed, 0 failed, 6,029 blocked**.
 Use the [runner command and count definitions](tokenizer.md#fixture-runner).
 Inventory checks are not conformance, and partial passes imply neither full
@@ -94,15 +99,16 @@ conformance nor browser security.
 Integrated tests retain the less-than-sign source snapshots (only the scratch
 buffer clears on `/`) before inspecting this state's creation or fallback.
 Open exhaustion suspends; explicit EOF emits the prefix before RCDATA's EOF;
-non-scalar fallback diagnoses once and reconsumes unchanged; alpha stops at the
-name stub with an empty selected tag. Both isolated and real RCDATA streaming
+non-scalar fallback diagnoses once and reconsumes unchanged; alpha creates an
+empty selected tag before the name-state step accumulates the reconsumed letter. Both isolated and real RCDATA streaming
 traces cover all two-chunk splits and single-point chunks, including
 `</ XMP>`, `</0>`, NUL/CRLF, and further less-than signs.
 The assigned-state test no longer treats the merged less-than-sign state as a
 stub: its source effects and reconsuming RCDATA continuation are checked.
 State-local adapter tests in `tests/support/rcdata_end_tag_open.rs` require
-complete EOF/non-alpha fallback, exact diagnostic multiplicity/positions, reject
-deliberate mismatches, and preserve explicit alpha/name-state blocks.
+complete EOF/non-alpha fallback and alpha/name completion, exact diagnostic
+multiplicity/positions, and rejection of deliberate mismatches. Real later stubs
+retain explicit terminal checks.
 
 ## Integration caveats
 

@@ -100,12 +100,15 @@ so creates an empty end tag and blocks at RAWTEXT end tag name. They remain
 blocked, not compared, even after a matching literal prefix. The output and
 errors requiring name-state behavior have not been blessed as passes.
 
-Current pinned upstream report: 6,827 fixture cases / 7,053 runs;
+Historical PR #23 pinned upstream report (before PR #27): 6,827 fixture cases / 7,053 runs;
 6,190 dispatch-attempted; **1,025 executed, 1,025 passed, 0 failed, 6,028 blocked**.
 Blocked reasons: CharacterReference 4,692; TokenVariants 858;
 MarkupDeclarationOpen 240; ScriptData 89; CdataSection 56;
 ProcessingInstructionOpen 52; RawtextEndTagName 18; RcdataEndTagName 18;
 XmlCoercion 4; PendingSpecReview 1. Executed = passed + failed.
+PR #27 subsequently implements RCDATA end tag name only; see its
+[current integrated report and fixture audit](tokenizer-rcdata-end-tag-name.md#integrated-fixture-review).
+The 18 RAWTEXT end tag name blocks above remain unchanged.
 Inventory and local tests are not upstream conformance; partial passes imply
 neither full conformance nor browser security. See
 [tokenizer.md](tokenizer.md#fixture-runner) for definitions.

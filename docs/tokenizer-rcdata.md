@@ -17,9 +17,11 @@ stream** and opening **Tokenization** contracts. Revisions remain those in
 Every branch consumes once; none reconsumes. The two transition branches do not
 emit or report state diagnostics. Their source effects are inspectable before
 the next step attempts the destination. [RCDATA less-than sign](tokenizer-rcdata-less-than-sign.md)
-and [RCDATA end tag open](tokenizer-rcdata-end-tag-open.md) now execute;
-Character reference and RCDATA end tag name remain terminal `UnimplementedState`
-stubs. Never reconstruct or resume blocked execution.
+and [RCDATA end tag open](tokenizer-rcdata-end-tag-open.md) now execute, followed
+by [RCDATA end tag name](tokenizer-rcdata-end-tag-name.md). Matching closing tags
+emit and switch to Data; mismatches recover literally in RCDATA. Character
+reference remains a terminal `UnimplementedState` stub. Never reconstruct or
+resume blocked execution.
 
 Select RCDATA explicitly with `Execution::new(State::Rcdata, context)`. The
 fixture runner already recognizes `RCDATA state`; no mapping, input, execution,
@@ -46,8 +48,13 @@ unsupported destination resumability or whole-tokenizer conformance.
 `crates/html/tests/support/rcdata.rs` exercises the existing production adapter
 with explicit/repeated RCDATA initial states, Data defaults, empty input,
 double-escaped non-scalars and NUL, and matching output prefixes that must still
-block at Character reference or RCDATA end tag name. EOF/non-alpha end tag open
-fallback now completes literally; these local tests are not upstream conformance runs.
+block at Character reference, including after a matching closing-tag prefix.
+EOF/non-alpha end tag open fallback and name-state closing/fallback paths now
+require complete output; deliberately truncated output fails comparison. These
+local tests are not upstream conformance runs. The
+[name-state integrated fixture audit](tokenizer-rcdata-end-tag-name.md#integrated-fixture-review)
+adds 17 independently reviewed pass identities while preserving all 869 prior
+identities and fixture pins.
 The additive [RCDATA baseline](../crates/html/tests/baselines/rcdata.json) records
 reviewed upstream identities without changing prior passes or upstream fixtures.
 Use the central [runner command and count definitions](tokenizer.md#fixture-runner)
