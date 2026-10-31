@@ -53,10 +53,11 @@ Additional focused tests:
 ## Boundaries and upstream evidence
 
 Prerequisite PR #15 supplies the existing tag/attribute storage and shared
-emission/fixture support. Both quoted value implementations are retained on
-`a1b7c86da05a18513c07ca1de349d597906a0af6` (merged PRs #16 and #17).
-After attribute value (quoted) now executes. Source snapshots still verify the
-closing quote independently; subsequent whitespace recovery reaches the After
+emission/fixture support. Integration onto
+`78e52d1e56183acb9730b200c8e5d0cd728030e6` (merged PRs #16/#17/#18)
+retains both quoted value implementations and executable After attribute value
+(quoted); PR #19 adds the isolated unquoted value state. Source snapshots still
+verify the closing quote independently; subsequent whitespace recovery reaches the After
 attribute name stub, while malformed adjacency reports missing whitespace and
 schedules reconsumption without repeating preprocessing. Combined quoted-source
 emission and EOF checks live in `after_attribute_value_quoted_state.rs`.

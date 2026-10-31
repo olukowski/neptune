@@ -6,7 +6,10 @@ Prerequisite PR #15 (merged at `046565d7c033ed2bff4934b83f689284113bb1b4`)
 supplies tag/attribute storage, shared emission/abandonment, and fixture support.
 This change implements **only** `State::AttributeValueSingleQuoted` in
 `crates/html/src/tokenizer/attribute_value_single_quoted.rs`, with narrow
-module/dispatch and independent support-inventory registration.
+module/dispatch and independent support-inventory registration. PR #19's
+integration onto `78e52d1e56183acb9730b200c8e5d0cd728030e6` (merged
+PRs #16/#17/#18) preserves both quoted value states and After attribute value
+(quoted), and adds the isolated unquoted value state.
 
 Normative evidence is the immutable HTML Standard revision recorded in
 [sources.toml](sources.toml):

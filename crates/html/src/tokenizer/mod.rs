@@ -5,6 +5,7 @@ mod after_attribute_value_quoted;
 mod attribute_name;
 mod attribute_value_double_quoted;
 mod attribute_value_single_quoted;
+mod attribute_value_unquoted;
 mod before_attribute_name;
 mod bogus_comment;
 mod data;
@@ -160,6 +161,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::AttributeName => Ok(attribute_name::step(context)),
         State::AttributeValueDoubleQuoted => Ok(attribute_value_double_quoted::step(context)),
         State::AttributeValueSingleQuoted => Ok(attribute_value_single_quoted::step(context)),
+        State::AttributeValueUnquoted => Ok(attribute_value_unquoted::step(context)),
         State::AfterAttributeValueQuoted => Ok(after_attribute_value_quoted::step(context)),
         State::SelfClosingStartTag => Ok(self_closing_start_tag::step(context)),
         State::BogusComment => Ok(bogus_comment::step(context)),

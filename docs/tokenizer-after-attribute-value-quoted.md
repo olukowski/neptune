@@ -2,12 +2,14 @@
 
 Scope: only `State::AfterAttributeValueQuoted`, implemented in
 `crates/html/src/tokenizer/after_attribute_value_quoted.rs`; tests live in
-`crates/html/tests/after_attribute_value_quoted_state.rs`. Integrated on
-`a1b7c86da05a18513c07ca1de349d597906a0af6` (merged PRs #16 and #17),
-retaining both quoted value implementations and prerequisite PR #15's shared
-storage/emission support. No adjacent algorithm, fixture, shared storage API,
-or dependency is changed. Neighbor-state tests/docs now follow this executable
-destination rather than expecting its former stub.
+`crates/html/tests/after_attribute_value_quoted_state.rs`. Initially integrated
+on merged PRs #16 and #17, retaining both quoted value implementations and
+prerequisite PR #15's shared storage/emission support. PR #19 rebases onto
+`78e52d1e56183acb9730b200c8e5d0cd728030e6` (merged PRs #16/#17/#18)
+and adds the isolated unquoted value state while preserving this algorithm.
+The original After attribute value (quoted) implementation changed no adjacent
+algorithm, fixture, shared storage API, or dependency. Neighbor-state tests/docs
+follow this executable destination rather than expecting its former stub.
 
 ## Pinned evidence and branch map
 
