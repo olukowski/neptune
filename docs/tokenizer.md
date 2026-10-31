@@ -3,7 +3,8 @@
 ## Status and source
 
 **Only Data, RCDATA, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before
-attribute name, Attribute name, Attribute value (single-quoted), Self-closing start
+attribute name, Attribute name, Attribute value (double-quoted), Attribute value
+(single-quoted), Self-closing start
 tag, and Bogus comment are implemented.
 All other states, including After attribute name, ordinary Comment, and Character
 reference, remain `UnimplementedState` stubs.** This is a partial tokenizer, not a
@@ -18,6 +19,8 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 **Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
 **Attribute name state** (`#attribute-name-state`),
+**Attribute value (double-quoted) state** (`#attribute-value-(double-quoted)-state`;
+[state-local coverage](tokenizer-attribute-value-double-quoted.md)),
 **Self-closing start tag state** (`#self-closing-start-tag-state`),
 **Bogus comment state** (`#bogus-comment-state`), and **RCDATA state**
 (`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)).
@@ -80,7 +83,9 @@ instruction states and no separate decimal-character-reference-start state.
   EOF abandons only the selected tag. Both clear the selector. Direct isolated
   Tag name / Before attribute name / Self-closing start tag entry requires a
   selector and matching pending tag; Attribute name and Attribute value
-  (single-quoted) also require an initialized current attribute. This is inspectable scaffolding, not a general current-token API. Self-closing start tag sets the flag only on `>`.
+  (double-quoted) / (single-quoted) also require an initialized current attribute.
+  This is inspectable scaffolding, not a general current-token API. Self-closing
+  start tag sets the flag only on `>`.
   Shared emission reports `end-tag-with-attributes` once for a nonempty retained
   end-tag attribute list and independently `end-tag-with-trailing-solidus` once
   for a flagged end tag. Both use the emitting state's current `>` position,
@@ -385,9 +390,9 @@ or DOM construction; even an unmatched simple end tag emits without tree-builder
 errors. The initial milestone used the explicit selector, two emitted tag variants,
 selected-token take/discard, and last-start-tag bookkeeping described above.
 Self-closing start tag minimally extends these variants with a flag and reuses
-the selected-token emission path; there is no general emission framework,
-attribute-value algorithm, or added dependency. The fixture adapter compares the
-representable fields without suppressing destination stub blocks.
+the selected-token emission path; there is no general emission/attribute-value
+framework or added dependency. The fixture adapter compares the representable
+fields without suppressing destination stub blocks.
 
 Focused tests in `crates/html/tests/tag_name_state.rs` cover both tag kinds,
 all ASCII letters, ASCII boundaries, Unicode uppercase without folding, malformed
@@ -465,8 +470,9 @@ including CRLF splits, trailing/consecutive CR, NUL, and downstream blocks.
 These local source-step checks are not full tokenizer streaming conformance.
 
 Before attribute name only creates pending attribute storage; it does not change
-execution/input or emit tokens. Other than the isolated single-quoted value
-implementation, attribute value states remain stubs, as do After attribute name,
+execution/input or emit tokens. Other than the isolated double-quoted and
+single-quoted value implementations, attribute value states remain stubs, as do
+After attribute name,
 ordinary comments, markup declarations, processing instructions, and character
 references. Shared attribute emission, diagnostics, and fixture
 comparisons are supported, but reachable attribute emission awaits those states.
@@ -561,10 +567,13 @@ This prerequisite adds no states or dispatch registrations and changes no upstre
 fixtures or passing-run baselines. It supplies shared support for six subsequent,
 separately reviewed states: After attribute name, Before attribute value,
 Attribute value (double-quoted), Attribute value (single-quoted), Attribute value
-(unquoted), and After attribute value (quoted). Only Attribute value
-(single-quoted) is implemented in this PR; the other five remain stubs.
-See its [state-local evidence](tokenizer-attribute-value-single-quoted.md) for
-branch mapping, entry limitations, and unchanged upstream pass baselines.
+(unquoted), and After attribute value (quoted). Attribute value (double-quoted)
+and Attribute value (single-quoted) are now implemented separately; the other
+four remain stubs. See their state-local evidence for branch mapping and entry
+limitations:
+
+- [Double-quoted value](tokenizer-attribute-value-double-quoted.md)
+- [Single-quoted value](tokenizer-attribute-value-single-quoted.md)
 
 Before claiming broader coverage, implement the remaining states,
 review pending-spec-change expectations, and decide whether XML coercion belongs

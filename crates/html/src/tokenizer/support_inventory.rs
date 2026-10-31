@@ -15,6 +15,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::TagName,
         State::BeforeAttributeName,
         State::AttributeName,
+        State::AttributeValueDoubleQuoted,
         State::AttributeValueSingleQuoted,
         State::SelfClosingStartTag,
         State::BogusComment,
@@ -32,7 +33,9 @@ fn explicit_support_inventory_matches_dispatch() {
                 context.pending_start_tag = Some(PendingStartTag::default());
                 if matches!(
                     state,
-                    State::AttributeName | State::AttributeValueSingleQuoted
+                    State::AttributeName
+                        | State::AttributeValueDoubleQuoted
+                        | State::AttributeValueSingleQuoted
                 ) {
                     context
                         .pending_start_tag
