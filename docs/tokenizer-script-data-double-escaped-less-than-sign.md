@@ -1,6 +1,20 @@
 # Script data double escaped less-than sign state
 
-## Current integrated evidence after PR #43
+## PR #39 integration update
+
+On main `98607c3a282cc8336c41312db042e8f87b8c2bcf` (merged #43/#38) plus #39,
+DoubleEscapedDashDash is now a real immediate predecessor: it consumes/emits `<`
+before this state's source step. The suite adds a full-snapshot predecessor test
+for slash clearing/emission, open suspension and EOF reconsumption into the
+remaining DoubleEscaped stub. Existing source tests and both merged production
+algorithms are unchanged. Ordinary ScriptData still blocks at EscapedLessThanSign.
+All checks pass: **310 Rust tests, 0 failed, 0 ignored**; upstream remains
+**1,126 executed/passed, 0 failed, 5,927 blocked**, zero new passes/baselines.
+See [#39's integrated evidence](tokenizer-script-data-double-escaped-dash-dash.md#current-integrated-evidence-after-prs-43-and-38)
+for exact integrated base, final-head location, current chain and test evidence.
+The PR #38 report below is historical for predecessor support and test totals.
+
+## Historical PR #38 integrated evidence after PR #43
 
 PR #38 was rebased onto main **`542a5060d085bd546387e2781bbf10039fb2e197`**
 (PR #43, DoubleEscapeEnd). The original standalone review head was
