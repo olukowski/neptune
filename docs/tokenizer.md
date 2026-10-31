@@ -2,7 +2,7 @@
 
 ## Status and source
 
-**Only Data, RCDATA, PLAINTEXT, RAWTEXT, Tag open, End tag open, Tag name, Before
+**Only Data, RCDATA, PLAINTEXT, RAWTEXT, RAWTEXT end tag name, Tag open, End tag open, Tag name, Before
 attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, and Bogus comment are
@@ -284,8 +284,10 @@ return state. No branch schedules reconsumption. Open exhausted input suspends.
 
 Select RAWTEXT explicitly with `Execution::new(State::Rawtext, context)`; the
 fixture runner already maps `RAWTEXT state` to that initial state. No tree builder
-or automatic switching on `<style>` is added. RAWTEXT less-than sign, RAWTEXT end
-tag open, and RAWTEXT end tag name remain terminal `UnimplementedState` stubs.
+or automatic switching on `<style>` is added. RAWTEXT less-than sign and RAWTEXT end
+tag open remain terminal `UnimplementedState` stubs.
+[RAWTEXT end tag name](tokenizer-rawtext-end-tag-name.md) is implemented for
+isolated entry with initialized end-tag context; those entry stubs still block it.
 A matching output prefix before a stub is blocked, never EOF or a passing run;
 blocked execution must not be reconstructed/resumed.
 [RCDATA is implemented separately](tokenizer-rcdata.md).
