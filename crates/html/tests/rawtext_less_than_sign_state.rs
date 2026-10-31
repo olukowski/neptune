@@ -1,6 +1,6 @@
 //! State-local branch evidence for HTML revision 404b3eb14a7a936dddefb2d78e224dbeb01d2358:
 //! #rawtext-less-than-sign-state (source lines 143570–143586).
-//! Local tests are not upstream conformance runs; end tag name stays a stub.
+//! Local tests are not upstream conformance runs; end tag name now executes.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -334,7 +334,7 @@ fn open_exhaustion_repeatedly_suspends_but_eof_falls_back_then_rawtext_finishes_
 }
 
 #[test]
-fn suspended_entry_receives_solidus_then_alpha_creates_empty_end_tag_before_name_stub() {
+fn suspended_entry_receives_solidus_then_alpha_creates_empty_end_tag_before_name_append() {
     let mut execution = entry(seeded_context(), false);
     assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
     execution.context_mut().input.push(points("/")).unwrap();
@@ -370,25 +370,24 @@ fn suspended_entry_receives_solidus_then_alpha_creates_empty_end_tag_before_name
         discarded_current_attribute: None,
     });
     assert_eq!(snapshot(&execution), expected);
-    let blocked = Err(UnimplementedState {
-        state: State::RawtextEndTagName,
-    });
-    for _ in 0..3 {
-        assert_eq!(execution.step(), blocked);
-        assert_eq!(snapshot(&execution), expected);
-    }
-    // Inspect the retained cursor only; no resumption after the terminal stub.
     assert_eq!(
-        execution.context_mut().input.consume(),
-        Input::CodePoint('s'.into())
+        execution.context_mut().input.reconsume(),
+        Err(CursorError::AlreadyReconsuming)
     );
+    assert_eq!(
+        execution.step(),
+        Ok(Progress::Continue(State::RawtextEndTagName))
+    );
+    expected.storage.end.as_mut().unwrap().name = points("s");
+    expected.storage.buffer = points("s");
+    assert_eq!(snapshot(&execution), expected);
+    // Only the destination appended the reconsumed letter; the tail is untouched.
     assert_eq!(
         execution.context_mut().input.consume(),
         Input::CodePoint('t'.into())
     );
-    let inspected = snapshot(&execution);
-    assert_eq!(execution.step(), blocked);
-    assert_eq!(snapshot(&execution), inspected);
+    assert_eq!(execution.context().tokens, expected.tokens);
+    assert_eq!(execution.context().errors, expected.errors);
 }
 
 type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;

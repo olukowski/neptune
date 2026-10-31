@@ -15,6 +15,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::Rawtext,
         State::RawtextLessThanSign,
         State::RawtextEndTagOpen,
+        State::RawtextEndTagName,
         State::TagOpen,
         State::EndTagOpen,
         State::TagName,
@@ -58,6 +59,10 @@ fn explicit_support_inventory_matches_dispatch() {
                         .unwrap()
                         .attributes
                         .push(Attribute::default());
+                }
+                if state == State::RawtextEndTagName {
+                    context.current_tag = Some(TagKind::End);
+                    context.pending_end_tag = Some(PendingEndTag::default());
                 }
                 context.pending_comment = Some(PendingComment::default());
                 let mut execution = Execution::new(state, context);

@@ -77,15 +77,30 @@ fn rawtext_adapter_compares_complete_output_and_exact_preprocessing_and_null_dia
 }
 
 #[test]
-fn rawtext_matching_prefix_before_end_tag_name_is_terminally_blocked_not_passed() {
-    for input in ["&amp;</style>", "&amp;</A"] {
-        let case = json!({
-            "description": "matching output prefix cannot pass at a stub",
-            "input": input, "output": [["Character", "&amp;"]], "lastStartTag": "style"
-        });
+fn rawtext_name_completion_rejects_prefixes_and_keeps_real_stubs() {
+    for (input, output) in [
+        (
+            "&amp;</style>",
+            json!([["Character", "&amp;"], ["EndTag", "style"]]),
+        ),
+        ("&amp;</A", json!([["Character", "&amp;</A"]])),
+    ] {
+        let mut case = json!({"description":"complete RAWTEXT alpha recovery",
+            "input":input, "output":output, "lastStartTag":"style"});
         assert_eq!(
             run_with(&case, "RAWTEXT state", None, execute),
-            Outcome::Blocked(Blocked::Unimplemented(State::RawtextEndTagName))
+            Outcome::Passed
         );
+        case["output"] = json!([]);
+        assert!(matches!(
+            run_with(&case, "RAWTEXT state", None, execute),
+            Outcome::Failed(_)
+        ));
     }
+    let case = json!({"description":"matching prefix before a genuine later stub",
+        "input":"</style>&tail", "output":[["EndTag","style"]], "lastStartTag":"style"});
+    assert_eq!(
+        run_with(&case, "RAWTEXT state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
+    );
 }

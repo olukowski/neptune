@@ -1,11 +1,12 @@
 # RCDATA end tag name state
 
-This change implements **only `State::RcdataEndTagName`**. After integration
+PR #27 implemented **only `State::RcdataEndTagName`**. After integration
 with main `c72c7e5014d0b61d4759e06823b5f21941725375` (PRs #26, #25, #24, #23),
 its two RCDATA predecessors and both RAWTEXT predecessors are preserved from
-main. The full RCDATA closing-tag/fallback chain is reachable. RAWTEXT end tag
-name and Character reference remain terminal stubs. There is no automatic mode
-selection or tree-builder behavior.
+main. The full RCDATA closing-tag/fallback chain is reachable.
+[RAWTEXT end tag name](tokenizer-rawtext-end-tag-name.md) now completes its separate
+chain in PR #22; Character reference remains a terminal stub. There is no automatic
+mode selection or tree-builder behavior.
 
 ## Immutable source and branch evidence
 
@@ -83,8 +84,9 @@ Character reference. Fallback `<` now reaches the implemented less-than-sign
 state, so repeated partial candidates can recover and close a later tag.
 No output prefix is treated as success. Tests retain actual remaining terminal
 blocks (including after additional input is fed) and never reconstruct/resume
-blocked execution. RAWTEXT end tag name and Character reference have explicit
-effect-free terminal-stub checks.
+blocked execution. Character reference retains explicit effect-free terminal-stub
+checks; the former RAWTEXT name-state block now reaches actual closing-tag
+emission followed by a real later Character reference block.
 
 `real_rcdata_entry_preserves_each_source_boundary_and_returns_to_data` inspects
 RCDATA `<`, less-than sign `/` (only buffer clearing), end tag open's empty token
@@ -102,8 +104,9 @@ including malformed input, CRLF/non-scalars, recovery, and real later stubs.
 checks that `<title>`/`<textarea>` start tags do not choose RCDATA, an RCDATA tag-like
 start does not emit a start token, and a matching end tag explicitly switches to
 Data. New Data start-tag emissions update `last_start_tag` normally. Character
-reference return states differ before/after closing, while RAWTEXT end tag name
-and Markup declaration open continue to stop terminally.
+reference return states differ before/after closing. RAWTEXT's matching close now
+executes too, with a following Data ampersand stopping at Character reference;
+Markup declaration open continues to stop terminally.
 
 ## Integrated fixture review
 
@@ -148,12 +151,15 @@ Data, then blocks at **Markup declaration open** on the second `<!`. Its fixture
 expects a comment and `abrupt-closing-of-empty-comment` at (1,19), but that state
 chain is not implemented; this run is **not** comparable or a pass and is not
 added. `escapeFlag.test` 3 still blocks earlier at Character reference. The
-corresponding 18 RAWTEXT initial-state-index-1 runs still block at RAWTEXT end tag
-name. No stub is reconstructed/resumed to inspect hypothetical continuation.
+corresponding 18 RAWTEXT initial-state-index-1 runs still blocked at RAWTEXT end
+tag name at PR #27's merge. Their subsequent outcomes are audited separately in
+[PR #22's RAWTEXT integration](tokenizer-rawtext-end-tag-name.md#integrated-fixture-review).
+No stub is reconstructed/resumed to inspect hypothetical continuation.
 
 All **869 prior identities**, baseline files, and existing registry entries are
 preserved. With these 17 additions, the protected union is **886** identities.
-There is no automatic pass capture. New runner totals versus integrated main:
+There is no automatic pass capture. Historical PR #27 runner totals versus its
+integrated main (before PR #22):
 
 - 6,827 fixture cases; 7,053 runs; 6,190 dispatch-attempted.
 - **1,042 executed = 1,042 passed + 0 failed; 6,011 blocked**.
@@ -176,5 +182,7 @@ terminal assertions. All CONTRIBUTING checks and the pinned runner are rerun.
 Module/dispatch, support inventory, and baseline-list edits remain narrow and
 additive. Future sibling merges require reviewing moved terminal blocks and
 rerunning checks; never hide newly comparable failures behind adapter exclusions.
-No RAWTEXT end tag name, Character reference, automatic mode switching, tree
-builder, dependency, token variant, or shared API rewrite is added.
+PR #27 added no RAWTEXT end tag name, Character reference, automatic mode switching,
+tree builder, dependency, token variant, or shared API rewrite. PR #22 adds only
+its own RAWTEXT name algorithm while preserving the RCDATA production code and
+all RCDATA pass identities exactly.

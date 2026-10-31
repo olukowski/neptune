@@ -1,6 +1,6 @@
 //! Source-local evidence for pinned RAWTEXT end tag open, lines 143589–143607:
 //! https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source
-//! Isolated source evidence plus integrated RAWTEXT entry; end tag name stays a stub.
+//! Isolated source evidence plus integrated RAWTEXT entry and name accumulation.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -115,7 +115,7 @@ fn assert_terminal(execution: &mut Execution, result: Result<Progress, Unimpleme
 }
 
 #[test]
-fn every_ascii_alpha_creates_empty_selected_end_tag_then_blocks_without_name_effects() {
+fn every_ascii_alpha_creates_empty_selected_end_tag_before_name_destination_effects() {
     for value in (0x41..=0x5a).chain(0x61..=0x7a) {
         for selected in [None, Some(TagKind::Start), Some(TagKind::End)] {
             for finished in [false, true] {
@@ -155,16 +155,25 @@ fn every_ascii_alpha_creates_empty_selected_end_tag_then_blocks_without_name_eff
                     execution.context().input.current(),
                     Some((Input::CodePoint(point), Position { line: 1, column: 3 }))
                 );
-                assert_terminal(
-                    &mut execution,
-                    Err(UnimplementedState {
-                        state: State::RawtextEndTagName,
-                    }),
-                );
-                // Cursor inspection only, never reconstruct/resume blocked execution.
+                // Source scheduled reconsumption; only the destination normalizes
+                // and appends. Inspect each effect before consuming the tail.
                 assert_eq!(
-                    execution.context_mut().input.consume(),
-                    Input::CodePoint(point)
+                    execution.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
+                );
+                assert_eq!(
+                    execution.step(),
+                    Ok(Progress::Continue(State::RawtextEndTagName))
+                );
+                expected.end.as_mut().unwrap().name.push(
+                    CodePoint::new(if value <= 0x5a { value + 0x20 } else { value }).unwrap(),
+                );
+                expected.buffer.push(point);
+                assert_eq!(storage(execution.context()), expected);
+                assert_eq!(execution.context().tokens, [Token::Character('p'.into())]);
+                assert_eq!(
+                    execution.context().errors,
+                    [error("prior-diagnostic", 1, 1)]
                 );
                 assert_eq!(
                     execution.context().input.position(),
@@ -173,12 +182,6 @@ fn every_ascii_alpha_creates_empty_selected_end_tag_then_blocks_without_name_eff
                 assert_eq!(
                     execution.context_mut().input.consume(),
                     Input::CodePoint('!'.into())
-                );
-                assert_terminal(
-                    &mut execution,
-                    Err(UnimplementedState {
-                        state: State::RawtextEndTagName,
-                    }),
                 );
             }
         }
@@ -376,7 +379,14 @@ fn absent_storage_stays_absent_on_fallback_and_only_end_storage_is_created_on_al
             }
         );
         if text == "a" {
-            assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
+            assert_eq!(
+                execution.step(),
+                Ok(Progress::Continue(State::RawtextEndTagName))
+            );
+            expected.end.as_mut().unwrap().name = points("a");
+            expected.buffer = points("a");
+            assert_eq!(storage(execution.context()), expected);
+            assert!(execution.context().tokens.is_empty());
         }
     }
 }
@@ -468,7 +478,18 @@ fn real_rawtext_entry_preserves_each_source_boundary_before_creation_or_literal_
             Err(CursorError::AlreadyReconsuming)
         );
         if alpha {
-            assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
+            assert_eq!(
+                execution.step(),
+                Ok(Progress::Continue(State::RawtextEndTagName))
+            );
+            expected.storage.end.as_mut().unwrap().name = points("a");
+            expected.storage.buffer = points("A");
+            assert_eq!(snapshot(&execution), expected);
+            // The destination used the reconsumed uppercase A exactly once.
+            assert_eq!(
+                execution.context_mut().input.consume(),
+                Input::CodePoint('n'.into())
+            );
         } else {
             for (index, point) in suffix.chars().enumerate() {
                 assert_eq!(execution.step(), Ok(Progress::Continue(State::Rawtext)));

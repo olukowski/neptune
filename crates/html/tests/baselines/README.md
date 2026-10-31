@@ -89,6 +89,17 @@ declaration open and is not added. All 869 prior identities, files, and registra
 remain unchanged; the protected union now has 886 identities. No result-derived
 baseline generation or policy weakening is used.
 
+`rawtext_end_tag_name.json` adds 17 individually reviewed RAWTEXT identities:
+`contentModelFlags.test` cases 2–11, `domjs.test` cases 27 and 29–31, and
+`escapeFlag.test` cases 0, 1, and 4, all initial-state index 1. The
+[state-local audit](../../../../docs/tokenizer-rawtext-end-tag-name.md#integrated-fixture-review)
+records every unchanged expected output/error and the pinned branch reasoning.
+The eighteenth formerly name-blocked RAWTEXT run (`escapeFlag.test` case 2)
+now blocks at Markup declaration open and is not added. All 886 prior identities,
+including every RCDATA name-state entry and registration, remain unchanged.
+The protected union now has 903 identities; no result-derived baseline generation,
+fixture/pin edits, comparison changes, or policy weakening is used.
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an

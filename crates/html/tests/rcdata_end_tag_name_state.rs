@@ -1108,10 +1108,10 @@ fn explicit_modes_do_not_switch_automatically_and_remaining_destinations_stay_te
         ),
         (
             State::Rawtext,
-            "p</title>",
-            State::RawtextEndTagName,
-            characters("p"),
-            None,
+            "p</title>&tail",
+            State::CharacterReference,
+            [characters("p"), vec![end_tag("title")]].concat(),
+            Some(State::Data),
         ),
     ] {
         let mut context = Context {
@@ -1223,8 +1223,8 @@ fn real_rcdata_entry_all_splits_and_single_point_chunks_preserve_every_step() {
 }
 
 #[test]
-fn remaining_rawtext_name_and_character_reference_are_effect_free_terminal_stubs() {
-    for state in [State::RawtextEndTagName, State::CharacterReference] {
+fn remaining_character_reference_is_an_effect_free_terminal_stub() {
+    for state in [State::CharacterReference] {
         for finished in [false, true] {
             let mut context = seeded(&[], &[], Some(points("title")));
             context.input.push(points("TiTlE>")).unwrap();

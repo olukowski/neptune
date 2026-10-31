@@ -14,6 +14,7 @@ pub fn passing_baseline() -> BTreeSet<RunId> {
         include_str!("../baselines/passing.json"),
         include_str!("../baselines/rawtext.json"),
         include_str!("../baselines/rawtext_end_tag_open.json"),
+        include_str!("../baselines/rawtext_end_tag_name.json"),
         include_str!("../baselines/rcdata.json"),
         include_str!("../baselines/rcdata_end_tag_open.json"),
         include_str!("../baselines/rcdata_end_tag_name.json"),

@@ -3,8 +3,8 @@
 ## Status and source
 
 **Only Data, RCDATA, RCDATA less-than sign, RCDATA end tag open, RCDATA end tag name,
-PLAINTEXT, RAWTEXT, RAWTEXT less-than sign, RAWTEXT end tag open, Tag open, End tag open,
-Tag name, Before
+PLAINTEXT, RAWTEXT, RAWTEXT less-than sign, RAWTEXT end tag open, RAWTEXT end tag name,
+Tag open, End tag open, Tag name, Before
 attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, and Bogus comment are
@@ -21,6 +21,8 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 [state-local evidence](tokenizer-rawtext-less-than-sign.md)),
 **RAWTEXT end tag open state** (`#rawtext-end-tag-open-state`;
 [state-local branch and integrated fixture evidence](tokenizer-rawtext-end-tag-open.md)),
+**RAWTEXT end tag name state** (`#rawtext-end-tag-name-state`;
+[state-local branch and integrated fixture evidence](tokenizer-rawtext-end-tag-name.md)),
 **Tag open state** (`#tag-open-state`), **End tag open state** (`#end-tag-open-state`),
 **Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
@@ -78,7 +80,10 @@ instruction states and no separate decimal-character-reference-start state.
   `&` sets the return state to Data even while Character reference remains a stub.
   Tag open creates `pending_start_tag: Option<PendingStartTag>`; End tag open
   creates `pending_end_tag: Option<PendingEndTag>` or
-  `pending_comment: Option<PendingComment>`. Tags store code-point names and an
+  `pending_comment: Option<PendingComment>`. RCDATA/RAWTEXT end tag open also
+  create empty selected end tags; their name states accumulate ASCII-normalized
+  names and original spelling in the temporary buffer, testing appropriateness
+  only at delimiters. Tags store code-point names and an
   ordered `Vec<Attribute>` with code-point names/values. The current attribute is
   the per-tag `discarded_current_attribute` when present, otherwise the last
   retained entry. Attribute name removes a duplicate from the retained list but
@@ -105,6 +110,8 @@ instruction states and no separate decimal-character-reference-start state.
   Tag name / Before attribute name / After attribute name /
   After attribute value (quoted) /
   Self-closing start tag entry requires a selector and matching pending tag;
+  RCDATA/RAWTEXT end tag name require selected End storage plus original-spelling
+  temporary-buffer context;
   Attribute name, Before attribute value, and Attribute value (double-quoted) / (single-quoted) /
   (unquoted) also require an initialized current attribute. This is inspectable
   scaffolding, not a general current-token API. Self-closing start tag sets the
@@ -297,11 +304,13 @@ return state. No branch schedules reconsumption. Open exhausted input suspends.
 
 Select RAWTEXT explicitly with `Execution::new(State::Rawtext, context)`; the
 fixture runner already maps `RAWTEXT state` to that initial state. No tree builder
-or automatic switching on `<style>` is added. [RAWTEXT less-than sign](tokenizer-rawtext-less-than-sign.md)
-and [RAWTEXT end tag open](tokenizer-rawtext-end-tag-open.md) are implemented and
-reachable from RAWTEXT entry. Non-alpha `</` fallback, including EOF, can complete;
-ASCII alpha creates/selects the empty end tag and reconsumes into RAWTEXT end tag
-name, which remains a terminal `UnimplementedState` stub.
+or automatic switching on `<style>` is added. [RAWTEXT less-than sign](tokenizer-rawtext-less-than-sign.md),
+[RAWTEXT end tag open](tokenizer-rawtext-end-tag-open.md), and
+[RAWTEXT end tag name](tokenizer-rawtext-end-tag-name.md) are implemented and
+reachable from RAWTEXT entry. Appropriate end tags can emit through existing
+attribute/tag support and switch to Data. Mismatches, non-alpha `</` fallback,
+and name-state EOF recover literally in RAWTEXT; `&` stays literal there.
+Character references still block in attributes and in Data after a matching close.
 A matching output prefix before a stub is blocked, never EOF or a passing run;
 blocked execution must not be reconstructed/resumed.
 [RCDATA is implemented separately](tokenizer-rcdata.md).
@@ -316,8 +325,10 @@ every source-step snapshot, including `<`, CRLF, consecutive/trailing CR, NUL,
 and terminal blocks. State-local adapter tests in
 `crates/html/tests/support/rawtext.rs` check explicit initial-state mapping,
 Data defaults, no automatic style handling,
-exact output/diagnostics, and matching-prefix rejection at the RAWTEXT end tag
-name stub after ASCII-alpha input to RAWTEXT end tag open.
+exact output/diagnostics, matching/mismatching end tags and EOF fallback. Integrated
+name-state tests preserve source-step evidence through real RAWTEXT entry, with
+all chunk splits and explicit terminal Character reference / Markup declaration
+open blocks after matching closing tags.
 These are state-specific checks, not full tokenizer streaming conformance.
 
 ## Tag open coverage

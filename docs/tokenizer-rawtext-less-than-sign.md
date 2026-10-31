@@ -47,10 +47,10 @@ Repeated open exhaustion has no effects. Repeated terminal EOF/stub steps have
 no additional effects. After integration with [RAWTEXT end tag open](tokenizer-rawtext-end-tag-open.md),
 the `/` source snapshot still clears only the buffer. The next source step can
 suspend, recover literally on non-alpha/EOF, or create an empty selected end tag
-before blocking at `UnimplementedState(RawtextEndTagName)`. Integrated tests
-assert these effects separately, including destination-only NUL replacement and
-its exact diagnostic. No blocked execution is reconstructed or resumed.
-RAWTEXT end tag name remains a terminal stub. RCDATA less-than sign and end tag
+before [RAWTEXT end tag name](tokenizer-rawtext-end-tag-name.md) normalizes/appends
+on the next step. Integrated tests assert creation and name accumulation separately,
+including reconsumption of the first letter, destination-only NUL replacement and
+its exact diagnostic. No blocked execution is reconstructed or resumed. RCDATA less-than sign and end tag
 open are preserved from merged PRs #26 and #24;
 [RCDATA end tag name now completes that separate chain](tokenizer-rcdata-end-tag-name.md).
 The upstream counts below record PR #25's historical integration, before #24.
@@ -61,12 +61,12 @@ including `<`/`/` boundaries, consecutive `<`, literal recovery, CRLF boundaries
 consecutive/trailing CR, NUL, non-scalars, EOF, and terminal blocks.
 `tests/support/rawtext_less_than_sign.rs` adds state-local adapter checks for
 complete literal fallback, exact diagnostics, rejection of wrong output, and
-matching-prefix rejection at the remaining stub. Prior RAWTEXT source tests now
-inspect their source boundary; terminal-block assertions now reside at end tag
-name after alpha. EOF/non-alpha adapter cases require complete output and errors,
-not the former end-tag-open stub (see the linked integration evidence).
+complete alpha/name output comparison and matching-prefix rejection at genuine
+later Character reference blocks. Prior RAWTEXT source tests still inspect their
+source boundary; alpha now requires actual normalization/completion, not a name
+stub. EOF/non-alpha adapter cases likewise require complete output and errors.
 
-This PR implements only `State::RawtextLessThanSign`; no adjacent algorithm,
+PR #25 implemented only `State::RawtextLessThanSign`; no adjacent algorithm,
 shared API/storage, automatic mode selection, tree builder, or dependency is added.
 Module/dispatch/support-inventory and test-runner registrations are narrow.
 
@@ -74,8 +74,10 @@ Module/dispatch/support-inventory and test-runner registrations are narrow.
 
 The counts in this section record PR #25's historical integration, before
 RAWTEXT end tag open was implemented. For current reachability, the additional
-reviewed RAWTEXT pass and updated counts, see
-[PR #23 integration evidence](tokenizer-rawtext-end-tag-open.md#integrated-fixture-review).
+reviewed RAWTEXT passes and updated counts, see
+[PR #22 name-state integration evidence](tokenizer-rawtext-end-tag-name.md#integrated-fixture-review).
+[PR #23](tokenizer-rawtext-end-tag-open.md#integrated-fixture-review) records the
+intermediate one-pass end-tag-open integration.
 
 At baseline `bcae7e5c916470319ef0838dc72dfd71a95b8181`, the pinned upstream runner
 reports 6,827 cases / 7,053 runs, 6,190 dispatch-attempted, **1,023 executed,

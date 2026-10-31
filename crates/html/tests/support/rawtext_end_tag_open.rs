@@ -90,17 +90,31 @@ fn rawtext_end_tag_open_reconsumption_preserves_exact_diagnostics_without_duplic
 }
 
 #[test]
-fn rawtext_end_tag_open_alpha_remains_terminal_after_literal_recovery() {
+fn rawtext_end_tag_open_alpha_completion_compares_full_recovery() {
     for (input, output) in [
-        ("</0></STYLE>", "</0>"),
-        ("</</a", "</"),
-        ("</&</A>", "</&"),
+        (
+            "</0></STYLE>",
+            json!([["Character", "</0>"], ["EndTag", "style"]]),
+        ),
+        ("</</a", json!([["Character", "</</a"]])),
+        ("</&</A>", json!([["Character", "</&</A>"]])),
     ] {
-        let case = json!({"description":"local matching prefix at name-state stub",
-            "input":input, "output":[["Character",output]], "lastStartTag":"style"});
+        let mut case = json!({"description":"complete RAWTEXT alpha recovery",
+            "input":input, "output":output, "lastStartTag":"style"});
         assert_eq!(
             run_with(&case, "RAWTEXT state", None, execute),
-            Outcome::Blocked(Blocked::Unimplemented(State::RawtextEndTagName))
+            Outcome::Passed
         );
+        case["output"] = json!([]);
+        assert!(matches!(
+            run_with(&case, "RAWTEXT state", None, execute),
+            Outcome::Failed(_)
+        ));
     }
+    let case = json!({"description":"matching prefix before a genuine later stub",
+        "input":"</style>&tail", "output":[["EndTag","style"]], "lastStartTag":"style"});
+    assert_eq!(
+        run_with(&case, "RAWTEXT state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
+    );
 }

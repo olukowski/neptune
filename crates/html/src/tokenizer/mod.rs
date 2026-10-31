@@ -15,6 +15,7 @@ mod end_tag_open;
 mod input;
 mod plaintext;
 mod rawtext;
+mod rawtext_end_tag_name;
 mod rawtext_end_tag_open;
 mod rawtext_less_than_sign;
 mod rcdata;
@@ -167,6 +168,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::Rawtext => Ok(rawtext::step(context)),
         State::RawtextLessThanSign => Ok(rawtext_less_than_sign::step(context)),
         State::RawtextEndTagOpen => Ok(rawtext_end_tag_open::step(context)),
+        State::RawtextEndTagName => Ok(rawtext_end_tag_name::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),

@@ -1,6 +1,6 @@
 # RAWTEXT end tag open
 
-Only `State::RawtextEndTagOpen` is implemented here. The starting HEAD and
+PR #23 implemented only `State::RawtextEndTagOpen`. The starting HEAD and
 `origin/main` were both `bcae7e5c916470319ef0838dc72dfd71a95b8181`.
 PR #23 subsequently merged main `a4721f341f272168dae177a0b6224588c77e50f7`
 after PRs #26, #25 and #24 (both less-than-sign states and RCDATA end tag open).
@@ -52,23 +52,26 @@ chunking of representative isolated and real RAWTEXT-entry inputs compares produ
 snapshots and terminal results against closed input. No blocked execution is
 reconstructed or resumed.
 
-RAWTEXT less-than sign is now merged and implemented. Alphabetic input
-creates/selects the empty pending tag before the next step blocks terminally at
-RAWTEXT end tag name, without consuming the reconsumed letter or producing EOF.
+The merged RAWTEXT less-than sign now feeds the separately integrated
+[RAWTEXT end tag name](tokenizer-rawtext-end-tag-name.md). Alphabetic input creates/selects the empty
+pending tag; the name-state step then consumes the same letter, normalizes the
+candidate and appends original spelling to the buffer. Source snapshots still
+precede those destination effects and do not emit EOF.
 Literal `<` fallback now reaches the real less-than-sign algorithm via RAWTEXT;
 its source effects and reconsuming continuation are checked rather than retaining
-an obsolete stub expectation. End-tag-name states remain unsupported, and no
-blocked execution is reconstructed or resumed.
+an obsolete stub expectation. Both RCDATA and RAWTEXT name states execute;
+no blocked execution is reconstructed or resumed.
 
 The merged less-than-sign tests retain the `/` source snapshot (only buffer
 clearing), then separately check end-tag-open suspension/fallback/creation,
-destination RAWTEXT's NUL diagnostic/replacement, and alpha's terminal name-state
-block. State-local production-adapter checks in
+destination RAWTEXT's NUL diagnostic/replacement, and alpha's reconsumed name
+append. State-local production-adapter checks in
 `crates/html/tests/support/rawtext_end_tag_open.rs` require complete EOF and
 non-alpha recovery, exact diagnostic locations/multiplicity, and rejection of
 wrong/truncated output or wrong/duplicated diagnostics. Prior matching-prefix
-checks now block at RAWTEXT end tag name only for alpha; the original EOF/NUL
-inputs instead must compare complete recovery output. No runner policy is weakened.
+checks now require full alpha/name completion, not obsolete name-state blocks;
+the EOF/NUL inputs likewise compare complete recovery output. Genuine later
+Character reference blocks retain explicit matching-prefix rejection. No runner policy is weakened.
 
 ## Integrated fixture review
 
@@ -96,9 +99,11 @@ identities remain intact, for 869 total. This is not an automatic pass capture.
 The other 18 RAWTEXT runs are `contentModelFlags.test` cases 2–11 (10),
 `domjs.test` cases 27 and 29–31 (4), and `escapeFlag.test` cases 0–2 and 4 (4),
 all initial-state index 1. Each reaches an ASCII letter immediately after `</`,
-so creates an empty end tag and blocks at RAWTEXT end tag name. They remain
-blocked, not compared, even after a matching literal prefix. The output and
-errors requiring name-state behavior have not been blessed as passes.
+so at PR #23's merge created an empty end tag and blocked at RAWTEXT end tag name.
+Those runs were not compared or blessed as passes for that PR.
+[PR #22's separate audit](tokenizer-rawtext-end-tag-name.md#integrated-fixture-review)
+now reviews their reachable outcomes: 17 new passes and one later Markup
+declaration open block.
 
 Historical PR #23 pinned upstream report (before PR #27): 6,827 fixture cases / 7,053 runs;
 6,190 dispatch-attempted; **1,025 executed, 1,025 passed, 0 failed, 6,028 blocked**.
@@ -107,8 +112,9 @@ MarkupDeclarationOpen 240; ScriptData 89; CdataSection 56;
 ProcessingInstructionOpen 52; RawtextEndTagName 18; RcdataEndTagName 18;
 XmlCoercion 4; PendingSpecReview 1. Executed = passed + failed.
 PR #27 subsequently implements RCDATA end tag name only; see its
-[current integrated report and fixture audit](tokenizer-rcdata-end-tag-name.md#integrated-fixture-review).
-The 18 RAWTEXT end tag name blocks above remain unchanged.
+[historical PR #27 report and fixture audit](tokenizer-rcdata-end-tag-name.md#integrated-fixture-review).
+PR #22 now connects RAWTEXT end tag name; its linked audit supersedes the 18
+historical RAWTEXT name-state blocks above.
 Inventory and local tests are not upstream conformance; partial passes imply
 neither full conformance nor browser security. See
 [tokenizer.md](tokenizer.md#fixture-runner) for definitions.

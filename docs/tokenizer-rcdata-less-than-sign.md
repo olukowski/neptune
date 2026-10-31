@@ -73,8 +73,9 @@ PR #26 implements exactly one production state. RCDATA end tag open was added
 separately in PR #24; [RCDATA end tag name](tokenizer-rcdata-end-tag-name.md) now
 completes the closing-tag/fallback chain, with 17 reviewed additional passes and
 one later Markup declaration open block. RAWTEXT less-than sign and end tag open
-are preserved from merged PRs #25 and #23; RAWTEXT end tag name remains a terminal
-stub. No shared API/storage prerequisite,
+are preserved from merged PRs #25 and #23;
+[RAWTEXT end tag name](tokenizer-rawtext-end-tag-name.md) completes that separate
+chain in PR #22. No shared API/storage prerequisite,
 dependency, token variant, automatic mode selection or tree builder is added.
 After sibling merges, rebase and rerun all CONTRIBUTING checks and the pinned
 upstream runner. Resolve small module/dispatch/support/docs registration conflicts

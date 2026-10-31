@@ -43,15 +43,30 @@ fn literal_recovery_including_eof_compares_complete_output_and_exact_diagnostics
 }
 
 #[test]
-fn even_a_matching_recovery_prefix_cannot_pass_at_end_tag_name_stub() {
-    for input in ["<x</style>", "<x</A"] {
-        let case = json!({
-            "description":"later destination remains terminal",
-            "input":input, "output":[["Character", "<x"]], "lastStartTag":"style"
-        });
+fn name_completion_after_less_than_recovery_requires_full_comparison() {
+    for (input, output) in [
+        (
+            "<x</style>",
+            json!([["Character", "<x"], ["EndTag", "style"]]),
+        ),
+        ("<x</A", json!([["Character", "<x</A"]])),
+    ] {
+        let mut case = json!({"description":"complete RAWTEXT alpha recovery",
+            "input":input, "output":output, "lastStartTag":"style"});
         assert_eq!(
             run_with(&case, "RAWTEXT state", None, execute),
-            Outcome::Blocked(Blocked::Unimplemented(State::RawtextEndTagName))
+            Outcome::Passed
         );
+        case["output"] = json!([]);
+        assert!(matches!(
+            run_with(&case, "RAWTEXT state", None, execute),
+            Outcome::Failed(_)
+        ));
     }
+    let case = json!({"description":"matching prefix before a genuine later stub",
+        "input":"</style>&tail", "output":[["EndTag","style"]], "lastStartTag":"style"});
+    assert_eq!(
+        run_with(&case, "RAWTEXT state", None, execute),
+        Outcome::Blocked(Blocked::Unimplemented(State::CharacterReference))
+    );
 }
