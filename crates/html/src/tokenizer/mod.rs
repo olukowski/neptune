@@ -1,6 +1,8 @@
-//! Partial tokenizer: Data, PLAINTEXT, and Tag open are implemented; all others are stubs.
+//! Partial tokenizer: Data, PLAINTEXT, Tag open, and End tag open are implemented.
+//! All other states remain explicit stubs.
 
 mod data;
+mod end_tag_open;
 mod input;
 mod plaintext;
 mod state;
@@ -9,7 +11,7 @@ mod tag_open;
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
-/// Only emitted token variants needed by Data, PLAINTEXT, and Tag open.
+/// Only emitted token variants needed by the four implemented states.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
@@ -26,6 +28,21 @@ pub struct PendingStartTag {
     pub name: Vec<CodePoint>,
 }
 
+/// Unfinished end tag created by End tag open, not an emitted token.
+///
+/// As with `PendingStartTag`, the self-closing flag is implicitly unset and the
+/// attribute list implicitly empty. No tag mutation/emission API exists yet.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PendingEndTag {
+    pub name: Vec<CodePoint>,
+}
+
+/// Unfinished comment created by End tag open's recovery branch, not emitted.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PendingComment {
+    pub data: Vec<CodePoint>,
+}
+
 /// Minimal handler context. No byte decoding or tree-builder API is implied.
 #[derive(Debug, Default)]
 pub struct Context {
@@ -38,6 +55,10 @@ pub struct Context {
     pub return_state: Option<State>,
     /// Created, not emitted; absent until Tag open's ASCII-alpha branch.
     pub pending_start_tag: Option<PendingStartTag>,
+    /// Created, not emitted; absent until End tag open's ASCII-alpha branch.
+    pub pending_end_tag: Option<PendingEndTag>,
+    /// Created, not emitted; absent until End tag open's anything-else branch.
+    pub pending_comment: Option<PendingComment>,
     /// Code-point scratch storage; Tag open clears it on `?`.
     pub temporary_buffer: Vec<CodePoint>,
 }
@@ -75,6 +96,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::Data => Ok(data::step(context)),
         State::Plaintext => Ok(plaintext::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
+        State::EndTagOpen => Ok(end_tag_open::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }
@@ -137,16 +159,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_support_inventory_leaves_only_data_plaintext_and_tag_open_implemented() {
+    fn explicit_support_inventory_has_four_implemented_states_and_eighty_stubs() {
         // Deliberate support inventory, independent of dispatch outcomes.
-        const IMPLEMENTED: &[State] = &[State::Data, State::Plaintext, State::TagOpen];
+        const IMPLEMENTED: &[State] = &[
+            State::Data,
+            State::Plaintext,
+            State::TagOpen,
+            State::EndTagOpen,
+        ];
         assert_eq!(State::ALL.len(), 84);
         let stubs: Vec<_> = State::ALL
             .iter()
             .copied()
             .filter(|state| !IMPLEMENTED.contains(state))
             .collect();
-        assert_eq!(stubs.len(), 81);
+        assert_eq!(stubs.len(), 80);
         for state in stubs {
             for finished in [false, true] {
                 let mut context = Context::default();
@@ -164,6 +191,8 @@ mod tests {
                 assert!(execution.context().tokens.is_empty());
                 assert!(execution.context().errors.is_empty());
                 assert!(execution.context().pending_start_tag.is_none());
+                assert!(execution.context().pending_end_tag.is_none());
+                assert!(execution.context().pending_comment.is_none());
                 assert!(execution.context().temporary_buffer.is_empty());
             }
         }
