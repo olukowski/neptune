@@ -168,8 +168,13 @@ production implementation, and source assertions. Additive registration/status
 conflicts were resolved by retaining both implemented states. No unmerged sibling
 branch is imported and this thread starts no reviewers/subagents or merges.
 
-Earlier escape-start states and escaped less-than sign still block after PR #33;
-escaped dash dash was a block on PR #34's historical base but now executes.
+On PR #33's base, the earlier escape-start states and escaped less-than sign
+still blocked; escaped dash dash now executed. PR #35 rebases onto merged main
+`a0cf68b77662fb482373f78fa15b69a540b53623` and adds escape start dash while
+preserving this algorithm and all source assertions. Escape start remains the
+normal-entry block; isolated escape-start-dash entry now runs the escaped trio,
+with escaped less-than sign still terminal. See
+[PR #35 integrated validation](tokenizer-script-data-escape-start-dash.md#upstream-evidence-and-exact-validation).
 Future sibling integration must review newly executable paths and moved
 terminal blocks, deliberately update affected explicit tests while preserving
 source assertions, and rerun every check/upstream report. Any new upstream pass

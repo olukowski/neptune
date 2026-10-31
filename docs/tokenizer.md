@@ -12,6 +12,7 @@ After attribute name, Before attribute value, Attribute value
 After attribute value (quoted), Self-closing start tag, Bogus comment, and
 [Script data end tag open](tokenizer-script-data-end-tag-open.md) and
 [Script data end tag name](tokenizer-script-data-end-tag-name.md) are implemented.
+[Script data escape start dash](tokenizer-script-data-escape-start-dash.md),
 [Script data escaped](tokenizer-script-data-escaped.md),
 [Script data escaped dash](tokenizer-script-data-escaped-dash.md), and
 [Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md) are also implemented
