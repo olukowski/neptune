@@ -415,8 +415,8 @@ fn fallback_runs_real_script_data_and_keeps_later_stub_blocks_explicit() {
         ("<!tail", "p<!tail", None),
         (
             "<!--<tail",
-            "p<!--",
-            Some(State::ScriptDataEscapedLessThanSign),
+            "p<!--<",
+            Some(State::ScriptDataDoubleEscapeStart),
         ),
         ("</script a='x&y'>", "p", Some(State::CharacterReference)),
     ] {
@@ -529,7 +529,16 @@ fn hyphen_executes_real_escaped_cycles_with_exact_source_steps_and_later_boundar
                 ));
                 assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&execution), expected);
-                assert_terminal_stub(&mut execution, State::ScriptDataEscapedLessThanSign);
+                expected.state = State::ScriptDataDoubleEscapeStart;
+                expected.current = Some((
+                    Input::CodePoint('t'.into()),
+                    Position { line: 3, column: 8 },
+                ));
+                expected.tokens.push(Token::Character('<'.into()));
+                expected.storage.buffer.clear();
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+                assert_terminal_stub(&mut execution, State::ScriptDataDoubleEscapeStart);
                 continue;
             }
             let eof_position = if exit.is_empty() {

@@ -157,7 +157,7 @@ fn every_ascii_branch_and_non_scalars_have_exact_source_effects() {
 }
 
 #[test]
-fn destinations_execute_escaped_dash_or_remain_terminal_after_inspectable_source_effects() {
+fn destinations_execute_dash_or_less_than_fallback_after_inspectable_source_effects() {
     for (delimiter, destination) in [
         ('-', State::ScriptDataEscapedDash),
         ('<', State::ScriptDataEscapedLessThanSign),
@@ -188,28 +188,30 @@ fn destinations_execute_escaped_dash_or_remain_terminal_after_inspectable_source
             assert_eq!(execution.step(), Ok(Progress::Continue(destination)));
             assert_eq!(snapshot(&execution), expected);
             if delimiter == '<' {
-                let blocked = Err(UnimplementedState {
-                    state: State::ScriptDataEscapedLessThanSign,
-                });
-                for _ in 0..3 {
-                    assert_eq!(execution.step(), blocked);
-                    assert_eq!(snapshot(&execution), expected);
-                }
-                // Closing input cannot revive the remaining less-than-sign stub.
-                execution.context_mut().input.finish();
-                assert_eq!(execution.step(), blocked);
+                // The gateway emits '<' and schedules surrogate reconsumption.
+                expected.state = State::ScriptDataEscaped;
+                expected.current = Some((
+                    Input::CodePoint(CodePoint::new(0xd800).unwrap()),
+                    Position { line: 1, column: 2 },
+                ));
+                expected.tokens.push(Token::Character('<'.into()));
+                expected
+                    .input_errors
+                    .push(error("surrogate-in-input-stream", 1, 2));
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&execution), expected);
-                continue;
             }
-            // The real EscapedDash step consumes the surrogate, not the preceding
-            // hyphen again. Inspect its effects before returning to Escaped.
+            // Dash consumes the surrogate once; gateway fallback reconsumes it
+            // without duplicating the preprocessing diagnostic.
             let surrogate = CodePoint::new(0xd800).unwrap();
             expected.state = State::ScriptDataEscaped;
             expected.current = Some((Input::CodePoint(surrogate), Position { line: 1, column: 2 }));
             expected.tokens.push(Token::Character(surrogate));
-            expected
-                .input_errors
-                .push(error("surrogate-in-input-stream", 1, 2));
+            if delimiter == '-' {
+                expected
+                    .input_errors
+                    .push(error("surrogate-in-input-stream", 1, 2));
+            }
             assert_eq!(
                 execution.step(),
                 Ok(Progress::Continue(State::ScriptDataEscaped))

@@ -80,18 +80,18 @@ fn script_data_less_than_keeps_real_escape_blocks_despite_exact_prefixes() {
     for (suffix, prefix, target) in [
         (
             "/ XMP><!--<tail",
-            "&\u{fffd}</ XMP><!--",
-            State::ScriptDataEscapedLessThanSign,
+            "&\u{fffd}</ XMP><!--<",
+            State::ScriptDataDoubleEscapeStart,
         ),
         (
             "!--<tail",
-            "&\u{fffd}<!--",
-            State::ScriptDataEscapedLessThanSign,
+            "&\u{fffd}<!--<",
+            State::ScriptDataDoubleEscapeStart,
         ),
         (
             "!--x-<tail",
-            "&\u{fffd}<!--x-",
-            State::ScriptDataEscapedLessThanSign,
+            "&\u{fffd}<!--x-<",
+            State::ScriptDataDoubleEscapeStart,
         ),
     ] {
         let case = json!({"description":"matching prefix must not pass",
@@ -250,8 +250,8 @@ fn matching_script_close_does_not_hide_later_data_or_attribute_stubs() {
         ),
         (
             "</script<!--<tail",
-            json!([["Character", "</script<!--"]]),
-            State::ScriptDataEscapedLessThanSign,
+            json!([["Character", "</script<!--<"]]),
+            State::ScriptDataDoubleEscapeStart,
         ),
     ] {
         let case = json!({"description":"complete-looking prefix remains blocked", "input":input,

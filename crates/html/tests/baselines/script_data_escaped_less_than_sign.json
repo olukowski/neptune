@@ -1,0 +1,4 @@
+[
+  ["domjs.test", "tests", 14, "Dash less-than in script HTML comment", "Script data state", 0],
+  ["test1.test", "tests", 37, "< in script HTML comment", "Script data state", 0]
+]

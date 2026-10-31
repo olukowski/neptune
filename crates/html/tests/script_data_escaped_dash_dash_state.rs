@@ -242,7 +242,7 @@ fn unicode_non_scalars_and_preprocessing_are_preserved_not_replaced() {
 }
 
 #[test]
-fn null_and_literal_destinations_execute_while_less_than_remains_terminal() {
+fn destinations_execute_or_reach_terminal_double_escape_start() {
     for (text, target, output) in [
         ("--\0tail", State::ScriptDataEscaped, Some('\u{fffd}')),
         ("--<tail", State::ScriptDataEscapedLessThanSign, None),
@@ -271,11 +271,19 @@ fn null_and_literal_destinations_execute_while_less_than_remains_terminal() {
         assert!(execution.context().input.errors().is_empty());
         let mut expected = snapshot(&execution);
         if text == "--<tail" {
+            expected.state = State::ScriptDataDoubleEscapeStart;
+            expected.current = Some((
+                Input::CodePoint('t'.into()),
+                Position { line: 1, column: 4 },
+            ));
+            expected.tokens.push(Token::Character('<'.into()));
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
             for _ in 0..3 {
                 assert_eq!(
                     execution.step(),
                     Err(UnimplementedState {
-                        state: State::ScriptDataEscapedLessThanSign
+                        state: State::ScriptDataDoubleEscapeStart
                     })
                 );
                 assert_eq!(snapshot(&execution), expected);
@@ -486,11 +494,19 @@ fn greater_than_returns_to_real_script_data_with_normalized_diagnostics_and_late
         assert_eq!(execution.step(), Ok(Progress::Continue(state)));
         assert_eq!(snapshot(&execution), boundary);
     }
+    boundary.state = State::ScriptDataDoubleEscapeStart;
+    boundary.current = Some((
+        Input::CodePoint('t'.into()),
+        Position { line: 1, column: 8 },
+    ));
+    boundary.tokens.push(Token::Character('<'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(boundary.state)));
+    assert_eq!(snapshot(&execution), boundary);
     for _ in 0..3 {
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::ScriptDataEscapedLessThanSign
+                state: State::ScriptDataDoubleEscapeStart
             })
         );
         assert_eq!(snapshot(&execution), boundary);
@@ -555,21 +571,24 @@ fn real_escaped_dash_dash_cycles_preserve_every_source_step_and_later_stub() {
                 expected.state = State::ScriptDataEscapedLessThanSign;
                 assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&execution), expected);
-                for _ in 0..3 {
-                    assert_eq!(
-                        execution.step(),
-                        Err(UnimplementedState {
-                            state: State::ScriptDataEscapedLessThanSign
-                        })
-                    );
-                    assert_eq!(snapshot(&execution), expected);
-                }
-                continue;
+                expected.state = State::ScriptDataEscaped;
+                expected.current = Some((
+                    Input::CodePoint('\n'.into()),
+                    Position {
+                        line: 1,
+                        column: 11,
+                    },
+                ));
+                expected.tokens.push(Token::Character('<'.into()));
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+            } else {
+                expected.state = State::ScriptData;
+                expected.tokens.push(Token::Character('>'.into()));
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
             }
-            expected.state = State::ScriptData;
-            expected.tokens.push(Token::Character('>'.into()));
-            assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
-            assert_eq!(snapshot(&execution), expected);
+            let continuation = expected.state;
             expected.current = Some((
                 Input::CodePoint('\n'.into()),
                 Position {
@@ -578,7 +597,7 @@ fn real_escaped_dash_dash_cycles_preserve_every_source_step_and_later_stub() {
                 },
             ));
             expected.tokens.push(Token::Character('\n'.into()));
-            assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+            assert_eq!(execution.step(), Ok(Progress::Continue(continuation)));
             assert_eq!(snapshot(&execution), expected);
             expected.current = Some((
                 Input::CodePoint('\0'.into()),
@@ -588,10 +607,15 @@ fn real_escaped_dash_dash_cycles_preserve_every_source_step_and_later_stub() {
             expected
                 .errors
                 .push(error("unexpected-null-character", 2, 1));
-            assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+            assert_eq!(execution.step(), Ok(Progress::Continue(continuation)));
             assert_eq!(snapshot(&execution), expected);
             expected.current = Some((Input::Eof, Position { line: 2, column: 2 }));
             expected.tokens.push(Token::Eof);
+            if exit == '<' {
+                expected
+                    .errors
+                    .push(error("eof-in-script-html-comment-like-text", 2, 2));
+            }
             assert_eq!(execution.step(), Ok(Progress::Finished));
             assert_eq!(snapshot(&execution), expected);
         }

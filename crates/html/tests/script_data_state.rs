@@ -211,8 +211,17 @@ fn less_than_consumes_only_the_delimiter_before_destination_dispatch() {
     ));
     assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
     assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataDoubleEscapeStart;
+    expected.current = Some((
+        Input::CodePoint('t'.into()),
+        Position { line: 1, column: 6 },
+    ));
+    expected.retained.temporary_buffer.clear();
+    expected.tokens.push(Token::Character('<'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
     let blocked = Err(UnimplementedState {
-        state: State::ScriptDataEscapedLessThanSign,
+        state: State::ScriptDataDoubleEscapeStart,
     });
     for _ in 0..3 {
         assert_eq!(execution.step(), blocked);

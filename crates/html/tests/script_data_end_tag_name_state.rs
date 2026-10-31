@@ -736,7 +736,7 @@ fn existing_destinations_complete_attributes_flags_malformed_recovery_and_eof() 
 #[test]
 fn fallback_and_later_stubs_remain_terminal_even_after_feeding_and_context_mutation() {
     for (input, state, current, column) in [
-        ("<!--<tail", State::ScriptDataEscapedLessThanSign, '<', 5),
+        ("<!--<tail", State::ScriptDataDoubleEscapeStart, 't', 6),
         (">&tail", State::CharacterReference, '&', 2),
         (" a='&tail", State::CharacterReference, '&', 5),
         ("><!tail", State::MarkupDeclarationOpen, '!', 3),
@@ -1033,17 +1033,17 @@ fn real_script_close_selects_data_and_genuine_escape_reference_markup_blocks_sta
     for (input, state, point, column, output) in [
         (
             "<!--<tail",
-            State::ScriptDataEscapedLessThanSign,
-            '<',
-            5,
-            characters("<!--"),
+            State::ScriptDataDoubleEscapeStart,
+            't',
+            6,
+            characters("<!--<"),
         ),
         (
             "</script<!--<tail",
-            State::ScriptDataEscapedLessThanSign,
-            '<',
-            13,
-            characters("</script<!--"),
+            State::ScriptDataDoubleEscapeStart,
+            't',
+            14,
+            characters("</script<!--<"),
         ),
         (
             "</script>&tail",

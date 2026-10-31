@@ -562,7 +562,7 @@ fn real_entry_distinguishes_ordinary_eof_from_each_escaped_eof_state() {
 }
 
 #[test]
-fn real_entry_keeps_each_escaped_less_than_boundary_terminal_without_emitting_less_than() {
+fn real_entry_inspects_escaped_less_than_then_reaches_terminal_double_escape_start() {
     for (input, output, column) in [
         ("<!--<tail", "<!--", 5),
         ("<!--x<tail", "<!--x", 6),
@@ -577,8 +577,28 @@ fn real_entry_keeps_each_escaped_less_than_boundary_terminal_without_emitting_le
         expected
             .tokens
             .extend(points(output).into_iter().map(Token::Character));
+        // Preserve the predecessor's '<' boundary before executing the gateway.
+        for _ in 0..20 {
+            if run.state() == State::ScriptDataEscapedLessThanSign {
+                break;
+            }
+            assert!(matches!(run.step(), Ok(Progress::Continue(_))));
+        }
+        assert_eq!(snapshot(&run), expected);
+        expected.state = State::ScriptDataDoubleEscapeStart;
+        expected.current = Some((
+            Input::CodePoint('t'.into()),
+            Position {
+                line: 1,
+                column: column + 1,
+            },
+        ));
+        expected.tokens.push(Token::Character('<'.into()));
+        expected.storage.buffer.clear();
+        assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&run), expected);
         let blocked = Err(UnimplementedState {
-            state: State::ScriptDataEscapedLessThanSign,
+            state: State::ScriptDataDoubleEscapeStart,
         });
         let mut trace = vec![];
         assert!(drain(&mut run, &mut trace));

@@ -180,21 +180,13 @@ fn every_ascii_branch_and_non_scalar_preserves_storage_and_consumes_exactly_once
                     position: tail_position,
                 });
                 if value == 0x3c {
-                    // Escaped less-than sign is the remaining terminal destination.
-                    assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
-                    if !finished {
-                        execution.context_mut().input.push(points("z")).unwrap();
-                        execution.context_mut().input.finish();
-                        assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
-                    }
-                    // Inspect only: do not resume a blocked execution.
-                    assert_eq!(
-                        execution.context_mut().input.consume(),
-                        Input::CodePoint(tail)
-                    );
-                    assert_eq!(execution.context().input.position(), tail_position);
-                    assert_eq!(execution.context().input.errors(), expected.input_errors);
-                    continue;
+                    // Gateway fallback consumes the surrogate, emits '<', and
+                    // reconsumes in Escaped without replacing/diagnosing it again.
+                    expected.state = State::ScriptDataEscaped;
+                    expected.current = Some((Input::CodePoint(tail), tail_position));
+                    expected.tokens.push(Token::Character('<'.into()));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&execution), expected);
                 }
                 // Escaped or the newly integrated DashDash consumes the untouched
                 // surrogate once, emits it literally and returns/stays in Escaped.
@@ -262,7 +254,7 @@ fn conceptual_eof_reports_once_and_open_exhaustion_has_no_effects() {
 }
 
 #[test]
-fn default_context_suspends_in_real_destination_and_preserves_remaining_stubs() {
+fn default_context_suspends_in_real_destinations_and_preserves_later_stubs() {
     for (text, target, output) in [
         ("-", State::ScriptDataEscapedDashDash, "-"),
         ("<", State::ScriptDataEscapedLessThanSign, ""),
@@ -292,11 +284,28 @@ fn default_context_suspends_in_real_destination_and_preserves_remaining_stubs() 
             }
         );
         assert!(execution.context().input.errors().is_empty());
+        let mut expected = snapshot(&execution);
         if text == "<" {
-            assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            execution.context_mut().input.push(points("/tail")).unwrap();
+            expected.state = State::ScriptDataEscapedEndTagOpen;
+            expected.current = Some((
+                Input::CodePoint('/'.into()),
+                Position { line: 1, column: 2 },
+            ));
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_terminal(
+                &mut execution,
+                Err(UnimplementedState {
+                    state: expected.state,
+                }),
+            );
             continue;
         }
-        let mut expected = snapshot(&execution);
         for _ in 0..3 {
             assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
             assert_eq!(snapshot(&execution), expected);
@@ -330,10 +339,18 @@ fn default_context_suspends_in_real_destination_and_preserves_remaining_stubs() 
             Ok(Progress::Continue(State::ScriptDataEscapedLessThanSign))
         );
         assert_eq!(snapshot(&execution), expected);
+        expected.state = State::ScriptDataDoubleEscapeStart;
+        expected.current = Some((
+            Input::CodePoint('t'.into()),
+            Position { line: 1, column: 4 },
+        ));
+        expected.tokens.push(Token::Character('<'.into()));
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&execution), expected);
         assert_terminal(
             &mut execution,
             Err(UnimplementedState {
-                state: State::ScriptDataEscapedLessThanSign,
+                state: State::ScriptDataDoubleEscapeStart,
             }),
         );
         assert_eq!(

@@ -16,7 +16,8 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data escape start dash](tokenizer-script-data-escape-start-dash.md),
 [Script data escaped](tokenizer-script-data-escaped.md),
 [Script data escaped dash](tokenizer-script-data-escaped-dash.md),
-[Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md), isolated-entry
+[Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md),
+[Script data escaped less-than sign](tokenizer-script-data-escaped-less-than-sign.md),
 [Script data escaped end tag open](tokenizer-script-data-escaped-end-tag-open.md),
 [Script data escaped end tag name](tokenizer-script-data-escaped-end-tag-name.md),
 [Script data double escape start](tokenizer-script-data-double-escape-start.md),
@@ -25,7 +26,7 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data double escaped dash dash](tokenizer-script-data-double-escaped-dash-dash.md),
 [Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md), and
 [Script data double escape end](tokenizer-script-data-double-escape-end.md) are implemented.
-All other states, including Script data escaped less-than sign, ordinary Comment and
+All other states, including ordinary Comment and
 Character reference, remain `UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
@@ -33,25 +34,16 @@ Explicit Script data entry now reaches basic comment-like text through
 `<!` → escape start → escape start dash → escaped dash dash. The escaped trio
 handles literal characters, hyphen cycles, NUL replacement and
 `eof-in-script-html-comment-like-text`; `>` in escaped dash dash returns to
-Script data. This emits character tokens, not Comment tokens. An escaped `<`
-still reaches terminal Script data escaped less-than sign: escaped end tags and
-end-to-end double escaping are not reachable from Script data entry.
-Isolated double escaped entry now completes the character/dash/dash-dash loop,
-including NUL and EOF handling. All three states reach double escaped less-than
-sign on `<`, then Double escape end on `/`. Double escape end accumulates
-ASCII-normalized scratch while emitting original spelling, returning to Escaped
-on a matching `script` delimiter or DoubleEscaped otherwise. Non-slash less-than
-fallback and other DoubleEscapeEnd fallback (including EOF) reconsume in
-DoubleEscaped. `>` in double escaped dash dash returns to Script data.
-Isolated Double escape start entry accumulates ASCII-normalized scratch while
-emitting original spelling; exact `script` delimiters now enter the real
-DoubleEscaped loop, while mismatches and fallback return to Escaped.
-Isolated escaped end tag name entry supports appropriate closing tags and literal
-fallback with initialized selected End storage and original-spelling scratch.
-Isolated [escaped end tag open](tokenizer-script-data-escaped-end-tag-open.md)
-entry creates the selected End candidate and reconsumes in the real name state.
-EscapedLessThanSign remains the one terminal Script data gateway stub.
-Ordinary Script data closing-tag support remains separate. No tree builder or automatic element-based
+Script data. The complete Script data family is now reachable from explicit
+Script data entry: escaped less-than sign clears scratch before escaped closing-tag
+recognition or double-escape start, and reconsumes literal fallback in Escaped.
+Double escape start/end accumulate ASCII-normalized scratch while emitting original
+spelling; exact `script` delimiters enter/leave double escaping. The real
+double-escaped character/dash/dash-dash/less-than loop returns to Escaped on a
+matching double-escape-end delimiter or Script data on double-escaped dash-dash
+`>`. Appropriate escaped end tags emit through existing attribute/tag support
+and return to Data; mismatches/EOF recover literally. This emits character/tag
+tokens, not Comment tokens. No tree builder or automatic element-based
 mode switching is implied. See the [integrated branch/fixture audit](tokenizer-script-data-escape-start.md).
 
 Implementation evidence is the immutable HTML Standard source in
@@ -142,7 +134,7 @@ instruction states and no separate decimal-character-reference-start state.
   Each creation replaces only its own pending storage; unrelated storage remains.
   The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA,
   RAWTEXT, Script data less-than sign, and Script data double escaped less-than
-  sign on `/`.
+  sign on `/`; Script data escaped less-than sign clears it on `/` or ASCII alpha.
 - Tag creation selects `current_tag: Option<TagKind>` (Start or End), independently
   of any unrelated retained pending storage. Tag name mutates only the selected
   name. Before attribute name appends only to the selected tag's attribute list.
