@@ -2,16 +2,16 @@
 
 ## Status and source
 
-**Only Data is implemented. The other 83 states, including Tag open and Character
-reference, remain explicit `UnimplementedState` stubs.** This is a partial tokenizer,
-not a stable parsing API or a usable browser. No full tokenizer-conformance or
-browser-security claim is made.
+**Only Data and PLAINTEXT are implemented. The other 82 states, including Tag open
+and Character reference, remain explicit `UnimplementedState` stubs.** This is a
+partial tokenizer, not a stable parsing API or a usable browser. No full
+tokenizer-conformance or browser-security claim is made.
 
 Implementation evidence is the immutable HTML Standard source in
 [docs/sources.toml](sources.toml), specifically **Preprocessing the input stream**
 and the opening **Tokenization** paragraphs (current/next input, reconsumption,
-and token emission), plus **Data state** (`#data-state`). Newline normalization
-follows the linked Infra
+and token emission), plus **Data state** (`#data-state`) and **PLAINTEXT state**
+(`#plaintext-state`). Newline normalization follows the linked Infra
 [normalize newlines](https://infra.spec.whatwg.org/#normalize-newlines) operation.
 The test adapter follows the pinned
 [upstream format](../tests/html5lib-tests/tokenizer/README.md), not another engine.
@@ -53,17 +53,17 @@ instruction states and no separate decimal-character-reference-start state.
   mutation does not clear terminal status. Reconstructing/resuming after a stub
   has **no supported semantics**.
 
-Production dispatch implements only Data and has no synthetic handlers. Unit
-tests inject private, non-algorithmic source steps to validate the execution
-shell separately. The independent support-inventory test explicitly lists Data
-as implemented and checks that the other 83 states block without effects at both
-suspension and EOF; it does not infer support from dispatch.
+Production dispatch implements only Data and PLAINTEXT and has no synthetic
+handlers. Unit tests inject private, non-algorithmic source steps to validate the
+execution shell separately. The independent support-inventory test explicitly
+lists Data and PLAINTEXT as implemented and checks that the other 82 states block
+without effects at both suspension and EOF; it does not infer support from dispatch.
 
 ## Fixture runner
 
 The runner lives in `crates/html/tests/support` as test-only infrastructure;
 `serde_json` remains a dev dependency. It is deliberately limited to the
-character/EOF surface needed by Data. Run its upstream report with:
+character/EOF surface needed by Data and PLAINTEXT. Run its upstream report with:
 
 ```sh
 cargo test --workspace --locked pinned_upstream_runner -- --nocapture
@@ -119,20 +119,22 @@ pair. Every run has exactly one result:
 including blocked stubs. This avoids describing attempted-but-blocked runs as
 successfully executed conformance tests. Inventory tests execute no conformance.
 
-Current pinned Data-only baseline: 14 files, 6,827 cases, **7,053 runs; 5,423
-dispatch-attempted; 385 executed, 385 passed, 0 failed, 6,668 blocked**:
+Current pinned Data + PLAINTEXT baseline: 14 files, 6,827 cases, **7,053 runs;
+5,423 dispatch-attempted; 437 executed, 437 passed, 0 failed, 6,616 blocked**:
 
 - 4,658 blocked at Character reference after Data's source transition
 - 66 blocked at Tag open after Data's source transition
-- 314 blocked at other initial-state stubs (56 CDATA section, 52 PLAINTEXT,
-  61 RAWTEXT, 63 RCDATA, 82 Script data)
+- 262 blocked at other initial-state stubs (56 CDATA section, 61 RAWTEXT,
+  63 RCDATA, 82 Script data)
 - 1,625 unsupported-token runs
 - 4 XML-coercion runs
 - 1 pending-spec-review run
 
-Of the former 5,109 Data-initial dispatch attempts, 385 now complete and compare;
-4,724 are still blocked by later states, not passes. Adapter/policy precedence
-and dispatch-attempt counts are unchanged. No upstream fixture was modified.
+Of the 5,109 Data-initial dispatch attempts, 385 complete and compare;
+4,724 are still blocked by later states, not passes. All 52 formerly blocked
+PLAINTEXT-initial runs now complete and pass. Data's 385 passes are retained and
+asserted separately. Adapter/policy precedence and dispatch-attempt counts are
+unchanged. No upstream fixture or pinned revision was modified.
 
 The baseline counts/reasons are asserted explicitly; widening blocking requires
 review, not an automatic skip. Synthetic executor tests independently demonstrate
@@ -141,7 +143,7 @@ upstream tokenizer conformance passes. Local production-adapter regressions also
 check that an already matching output/error prefix still blocks at a destination
 stub. Only the pinned upstream runs contribute to the counts above.
 
-## Data coverage and remaining work
+## Data coverage
 
 The implementation follows every branch of the pinned **Data state** section:
 `&` consumes the character, sets return state to Data, and transitions to Character
@@ -159,10 +161,41 @@ chunks, Unicode scalars, actual surrogate code points, noncharacters, controls,
 NUL, CR/CRLF preprocessing, trailing CR, and both blocked transitions. This is
 Data-specific chunk equivalence, not whole-tokenizer streaming coverage.
 
-The next state PR must still implement only its own pinned algorithm. Tag open,
-Character reference, and all other states remain stubs; do not resume an execution
-that has already terminated at a stub. No neighboring-state algorithms, new
-execution model, preprocessing changes, dependencies, or optimizations were added.
+## PLAINTEXT coverage and remaining work
+
+The implementation follows every branch of the pinned **PLAINTEXT state** section:
+NUL reports `unexpected-null-character` at the consumed point and emits U+FFFD,
+**not the original NUL emitted by Data**. EOF emits one terminal EOF. Anything
+else, including `<` and `&`, emits the current code point unchanged and stays in
+PLAINTEXT. No branch transitions to another state or schedules reconsumption.
+Open exhausted input suspends, never implying EOF.
+
+Select PLAINTEXT explicitly with `Execution::new(State::Plaintext, context)`.
+There is no tree builder or automatic handling of a `<plaintext>` start tag;
+Data still transitions to the Tag open stub on `<`. Existing context fields are
+preserved. Production support changes are limited to the new state handler and
+dispatch arm; no execution/input infrastructure or initial-state mapping changes
+were needed (the runner already recognized PLAINTEXT).
+
+Focused tests in `crates/html/tests/plaintext_state.rs` check every branch,
+consumption/current input, exact tokens, diagnostic codes/positions, Unicode
+scalars and actual surrogate/noncharacter/control code points, empty input,
+repeated suspension/termination, and preserved context. Every two-chunk split
+and single-code-point chunking of representative inputs matches closed-input
+source-step traces, including CRLF splits, consecutive/trailing CR, NUL, literal
+markup and references, and preprocessing diagnostics. These are state-specific
+streaming checks, not whole-tokenizer conformance. Local production-adapter tests
+also cover explicit PLAINTEXT selection, repeated independent initial-state runs,
+Data defaults, empty input, and double-escaped NUL/surrogate diagnostics.
+
+The next state PR is **Tag open**, followed by End tag open and Tag name. It must
+implement only its own pinned algorithm. Tag open, Character reference, and all
+other states remain stubs; do not resume an execution that has already terminated
+at a stub. Tag token variants/creation storage and a processing-instruction
+scratch buffer are not yet present; introduce only the minimal support required
+by the pinned Tag open branches, preserving explicit blocks at unimplemented
+targets. No neighboring-state algorithms, tree-building behavior, new execution
+model, preprocessing changes, dependencies, or optimizations were added here.
 
 Before claiming broader coverage, add actual token variants/field comparisons,
 review pending-spec-change expectations, and decide whether XML coercion belongs
