@@ -12,13 +12,13 @@ The first component is a specification-first HTML tokenizer.
 
 - Rust workspace and CI on Linux/macOS.
 - Registry of all 84 tokenizer states in the pinned HTML Standard.
-- Data, PLAINTEXT, Tag open, End tag open, and Tag name implemented; the other 79
-  remain typed `UnimplementedState` stubs.
+- Data, PLAINTEXT, Tag open, End tag open, Tag name, and Bogus comment implemented;
+  the other 78 remain typed `UnimplementedState` stubs.
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.
 - Tested incremental code-point cursor, preprocessing, and execution scaffolding.
-- Partial upstream runner: **522 executed, 522 passed, 0 failed, 6,531 blocked runs**
+- Partial upstream runner: **547 executed, 547 passed, 0 failed, 6,506 blocked runs**
   (7,053 runs across 6,827 fixture cases). Later-state blocks are not passes;
   this is not full tokenizer conformance.
   [Runner support and count definitions](docs/tokenizer.md#fixture-runner).
