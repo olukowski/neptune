@@ -1,18 +1,29 @@
-//! Partial tokenizer: Data and PLAINTEXT are implemented; all other states are stubs.
+//! Partial tokenizer: Data, PLAINTEXT, and Tag open are implemented; all others are stubs.
 
 mod data;
 mod input;
 mod plaintext;
 mod state;
+mod tag_open;
 
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
-/// Only the token variants needed by Data and PLAINTEXT.
+/// Only emitted token variants needed by Data, PLAINTEXT, and Tag open.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
     Eof,
+}
+
+/// Unfinished start tag created by Tag open, not an emitted token.
+///
+/// Only its name needs storage so far. The self-closing flag is implicitly unset
+/// and the attribute list implicitly empty, as required at creation. No tag
+/// mutation/emission or general attribute API is implemented yet.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PendingStartTag {
+    pub name: Vec<CodePoint>,
 }
 
 /// Minimal handler context. No byte decoding or tree-builder API is implied.
@@ -25,6 +36,10 @@ pub struct Context {
     pub last_start_tag: Option<Vec<CodePoint>>,
     /// Set by states invoking Character reference; absent before any invocation.
     pub return_state: Option<State>,
+    /// Created, not emitted; absent until Tag open's ASCII-alpha branch.
+    pub pending_start_tag: Option<PendingStartTag>,
+    /// Code-point scratch storage; Tag open clears it on `?`.
+    pub temporary_buffer: Vec<CodePoint>,
 }
 
 /// A source step completes before the destination is attempted on the next step.
@@ -54,11 +69,12 @@ impl std::fmt::Display for UnimplementedState {
 
 impl std::error::Error for UnimplementedState {}
 
-/// The only production dispatch path. Only Data and PLAINTEXT are implemented.
+/// The only production dispatch path. The support inventory is tested explicitly.
 fn dispatch(state: State, context: &mut Context) -> Result<Progress, UnimplementedState> {
     match state {
         State::Data => Ok(data::step(context)),
         State::Plaintext => Ok(plaintext::step(context)),
+        State::TagOpen => Ok(tag_open::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }
@@ -121,16 +137,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_support_inventory_leaves_all_states_except_data_and_plaintext_stubbed() {
+    fn explicit_support_inventory_leaves_only_data_plaintext_and_tag_open_implemented() {
         // Deliberate support inventory, independent of dispatch outcomes.
-        const IMPLEMENTED: &[State] = &[State::Data, State::Plaintext];
+        const IMPLEMENTED: &[State] = &[State::Data, State::Plaintext, State::TagOpen];
         assert_eq!(State::ALL.len(), 84);
         let stubs: Vec<_> = State::ALL
             .iter()
             .copied()
             .filter(|state| !IMPLEMENTED.contains(state))
             .collect();
-        assert_eq!(stubs.len(), 82);
+        assert_eq!(stubs.len(), 81);
         for state in stubs {
             for finished in [false, true] {
                 let mut context = Context::default();
@@ -147,14 +163,16 @@ mod tests {
                 assert_eq!(execution.context().input.current(), None);
                 assert!(execution.context().tokens.is_empty());
                 assert!(execution.context().errors.is_empty());
+                assert!(execution.context().pending_start_tag.is_none());
+                assert!(execution.context().temporary_buffer.is_empty());
             }
         }
         assert_eq!(
             UnimplementedState {
-                state: State::TagOpen
+                state: State::TagName
             }
             .to_string(),
-            "unimplemented HTML tokenizer state: Tag open state"
+            "unimplemented HTML tokenizer state: Tag name state"
         );
     }
 
@@ -173,16 +191,16 @@ mod tests {
                 position: context.input.position(),
             });
             context.input.reconsume().unwrap();
-            Ok(Progress::Continue(State::TagOpen))
+            Ok(Progress::Continue(State::TagName))
         });
-        assert_eq!(result, Ok(Progress::Continue(State::TagOpen)));
-        assert_eq!(execution.state(), State::TagOpen);
+        assert_eq!(result, Ok(Progress::Continue(State::TagName)));
+        assert_eq!(execution.state(), State::TagName);
         assert_eq!(execution.context().tokens, [Token::Character('!'.into())]);
         assert_eq!(execution.context().errors.len(), 1);
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::TagOpen
+                state: State::TagName
             })
         );
         assert_eq!(
@@ -192,7 +210,7 @@ mod tests {
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::TagOpen
+                state: State::TagName
             })
         );
     }
