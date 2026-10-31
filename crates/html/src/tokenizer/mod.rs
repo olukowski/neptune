@@ -1,12 +1,13 @@
-//! Execution scaffolding, not yet a functioning tokenizer.
+//! Partial tokenizer: Data is implemented; every other state is an explicit stub.
 
+mod data;
 mod input;
 mod state;
 
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
-/// Only the token variants needed for the first Data-state PR.
+/// Only the token variants needed by Data.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
@@ -21,6 +22,8 @@ pub struct Context {
     /// State-generated diagnostics; preprocessing diagnostics live on the cursor.
     pub errors: Vec<ParseError>,
     pub last_start_tag: Option<Vec<CodePoint>>,
+    /// Set by states invoking Character reference; absent before any invocation.
+    pub return_state: Option<State>,
 }
 
 /// A source step completes before the destination is attempted on the next step.
@@ -50,9 +53,12 @@ impl std::fmt::Display for UnimplementedState {
 
 impl std::error::Error for UnimplementedState {}
 
-/// All 84 states are stubs. This is the only production dispatch path.
-fn dispatch(state: State, _context: &mut Context) -> Result<Progress, UnimplementedState> {
-    Err(UnimplementedState { state })
+/// The only production dispatch path. All states except Data remain stubs.
+fn dispatch(state: State, context: &mut Context) -> Result<Progress, UnimplementedState> {
+    match state {
+        State::Data => Ok(data::step(context)),
+        _ => Err(UnimplementedState { state }),
+    }
 }
 
 /// A stub is terminal: subsequent steps return the same error without executing.
@@ -113,9 +119,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_state_is_explicitly_unimplemented_even_at_eof_or_suspension() {
+    fn explicit_support_inventory_leaves_all_states_except_data_stubbed() {
+        // Deliberate support inventory, independent of dispatch outcomes.
+        const IMPLEMENTED: &[State] = &[State::Data];
         assert_eq!(State::ALL.len(), 84);
-        for &state in State::ALL {
+        let stubs: Vec<_> = State::ALL
+            .iter()
+            .copied()
+            .filter(|state| !IMPLEMENTED.contains(state))
+            .collect();
+        assert_eq!(stubs.len(), 83);
+        for state in stubs {
             for finished in [false, true] {
                 let mut context = Context::default();
                 if finished {
