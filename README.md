@@ -14,8 +14,10 @@ The first component is a specification-first HTML tokenizer.
 - Registry of all 84 tokenizer states in the pinned HTML Standard.
 - Every state is an explicit, typed `UnimplementedState` stub.
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.
-- Fixture-inventory checks only: **no tokenizer states or conformance runner
-  are implemented, and no conformance cases are executed yet**.
+- Tested incremental code-point cursor, preprocessing, and execution scaffolding.
+- Partial upstream runner: **0 executed, 0 passed, 0 failed, 7,053 blocked runs**
+  (6,827 fixture cases). All 84 states remain stubs; this is not conformance.
+  [Runner support and count definitions](docs/tokenizer.md#fixture-runner).
 
 The public Rust surface is temporary scaffolding, not a stable parsing API.
 

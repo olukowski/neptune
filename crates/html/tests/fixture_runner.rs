@@ -1,0 +1,267 @@
+//! Partial upstream execution report, distinct from fixture inventory.
+mod support;
+
+use std::{collections::BTreeMap, fs, path::Path};
+
+use neptune_html::tokenizer::{CodePoint, Input, State, Token, UnimplementedState};
+use serde_json::json;
+use support::*;
+
+#[test]
+fn pinned_upstream_runner_reports_no_passing_cases_while_all_states_are_stubs() {
+    let directory =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/html5lib-tests/tokenizer");
+    let mut paths: Vec<_> = fs::read_dir(directory)
+        .expect("missing fixtures: run git submodule update --init --recursive")
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "test")
+        })
+        .collect();
+    paths.sort();
+    assert_eq!(paths.len(), 14);
+    let (mut passed, mut failed, mut blocked, mut cases, mut attempted) = (0, 0, 0, 0, 0);
+    let mut reasons = BTreeMap::<String, usize>::new();
+    for path in paths {
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let (tests, policy) = if let Some(tests) = document.get("xmlViolationTests") {
+            (tests, Some(Blocked::XmlCoercion))
+        } else {
+            (
+                &document["tests"],
+                if path.file_name().unwrap() == "pendingSpecChanges.test" {
+                    Some(Blocked::PendingSpecReview)
+                } else {
+                    None
+                },
+            )
+        };
+        for case in tests.as_array().unwrap() {
+            cases += 1;
+            for state in initial_states(case) {
+                let result = run_with(case, &state, policy, |run| {
+                    attempted += 1;
+                    execute(run)
+                });
+                match result {
+                    Outcome::Passed => passed += 1,
+                    Outcome::Failed(message) => {
+                        failed += 1;
+                        eprintln!(
+                            "{} / {} / {state}: {message}",
+                            path.display(),
+                            case["description"]
+                        );
+                    }
+                    Outcome::Blocked(reason) => {
+                        blocked += 1;
+                        *reasons.entry(format!("{reason:?}")).or_default() += 1;
+                    }
+                }
+            }
+        }
+    }
+    eprintln!(
+        "Upstream: {cases} fixture cases; {} runs; {attempted} dispatch-attempted; {} executed (= passed + failed); {passed} passed; {failed} failed; {blocked} blocked.\nBlocked reasons: {reasons:#?}",
+        passed + failed + blocked,
+        passed + failed
+    );
+    assert_eq!(cases, 6827);
+    assert!(
+        attempted > 0,
+        "must reach production dispatch, not just inventory"
+    );
+    assert_eq!((passed + failed + blocked, attempted), (7053, 5423));
+    // Review deliberately when changing support; never silently widen blocking.
+    assert_eq!(
+        reasons,
+        BTreeMap::from([
+            ("PendingSpecReview".into(), 1),
+            ("TokenVariants".into(), 1625),
+            ("Unimplemented(CdataSection)".into(), 56),
+            ("Unimplemented(Data)".into(), 5109),
+            ("Unimplemented(Plaintext)".into(), 52),
+            ("Unimplemented(Rawtext)".into(), 61),
+            ("Unimplemented(Rcdata)".into(), 63),
+            ("Unimplemented(ScriptData)".into(), 82),
+            ("XmlCoercion".into(), 4),
+        ])
+    );
+    assert_eq!((passed, failed), (0, 0), "all algorithms remain stubs");
+    assert!(
+        !reasons.contains_key("FixtureCapability"),
+        "review new fixture fields"
+    );
+    assert!(
+        !reasons.contains_key("InitialState"),
+        "review new initial states"
+    );
+}
+
+#[test]
+fn synthetic_executor_validates_defaults_multiple_runs_context_and_double_escaping() {
+    let case = json!({
+        "description": "synthetic, not conformance",
+        "input": "x\\uD800\\uDFFF\r\ny",
+        "doubleEscaped": true,
+        "lastStartTag": "title",
+        "initialStates": ["Data state", "RCDATA state"],
+        "output": [["\\u0043haracter", "\\uD800"], ["Character", "\\uDFFF"]]
+    });
+    let states = initial_states(&case);
+    assert_eq!(states, ["Data state", "RCDATA state"]);
+    for (state, expected) in states.iter().zip([State::Data, State::Rcdata]) {
+        assert_eq!(
+            run_with(&case, state, None, |mut run| {
+                assert_eq!(run.initial, expected);
+                assert_eq!(run.context.last_start_tag, Some(decode("title", false)));
+                let mut points = Vec::new();
+                loop {
+                    match run.context.input.consume() {
+                        Input::CodePoint(point) => points.push(point.value()),
+                        Input::Eof => break,
+                        Input::NeedMoreInput => panic!("fixture is closed"),
+                    }
+                }
+                assert_eq!(points, [0x78, 0xd800, 0xdfff, 0x0a, 0x79]);
+                assert_eq!(run.context.input.errors().len(), 2);
+                // Deliberately arbitrary output from an independent test executor,
+                // not a production state handler or an echo of expected tokens.
+                Completion::Complete {
+                    tokens: vec![
+                        Token::Character(CodePoint::new(0xd800).unwrap()),
+                        Token::Character(CodePoint::new(0xdfff).unwrap()),
+                        Token::Eof,
+                    ],
+                    errors: vec![],
+                }
+            }),
+            Outcome::Passed
+        );
+    }
+    assert_eq!(initial_states(&json!({})), ["Data state"]);
+    assert_eq!(
+        decode("\\u0041\\uD800\\uZZZZ\\u12", true),
+        ['A'.into(), CodePoint::new(0xd800).unwrap()]
+            .into_iter()
+            .chain("\\uZZZZ\\u12".chars().map(CodePoint::from))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        decode("\\u0041", false),
+        "\\u0041".chars().map(CodePoint::from).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn synthetic_comparison_requires_exact_tokens_errors_locations_and_completion() {
+    let case = json!({"description":"synthetic", "input":"", "output":[["Character", "ab"]],
+        "errors":[{"code":"synthetic", "line":2,"col":3}]});
+    let good_tokens = vec![
+        Token::Character('a'.into()),
+        Token::Character('b'.into()),
+        Token::Eof,
+    ];
+    let good_errors = vec![Diagnostic::from(&diagnostic("synthetic", 2, 3))];
+    let compare = |tokens, errors| {
+        run_with(&case, "Data state", None, |_| Completion::Complete {
+            tokens,
+            errors,
+        })
+    };
+    assert_eq!(
+        compare(good_tokens.clone(), good_errors.clone()),
+        Outcome::Passed
+    );
+    for (tokens, errors) in [
+        (vec![Token::Eof], good_errors.clone()),
+        (
+            vec![
+                Token::Character('b'.into()),
+                Token::Character('a'.into()),
+                Token::Eof,
+            ],
+            good_errors.clone(),
+        ),
+        (good_tokens[..2].to_vec(), good_errors.clone()),
+        (vec![Token::Eof, Token::Eof], good_errors.clone()),
+        (good_tokens.clone(), vec![]),
+        (
+            good_tokens.clone(),
+            vec![Diagnostic::from(&diagnostic("wrong", 2, 3))],
+        ),
+        (
+            good_tokens.clone(),
+            vec![Diagnostic::from(&diagnostic("synthetic", 2, 4))],
+        ),
+        (
+            good_tokens.clone(),
+            vec![Diagnostic::from(&diagnostic("synthetic", 1, 3))],
+        ),
+        (
+            good_tokens,
+            [good_errors.clone(), good_errors.clone()].concat(),
+        ),
+    ] {
+        assert!(matches!(compare(tokens, errors), Outcome::Failed(_)));
+    }
+    assert!(matches!(
+        run_with(&case, "Data state", None, |_| Completion::Incomplete),
+        Outcome::Failed(_)
+    ));
+    assert_eq!(
+        run_with(&case, "Data state", None, |_| Completion::Blocked(
+            UnimplementedState {
+                state: State::TagOpen
+            }
+        )),
+        Outcome::Blocked(Blocked::Unimplemented(State::TagOpen))
+    );
+    let empty = json!({"description":"synthetic empty", "input":"", "output":[]});
+    assert_eq!(
+        run_with(&empty, "Data state", None, |_| Completion::Complete {
+            tokens: vec![Token::Eof],
+            errors: vec![]
+        }),
+        Outcome::Passed
+    );
+}
+
+#[test]
+fn unsupported_capabilities_never_invoke_executor_or_compare_a_partial_token() {
+    let case = json!({"description":"synthetic", "input":"", "output":[["StartTag","p",{},true]]});
+    for reason in [Blocked::XmlCoercion, Blocked::PendingSpecReview] {
+        assert_eq!(
+            run_with(&case, "Data state", Some(reason), |_| panic!(
+                "policy blocked"
+            )),
+            Outcome::Blocked(reason)
+        );
+    }
+    for token in [
+        json!(["StartTag", "p", {}, true]),
+        json!(["EndTag", "p"]),
+        json!(["DOCTYPE", null, "", "id", false]),
+        json!(["Comment", "x"]),
+        json!(["ProcessingInstruction", "x"]),
+    ] {
+        let mut case = case.clone();
+        case["output"] = json!([token]);
+        assert_eq!(
+            run_with(&case, "Data state", None, |_| panic!("unsupported fields")),
+            Outcome::Blocked(Blocked::TokenVariants)
+        );
+    }
+    assert_eq!(
+        run_with(&case, "unknown state", None, |_| panic!("unknown state")),
+        Outcome::Blocked(Blocked::InitialState)
+    );
+    let mut unknown = case;
+    unknown["futureCapability"] = json!(true);
+    assert_eq!(
+        run_with(&unknown, "Data state", None, |_| panic!("unknown field")),
+        Outcome::Blocked(Blocked::FixtureCapability)
+    );
+}

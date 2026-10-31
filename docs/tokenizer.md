@@ -1,110 +1,153 @@
-# HTML tokenizer foundation
+# HTML tokenizer infrastructure
 
-## Scope of this scaffold
+## Status and source
 
-The `neptune-html` crate currently contains only:
+**No tokenizer state algorithms are implemented. All 84 states are explicit
+`UnimplementedState` stubs.** This is temporary scaffolding, not a stable parsing
+API or a usable browser. No conformance or browser-security claim is made.
 
-- A state registry with specification names and link fragments.
-- A typed `UnimplementedState` error.
-- A temporary `dispatch(State)` seam that returns that error for every state.
-- Tests for the registry, stubs, and availability/shape of upstream fixtures.
+Implementation evidence is the immutable HTML Standard source in
+[docs/sources.toml](sources.toml), specifically **Preprocessing the input stream**
+and the opening **Tokenization** paragraphs (current/next input, reconsumption,
+and token emission). Newline normalization follows the linked Infra
+[normalize newlines](https://infra.spec.whatwg.org/#normalize-newlines) operation.
+The test adapter follows the pinned
+[upstream format](../tests/html5lib-tests/tokenizer/README.md), not another engine.
+Neither pinned revision nor upstream fixtures are changed here.
 
-There is **no tokenizer algorithm, input processing, token emission, or
-conformance runner yet**. The dispatcher takes no input and must not be mistaken
-for a usable tokenizer. Replace its signature when real execution needs context;
-do not preserve a placeholder API at the expense of a sound design.
+The registry matches the pinned specification in order, including processing-
+instruction states and no separate decimal-character-reference-start state.
 
-All 84 state names match the pinned specification source in order. This baseline
-includes processing-instruction states and has no separate decimal-character-
-reference-start state. Use the pinned source rather than older state lists.
+## Input and execution contract
 
-## Boundaries to preserve
+- `CodePoint` represents 0..=0x10FFFF, **including lone surrogates**. `char` is
+  only a convenience for scalar input. Byte decoding, encoding sniffing,
+  networking, and BOM handling belong outside this crate.
+- `Cursor::push` appends decoded code points. `finish` is explicit and idempotent;
+  subsequent pushes fail. Empty chunks and exhausted open input yield
+  `NeedMoreInput`, never EOF.
+- CRLF becomes LF and remaining CR becomes LF, including across chunk boundaries.
+  A trailing CR can emit LF immediately; the next raw LF is suppressed.
+- Consumption retains a current input item and its position. Suspension leaves
+  that item unchanged. `reconsume` schedules it for the next consume without
+  advancing or duplicating preprocessing diagnostics. It works for conceptual
+  EOF too; requesting it without current input or twice before consuming fails.
+- Surrogates, noncharacters, and non-whitespace/non-NUL controls produce the
+  specified preprocessing errors on first consumption; they are not replaced.
+  NUL handling is deferred to states. Positions count normalized code points,
+  one-based, with EOF just after the last point (not byte or UTF-16 offsets).
+- `Context` contains the cursor, character/EOF token outputs, state diagnostics,
+  and optional last start tag. Other token variants and state scratch storage
+  are intentionally absent until a concrete state needs them.
+- `Execution::step` performs **one source step**, returning its intended target
+  through `Progress::Continue`. Source effects can be inspected before the next
+  step attempts the target. A handler schedules reconsumption on the cursor.
+  `NeedMoreInput` keeps the same state and permits feeding/resuming.
+- An unimplemented source or target is a terminal development error, not EOF,
+  a recoverable parse error, or success. Repeated steps return that same error
+  without dispatching. `Finished` is terminal too. Context remains inspectable;
+  mutation does not clear terminal status. Reconstructing/resuming after a stub
+  has **no supported semantics**.
 
-- Tokenization operates after byte decoding. Networking, encoding sniffing, and
-  byte decoders are separate concerns.
-- Input preprocessing (including CRLF normalization) is explicit and tested,
-  not accidentally delegated to string or line helpers.
-- Preserve the distinction between a Unicode code point and a Rust `char`.
-  Upstream `doubleEscaped` fixtures can describe lone surrogates; a runner must
-  represent them deliberately, not silently replace them or discard tests.
-- Design for incremental input: end-of-chunk/need-more-input is not EOF.
-  Results must be invariant under chunk boundaries.
-- Consumption, reconsumption, and state switching need explicit semantics.
-- The tree builder will supply tokenizer context: text/script modes, the last
-  start tag for appropriate-end-tag checks, and foreign-content/CDATA context.
-  Do not assume the tokenizer is forever a context-free iterator.
-- Recoverable HTML parse errors are output diagnostics. An unimplemented state
-  is a development limitation, not one of those errors.
-- Use safe Rust. Do not optimize storage or dispatch before measuring it.
+Production dispatch has no synthetic handlers. Unit tests inject private,
+non-algorithmic source steps to validate effects, transitions, suspension, and
+terminal behavior. The independent blanket stub test must be deliberately
+updated when a state is implemented.
 
-These are constraints, not a demand to build every abstraction upfront.
+## Fixture runner
 
-## First follow-up PRs
+The runner lives in `crates/html/tests/support` as test-only infrastructure;
+`serde_json` remains a dev dependency. It is deliberately limited to the
+character/EOF surface needed by Data. Run its upstream report with:
 
-### 1. Execution and test-harness infrastructure
+```sh
+cargo test --workspace --locked pinned_upstream_runner -- --nocapture
+```
 
-Introduce only the interfaces needed to test the first state:
+Supported conventions:
 
-- Input events/cursor, with EOF distinct from temporarily unavailable input.
-- A tested way to retain/reconsume the current character.
-- State/context storage and minimal token/parse-error output types.
-- Dispatch that errors on entering an unimplemented target. The error records
-  that target; it must not imply execution can safely resume after the stub.
-- A fixture adapter with explicit supported coverage and blocked-case reporting.
+- Default Data initial state; one independent run per `initialStates` entry;
+  all six upstream initial-state names recognized. `lastStartTag` is supplied
+  unchanged as context, absent meaning no prior start tag.
+- `doubleEscaped` input and supported output strings, including token-kind
+  strings. Each literal `\uHHHH` becomes its own code point, even for adjacent
+  surrogate escapes; no UTF-16 pair joining or replacement. Other text is literal.
+- Raw input goes through the cursor's preprocessing, not string line helpers.
+- Adjacent character outputs coalesce. Production must finish and emit exactly
+  one terminal EOF, omitted from the fixture comparison. Truncated output,
+  missing/duplicate EOF, output after EOF, and need-more-input on closed fixture
+  input fail, rather than pass on an output prefix.
+- Exact character values and parse-error codes, one-based line/column positions,
+  and multiplicities are compared. Diagnostics are compared as a **multiset**,
+  not by emission order; cursor and state diagnostics are both included.
+  Absent `errors` means no expected errors.
 
-Use synthetic infrastructure tests without implementing any state algorithms.
-Keep tree-builder integration and broader token variants for when needed.
+Explicit limitations/policies (no silent skips or partial token comparisons):
 
-### 2. Data state
+- Any expected non-character token blocks the **whole run** as `TokenVariants`.
+  DOCTYPE name/public/system IDs and force-quirks inversion, tag names,
+  attributes/self-closing flags, comments, and processing instructions are
+  deferred, not treated as equal or defaulted away.
+- All `xmlViolationTests` runs block as `XmlCoercion`; Neptune does not apply
+  DOM-to-XML-infoset coercion in this runner.
+- All `pendingSpecChanges.test` runs block as `PendingSpecReview` until individually
+  reconciled against our pinned specification in a separate reviewed change.
+- Unknown fixture fields or initial-state names block explicitly. Malformed
+  known JSON shapes fail the infrastructure test. Missing fixtures fail with
+  submodule initialization instructions.
+- Policy takes precedence over adapter support, which takes precedence over
+  dispatch. The reported reason is the first applicable limitation, not an
+  assertion that every later capability is supported.
 
-Implement the pinned Data state literally and test each branch. Keep Tag open
-and Character reference as stubs until their own PRs. Tests should distinguish
-the source state's completed effects from the target state's blocked execution.
+### Counts and regression policy
 
-Update the scaffold's blanket all-states-unimplemented assertion deliberately.
-Keep an explicit inventory of which states remain stubs; do not derive expected
-coverage from the same dispatch behavior being tested.
+A **fixture case** is one upstream JSON object; a **run** is a case/initial-state
+pair. Every run has exactly one result:
 
-### 3. Additional states
+- **Passed**: executor finished, complete tokens and diagnostics match.
+- **Failed**: comparable execution mismatches or violates completion requirements.
+- **Blocked**: explicit adapter/policy limitation or `UnimplementedState`, even
+  if the source already emitted output. No comparison can turn it into a pass.
 
-Choose a small dependency-aware order, such as Tag open, End tag open, and
-Tag name. Character-reference support can be its own sequence, with entity
-tables generated reproducibly and reviewed separately.
+**Executed = passed + failed** (runs reaching comparison or a completion failure).
+**Dispatch-attempted** additionally records entry into production execution,
+including blocked stubs. This avoids describing attempted-but-blocked runs as
+successfully executed conformance tests. Inventory tests execute no conformance.
 
-Each state PR should stand on its own tests even when full-document fixtures
-cannot finish because a later state is still missing.
+Current pinned baseline: 14 files, 6,827 cases, **7,053 runs; 5,423
+dispatch-attempted; 0 executed, 0 passed, 0 failed, 7,053 blocked**:
 
-## Conformance runner requirements
+- 5,423 unimplemented initial-state runs
+- 1,625 unsupported-token runs
+- 4 XML-coercion runs
+- 1 pending-spec-review run
 
-Before claiming upstream results, implement the conventions in
-`tests/html5lib-tests/tokenizer/README.md`, including:
+The baseline counts/reasons are asserted explicitly; widening blocking requires
+review, not an automatic skip. Synthetic executor tests independently demonstrate
+both matches and deliberate mismatches/classification; their passes are **not**
+upstream tokenizer conformance passes. The upstream test remains zero-pass until
+state work deliberately updates its expectations.
 
-- Defaults and multiple runs for `initialStates`.
-- `lastStartTag`, input preprocessing, and `doubleEscaped` handling.
-- Character-token coalescing and token field conventions.
-- Parse-error codes and one-based line/column positions.
-- Separate treatment of `xmlViolationTests`, which use infoset-coercion rules.
-- A documented policy for `pendingSpecChanges.test` relative to our pinned spec.
+## Next PR: Data state
 
-Inventory currently reads all 14 fixture files (6,827 cases at the pinned
-revision), including the separately shaped XML-violation data, but executes
-**zero** conformance cases. No test is labeled as passing tokenizer conformance.
+Implement only the pinned Data algorithm and its branch tests, including NUL,
+EOF, incremental chunks, and transitions into still-stubbed Tag open and Character
+reference. Source effects and intended transitions must be testable separately
+from blocked destination execution. No additional infrastructure is required for
+that narrow PR; it must update the blanket stub test and runner baseline honestly.
 
-Once execution exists, print executed/passed/failed/blocked totals and make
-regressions in the explicitly supported subset fail CI. Never hide failures by
-turning them into skips or expanding a blocklist without review. Later add
-chunk-boundary equivalence, fuzzing, and differential checks.
-
-Tree-construction tests are now maintained in WPT's `html/syntax/parsing`;
-pin that source when the tree builder is introduced rather than assuming those
-fixtures still live in html5lib-tests.
+Before claiming broader coverage, add actual token variants/field comparisons,
+review pending-spec-change expectations, and decide whether XML coercion belongs
+in scope. More complex states will justify scratch buffers and context gradually.
+Tree-builder control (including foreign-content/CDATA permission), synchronous
+emission feedback, insertion points, fuzzing, and whole-tokenizer chunk equivalence
+are deferred. Do not present this standalone execution shell as tree-builder-ready.
+Tree-construction tests now live in WPT `html/syntax/parsing`; pin that source when
+adopting them.
 
 ## Provenance and licensing
 
-`docs/sources.toml` records immutable source revisions. The Git submodule pins
-the test checkout and retains upstream attribution and licensing.
-
-The HTML Standard is normative; its living URL is a convenience link, not our
-revision pin. Consult the immutable GitHub source when reviewing behavior.
-This scaffold references the standard and lists state names; it does not vendor
+[docs/sources.toml](sources.toml) records immutable revisions; the existing Git
+submodule retains upstream licensing and attribution. The living HTML URL is a
+navigation aid, not our baseline. This repository does not relicense or vendor
 the standard's algorithm prose under Neptune's license.

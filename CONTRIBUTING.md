@@ -26,7 +26,16 @@ missing. It never silently skips missing fixtures. To see its inventory report:
 cargo test --workspace --locked pinned_upstream_fixture_inventory_is_readable -- --nocapture
 ```
 
-**That report is not a conformance result.**
+**That report is not a conformance result.** The partial execution runner is separate:
+
+```sh
+cargo test --workspace --locked pinned_upstream_runner -- --nocapture
+```
+
+It reports one run per initial state, including explicit blocked reasons.
+`executed = passed + failed`; dispatch attempts ending at a stub are blocked,
+not executed/comparable cases. Synthetic executor tests validate the runner,
+not tokenizer conformance. See [supported capabilities](docs/tokenizer.md#fixture-runner).
 
 ## Pull requests
 
