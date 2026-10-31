@@ -1,13 +1,14 @@
-//! Partial tokenizer: Data is implemented; every other state is an explicit stub.
+//! Partial tokenizer: Data and PLAINTEXT are implemented; all other states are stubs.
 
 mod data;
 mod input;
+mod plaintext;
 mod state;
 
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
-/// Only the token variants needed by Data.
+/// Only the token variants needed by Data and PLAINTEXT.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
@@ -53,10 +54,11 @@ impl std::fmt::Display for UnimplementedState {
 
 impl std::error::Error for UnimplementedState {}
 
-/// The only production dispatch path. All states except Data remain stubs.
+/// The only production dispatch path. Only Data and PLAINTEXT are implemented.
 fn dispatch(state: State, context: &mut Context) -> Result<Progress, UnimplementedState> {
     match state {
         State::Data => Ok(data::step(context)),
+        State::Plaintext => Ok(plaintext::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }
@@ -119,16 +121,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_support_inventory_leaves_all_states_except_data_stubbed() {
+    fn explicit_support_inventory_leaves_all_states_except_data_and_plaintext_stubbed() {
         // Deliberate support inventory, independent of dispatch outcomes.
-        const IMPLEMENTED: &[State] = &[State::Data];
+        const IMPLEMENTED: &[State] = &[State::Data, State::Plaintext];
         assert_eq!(State::ALL.len(), 84);
         let stubs: Vec<_> = State::ALL
             .iter()
             .copied()
             .filter(|state| !IMPLEMENTED.contains(state))
             .collect();
-        assert_eq!(stubs.len(), 83);
+        assert_eq!(stubs.len(), 82);
         for state in stubs {
             for finished in [false, true] {
                 let mut context = Context::default();
