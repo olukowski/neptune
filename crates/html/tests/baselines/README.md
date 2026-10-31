@@ -61,6 +61,15 @@ the integrated protected baseline is 867 identities. Baseline additions are
 **not** the same count as new passes: combined support admits 206 new passes
 over main (including those eight), of which 42 further identities are protected.
 
+`rcdata_end_tag_open.json` adds exactly one manually reviewed identity after
+PRs #26/#25 make end tag open reachable: `domjs.test` tests[28], “bad endtag
+(space before name)”, RCDATA initial-state index 0. Input `</ XMP>` takes
+non-alpha SPACE fallback and emits the full string literally with no errors;
+no name matching or tag creation applies. The
+[state-local audit](../../../../docs/tokenizer-rcdata-end-tag-open.md#integrated-fixture-review)
+explains this sole newly comparable run and the 18 remaining alpha/name-state
+blocks. All previous 867 protected identities remain unchanged (868 total).
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an

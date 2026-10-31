@@ -48,25 +48,71 @@ closing syntax, CRLF boundaries, consecutive/trailing CR, NUL/non-scalars, empty
 input, alpha/name blocks, and fallback to later stubs. These are local state
 checks, not upstream conformance executions.
 
-Production scope is **only** `State::RcdataEndTagOpen`. RCDATA less-than sign and
-RCDATA end tag name remain explicit terminal `UnimplementedState` stubs.
+Production scope added by this PR is **only** `State::RcdataEndTagOpen`.
+RCDATA less-than sign (merged PR #26) and RAWTEXT less-than sign (merged PR #25)
+are preserved unchanged. RCDATA end tag name remains an explicit terminal
+`UnimplementedState` stub.
 Isolated entry initializes the cursor after the consumed `</` prefix and uses an
 empty temporary buffer, or deliberately seeds unrelated storage to verify its
 preservation. No blocked execution is reconstructed or resumed. There is no
 automatic mode selection, tree builder, shared API change, or fixture adapter
 expansion.
 
-The existing upstream runner has no direct initial-state mapping for this state;
-ordinary RCDATA entry still blocks at less-than sign. No new upstream passes or
-baseline identities are added; all existing baselines and fixture pins remain
-unchanged. Use the [runner command and count definitions](tokenizer.md#fixture-runner).
+## Integrated fixture review
+
+The runner still needs no direct initial-state mapping for this state: ordinary
+RCDATA entry now reaches it through the merged less-than-sign state. The original
+isolated PR report (1,023 executed/passed, 0 failed, 6,030 blocked) predates this
+integration. At main `651cf0747ede47cd401aba7e38c57d0db90841fb`, the 19 RCDATA
+end-tag-open blocks now become **18 end-tag-name blocks and one new pass**.
+All previous baseline files and fixture pins remain unchanged.
+
+The newly comparable fixture was inspected directly, independently of deriving
+expected results from tokenizer output:
+
+| Fixture identity | Unchanged input/context/output | Pinned branch reasoning |
+| --- | --- | --- |
+| `domjs.test`, `tests[28]`, “bad endtag (space before name)”, `RCDATA state`, initial-state index 0 | Input `</ XMP>`, last start tag `xmp`; output one Character string `</ XMP>`; no errors. | RCDATA consumes `<`; less-than sign consumes `/` and clears the buffer. End tag open consumes SPACE (not ASCII alpha), emits `</`, and reconsumes SPACE in RCDATA. RCDATA emits the space and remaining `XMP>` literally, then EOF. No tag is created or compared for appropriateness, and no state or preprocessing error applies. |
+
+Only that manually selected identity is added in
+`crates/html/tests/baselines/rcdata_end_tag_open.json`; existing 867 protected
+identities remain intact, for 868 total. This is not an automatic pass capture.
+
+The other affected runs were inspected in the unchanged fixtures:
+`contentModelFlags.test` cases 2–11 (10), `domjs.test` cases 27 and 29–31 (4),
+and `escapeFlag.test` cases 0–2 and 4 (4), all RCDATA initial-state index 0.
+Each reaches an ASCII letter immediately after `</`, so creates an empty end tag
+and blocks at RCDATA end tag name. They are **not** comparable/pass identities.
+`escapeFlag.test` case 3 still blocks earlier at Character reference.
+
+Current report: 6,827 fixture cases / 7,053 runs; 6,190 dispatch-attempted;
+**1,024 executed, 1,024 passed, 0 failed, 6,029 blocked**.
+Use the [runner command and count definitions](tokenizer.md#fixture-runner).
 Inventory checks are not conformance, and partial passes imply neither full
 conformance nor browser security.
+
+Integrated tests retain the less-than-sign source snapshots (only the scratch
+buffer clears on `/`) before inspecting this state's creation or fallback.
+Open exhaustion suspends; explicit EOF emits the prefix before RCDATA's EOF;
+non-scalar fallback diagnoses once and reconsumes unchanged; alpha stops at the
+name stub with an empty selected tag. Both isolated and real RCDATA streaming
+traces cover all two-chunk splits and single-point chunks, including
+`</ XMP>`, `</0>`, NUL/CRLF, and further less-than signs.
+The assigned-state test no longer treats the merged less-than-sign state as a
+stub: its source effects and reconsuming RCDATA continuation are checked.
+State-local adapter tests in `tests/support/rcdata_end_tag_open.rs` require
+complete EOF/non-alpha fallback, exact diagnostic multiplicity/positions, reject
+deliberate mismatches, and preserve explicit alpha/name-state blocks.
 
 ## Integration caveats
 
 Started at the requested common baseline
-`bcae7e5c916470319ef0838dc72dfd71a95b8181` (HEAD and origin/main).
+`bcae7e5c916470319ef0838dc72dfd71a95b8181` (HEAD and origin/main), then rebased
+onto `651cf0747ede47cd401aba7e38c57d0db90841fb` after PRs #26 and #25 merged.
+Both sibling implementations, registrations, tests, and branch evidence are
+preserved; obsolete destination blocks are updated explicitly. No neighboring
+end-tag-name algorithm is implemented. All CONTRIBUTING checks and the pinned
+upstream runner are rerun for this integrated scope.
 Dispatch, module registration, support inventory, and the central documentation
 have deliberately small additive edits that can conflict with sibling PRs.
 Rebase after neighboring merges and rerun every CONTRIBUTING check and the

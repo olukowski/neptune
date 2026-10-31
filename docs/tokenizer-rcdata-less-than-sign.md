@@ -12,7 +12,7 @@ Pins and upstream fixtures are unchanged.
 
 | Consumed input | Source effects | Next step |
 | --- | --- | --- |
-| U+002F SOLIDUS `/` | Clear the temporary buffer; consume without reconsumption; emit nothing. | RCDATA end tag open remains a terminal `UnimplementedState`. |
+| U+002F SOLIDUS `/` | Clear the temporary buffer; consume without reconsumption; emit nothing. | RCDATA end tag open executes: alpha creates/selects an empty tag and blocks at end tag name; non-alpha/EOF falls back in RCDATA. |
 | Anything else, **including EOF** | Emit literal U+003C `<`; preserve the buffer; schedule the current item for reconsumption in RCDATA. | RCDATA handles that same item/position, including NUL replacement, `&` transition, another `<` transition, or terminal EOF. |
 
 Open exhaustion is not the anything-else branch: it repeatedly returns
@@ -31,8 +31,10 @@ already-consumed `<` and normalized positions after raw CRLF. It separately
 asserts source effects before attempting destinations:
 
 - Solidus with empty/seeded scratch storage, all selector choices, default/seeded
-  pending tokens, open/closed input, and unread non-scalar tails; exact repeated
-  terminal blocks, including after subsequent context mutation.
+  pending tokens, open/closed input, and unread non-scalar/alpha tails. The source
+  snapshot still precedes tag creation or fallback. Destination assertions cover
+  repeated suspension, EOF completion, non-scalar reconsumption without duplicate
+  diagnostics, and exact repeated alpha/name-state blocks after context mutation.
 - Every other ASCII point plus Unicode scalars, actual surrogates, noncharacters,
   controls and NUL. Source diagnostics and storage are checked independently of
   RCDATA's subsequent errors/output/return-state changes. Reconsumption retains
@@ -51,19 +53,23 @@ complete literal output and exact diagnostic multiplicities/positions, reject
 deliberate mismatches, and retain explicit blocks after matching prefixes.
 The preexisting RCDATA tests still inspect its source transition independently;
 only the now-obsolete less-than-sign stub expectation is removed. Character
-reference and RCDATA end tag open block assertions remain explicit.
+reference and RCDATA end tag name block assertions remain explicit; end-tag-open
+EOF/non-alpha fallback now requires complete literal output.
 
 ## Upstream and integration scope
 
-No new upstream passes are added and all prior passing identities remain
-unchanged. Independent fixture inspection shows every pinned RCDATA run with
-`<` also reaches `</` (RCDATA end tag open) or an earlier `&` (Character
-reference); executing a longer prefix is not conformance. No baseline file or
-policy is changed. Use the [runner command/count definitions](tokenizer.md#fixture-runner)
+PR #26 added no new upstream passes: every pinned RCDATA run with `<` also
+reaches `</` (then blocked at RCDATA end tag open) or an earlier `&` (Character
+reference). This historical result is preserved, not a claim that end tag open
+is still a stub. After PR #24's integration, one non-alpha run becomes comparable
+and passes; the other 18 end-tag-open blocks move to end tag name. See the
+[state-specific fixture audit and additive baseline](tokenizer-rcdata-end-tag-open.md#integrated-fixture-review).
+All prior passing identities and policies remain unchanged. Use the [runner command/count definitions](tokenizer.md#fixture-runner)
 for reproducible executed/passed/failed/blocked counts.
 
-This implements exactly one production state. RCDATA end tag open/name remain
-stubs. RAWTEXT less-than sign is implemented separately in PR #25; RAWTEXT end
+PR #26 implements exactly one production state. RCDATA end tag open is added
+separately in PR #24; RCDATA end tag name remains a stub. RAWTEXT less-than sign
+is implemented separately in merged PR #25; RAWTEXT end
 tag open/name remain stubs. No shared API/storage prerequisite,
 dependency, token variant, automatic mode selection or tree builder is added.
 After sibling merges, rebase and rerun all CONTRIBUTING checks and the pinned

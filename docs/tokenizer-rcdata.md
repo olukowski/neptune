@@ -46,7 +46,8 @@ unsupported destination resumability or whole-tokenizer conformance.
 `crates/html/tests/support/rcdata.rs` exercises the existing production adapter
 with explicit/repeated RCDATA initial states, Data defaults, empty input,
 double-escaped non-scalars and NUL, and matching output prefixes that must still
-block at Character reference or RCDATA end tag open. These local tests are not upstream conformance runs.
+block at Character reference or RCDATA end tag name. EOF/non-alpha end tag open
+fallback now completes literally; these local tests are not upstream conformance runs.
 The additive [RCDATA baseline](../crates/html/tests/baselines/rcdata.json) records
 reviewed upstream identities without changing prior passes or upstream fixtures.
 Use the central [runner command and count definitions](tokenizer.md#fixture-runner)

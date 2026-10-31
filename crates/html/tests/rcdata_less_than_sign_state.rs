@@ -93,11 +93,15 @@ fn isolated(mut context: Context) -> Execution {
 }
 
 #[test]
-fn solidus_clears_only_buffer_consumes_once_and_blocks_without_creating_a_tag() {
+fn solidus_clears_only_buffer_before_end_tag_open_destination_effects() {
     for seeded in [false, true] {
         for selector in [None, Some(TagKind::Start), Some(TagKind::End)] {
             for closed in [false, true] {
-                for with_tail in [false, true] {
+                for tail in [
+                    None,
+                    Some(CodePoint::new(0xd800).unwrap()),
+                    Some('T'.into()),
+                ] {
                     let mut context = if seeded {
                         seeded_context()
                     } else {
@@ -118,10 +122,7 @@ fn solidus_clears_only_buffer_consumes_once_and_blocks_without_creating_a_tag() 
                     }
                     let mut execution = isolated(context);
                     execution.context_mut().input.push(points("/")).unwrap();
-                    let tail = CodePoint::new(0xd800).unwrap();
-                    if with_tail {
-                        execution.context_mut().input.push([tail]).unwrap();
-                    }
+                    execution.context_mut().input.push(tail).unwrap();
                     if closed {
                         execution.context_mut().input.finish();
                     }
@@ -136,36 +137,87 @@ fn solidus_clears_only_buffer_consumes_once_and_blocks_without_creating_a_tag() 
                         execution.step(),
                         Ok(Progress::Continue(State::RcdataEndTagOpen))
                     );
+                    // Source boundary: no tag creation, output, diagnostic, or tail
+                    // consumption. Only the temporary buffer has been cleared.
                     assert_eq!(snapshot(&execution), expected);
-                    let blocked = Err(UnimplementedState {
-                        state: State::RcdataEndTagOpen,
-                    });
-                    for _ in 0..3 {
-                        assert_eq!(execution.step(), blocked);
-                        assert_eq!(snapshot(&execution), expected);
-                    }
-                    // Cursor inspection only; never reconstruct/resume blocked execution.
-                    let next = if with_tail {
-                        Input::CodePoint(tail)
-                    } else if closed {
-                        Input::Eof
-                    } else {
-                        Input::NeedMoreInput
-                    };
-                    assert_eq!(execution.context_mut().input.consume(), next);
-                    if with_tail {
-                        assert_eq!(
-                            execution.context().input.errors(),
-                            [error("surrogate-in-input-stream", 2, 3)]
-                        );
-                    }
-                    if !closed {
-                        execution.context_mut().input.push(points("later")).unwrap();
+
+                    if tail.is_none() && !closed {
+                        for _ in 0..3 {
+                            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                            assert_eq!(snapshot(&execution), expected);
+                        }
+                        execution.context_mut().input.push([]).unwrap();
                         execution.context_mut().input.finish();
                     }
-                    let inspected = snapshot(&execution);
-                    assert_eq!(execution.step(), blocked);
-                    assert_eq!(snapshot(&execution), inspected);
+                    let next = tail.map_or(Input::Eof, Input::CodePoint);
+                    expected.current = Some((next, Position { line: 2, column: 3 }));
+                    if tail == Some('T'.into()) {
+                        expected.state = State::RcdataEndTagName;
+                        expected.current_tag = Some(TagKind::End);
+                        expected.pending_end_tag = Some(PendingEndTag {
+                            name: vec![],
+                            self_closing: false,
+                            attributes: vec![],
+                            discarded_current_attribute: None,
+                        });
+                        assert_eq!(
+                            execution.step(),
+                            Ok(Progress::Continue(State::RcdataEndTagName))
+                        );
+                        assert_eq!(snapshot(&execution), expected);
+                        assert_eq!(
+                            execution.context_mut().input.reconsume(),
+                            Err(CursorError::AlreadyReconsuming)
+                        );
+                        let blocked = Err(UnimplementedState {
+                            state: State::RcdataEndTagName,
+                        });
+                        for _ in 0..3 {
+                            assert_eq!(execution.step(), blocked);
+                            assert_eq!(snapshot(&execution), expected);
+                        }
+                        if !closed {
+                            execution.context_mut().input.push(points("later")).unwrap();
+                            execution.context_mut().input.finish();
+                            assert_eq!(execution.step(), blocked);
+                            assert_eq!(snapshot(&execution), expected);
+                        }
+                        continue;
+                    }
+
+                    expected.state = State::Rcdata;
+                    expected
+                        .tokens
+                        .extend([Token::Character('<'.into()), Token::Character('/'.into())]);
+                    if tail.is_some() {
+                        expected
+                            .input_errors
+                            .push(error("surrogate-in-input-stream", 2, 3));
+                    }
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::Rcdata)));
+                    assert_eq!(snapshot(&execution), expected);
+                    assert_eq!(
+                        execution.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                    if let Some(point) = tail {
+                        expected.tokens.push(Token::Character(point));
+                        assert_eq!(execution.step(), Ok(Progress::Continue(State::Rcdata)));
+                        assert_eq!(snapshot(&execution), expected);
+                        if !closed {
+                            for _ in 0..3 {
+                                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                                assert_eq!(snapshot(&execution), expected);
+                            }
+                            execution.context_mut().input.finish();
+                        }
+                        expected.current = Some((Input::Eof, Position { line: 2, column: 4 }));
+                    }
+                    expected.tokens.push(Token::Eof);
+                    for _ in 0..3 {
+                        assert_eq!(execution.step(), Ok(Progress::Finished));
+                        assert_eq!(snapshot(&execution), expected);
+                    }
                 }
             }
         }
@@ -378,6 +430,10 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_step_traces
         vec![],
         points("/"),
         points("/title>ignored"),
+        points("/0>abc"),
+        points("/ XMP>"),
+        points("/\0\r\n?"),
+        points("/<//>"),
         points("a>!\0"),
         points("\0\r\n\0\r"),
         points("\r"),

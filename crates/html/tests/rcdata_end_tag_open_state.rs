@@ -233,13 +233,29 @@ fn anything_else_emits_only_literal_prefix_then_rcdata_reconsumes() {
             };
             assert_eq!(run.step(), Ok(Progress::Continue(destination)));
             assert_eq!(snapshot(&run), expected, "destination U+{value:04X}");
-            if destination != State::Rcdata {
+            if destination == State::CharacterReference {
                 let blocked = Err(UnimplementedState { state: destination });
                 assert_eq!(run.step(), blocked);
                 assert_eq!(snapshot(&run), expected);
                 assert_terminal(&mut run, blocked);
             } else {
-                // Tail is still unconsumed after the reconsuming destination step.
+                if destination == State::RcdataLessThanSign {
+                    // The now-implemented less-than-sign state consumes the tail,
+                    // emits its delayed '<', and reconsumes '!' in RCDATA.
+                    assert_eq!(run.step(), Ok(Progress::Continue(State::Rcdata)));
+                    expected.state = State::Rcdata;
+                    expected.current = Some((
+                        Input::CodePoint('!'.into()),
+                        Position { line: 2, column: 4 },
+                    ));
+                    expected.tokens.push(Token::Character('<'.into()));
+                    assert_eq!(snapshot(&run), expected);
+                    assert_eq!(
+                        run.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                }
+                // RCDATA consumes (or reconsumes) the tail exactly once.
                 assert_eq!(run.step(), Ok(Progress::Continue(State::Rcdata)));
                 expected.tokens.push(Token::Character('!'.into()));
                 expected.current = Some((
@@ -396,8 +412,8 @@ fn all_two_chunk_splits_and_single_point_chunks_preserve_every_source_step() {
 }
 
 #[test]
-fn neighboring_entry_states_remain_terminal_and_do_not_fake_completion() {
-    for state in [State::RcdataLessThanSign, State::RcdataEndTagName] {
+fn end_tag_name_entry_remains_terminal_and_does_not_fake_completion() {
+    for state in [State::RcdataEndTagName] {
         for closed in [false, true] {
             // Fresh isolated entry, not reconstruction of blocked execution.
             let mut context = context(true);

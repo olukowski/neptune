@@ -47,8 +47,10 @@ Repeated open exhaustion has no effects. Repeated terminal EOF/stub steps have
 no additional effects. The `/` destination remains explicitly terminal
 `UnimplementedState(RawtextEndTagOpen)`, including with open input, closed input,
 and an unconsumed malformed tail. No blocked execution is reconstructed or
-resumed. RAWTEXT end tag name and RCDATA end tag open/name remain stubs too.
-RCDATA less-than sign is implemented separately in merged PR #26.
+resumed. RAWTEXT end tag name and RCDATA end tag name remain stubs too.
+RCDATA less-than sign is implemented separately in merged PR #26;
+[RCDATA end tag open is added separately in PR #24](tokenizer-rcdata-end-tag-open.md).
+The upstream counts below record PR #25's historical integration, before #24.
 
 Every two-chunk split and single-code-point chunking of representative isolated
 and real RAWTEXT-entry inputs compares every non-suspension source-step snapshot,
