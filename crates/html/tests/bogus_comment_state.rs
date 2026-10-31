@@ -29,9 +29,11 @@ fn seeded() -> Context {
         current_tag: Some(TagKind::End),
         pending_start_tag: Some(PendingStartTag {
             name: points("start"),
+            attributes: vec![],
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("end"),
+            attributes: vec![],
         }),
         last_start_tag: Some(points("title")),
         return_state: Some(State::Rcdata),

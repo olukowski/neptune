@@ -1,6 +1,8 @@
-//! Partial tokenizer: Data, PLAINTEXT, Tag open, End tag open, Tag name, and Bogus comment.
+//! Partial tokenizer: Data, PLAINTEXT, Tag open, End tag open, Tag name,
+//! Before attribute name, and Bogus comment.
 //! All other states remain explicit stubs.
 
+mod before_attribute_name;
 mod bogus_comment;
 mod data;
 mod end_tag_open;
@@ -13,9 +15,9 @@ mod tag_open;
 pub use input::{CodePoint, Cursor, CursorError, Input, ParseError, Position};
 pub use state::State;
 
-/// Only emitted token variants needed by the six implemented states.
-/// Tag attributes are implicitly empty and self-closing flags implicitly unset.
-/// No implemented state can change these defaults (HTML Tokenization preamble).
+/// Only emitted token variants needed by the implemented states.
+/// Reachable emission paths have empty attributes and unset self-closing flags.
+/// Attribute creation leads to stubs before any tag can be emitted.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
     Character(CodePoint),
@@ -27,21 +29,29 @@ pub enum Token {
 
 /// Unfinished start tag created by Tag open, not an emitted token.
 ///
-/// Only its name needs storage so far. The self-closing flag is implicitly unset
-/// and the attribute list implicitly empty, as required at creation. No general
-/// attribute API is implemented yet.
+/// The self-closing flag is implicitly unset. Attributes start empty; the last
+/// entry is the current attribute. No attribute-name/value algorithms run yet.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PendingStartTag {
     pub name: Vec<CodePoint>,
+    pub attributes: Vec<Attribute>,
 }
 
 /// Unfinished end tag created by End tag open, not an emitted token.
 ///
 /// As with `PendingStartTag`, the self-closing flag is implicitly unset and the
-/// attribute list implicitly empty.
+/// attribute list starts empty; its last entry is the current attribute.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PendingEndTag {
     pub name: Vec<CodePoint>,
+    pub attributes: Vec<Attribute>,
+}
+
+/// A pending tag attribute, retaining code points (including non-scalars).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Attribute {
+    pub name: Vec<CodePoint>,
+    pub value: Vec<CodePoint>,
 }
 
 /// Selects the current tag independently of other retained pending storage.
@@ -68,7 +78,8 @@ pub struct Context {
     /// Set by states invoking Character reference; absent before any invocation.
     pub return_state: Option<State>,
     /// Selected by tag creation; cleared on emission or abandonment at EOF.
-    /// Direct Tag name entry requires this and its matching pending tag.
+    /// Direct Tag name / Before attribute name entry requires this and its
+    /// matching pending tag.
     pub current_tag: Option<TagKind>,
     /// Created, not emitted; absent until Tag open's ASCII-alpha branch.
     pub pending_start_tag: Option<PendingStartTag>,
@@ -116,6 +127,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),
+        State::BeforeAttributeName => Ok(before_attribute_name::step(context)),
         State::BogusComment => Ok(bogus_comment::step(context)),
         _ => Err(UnimplementedState { state }),
     }
@@ -179,7 +191,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_support_inventory_has_six_implemented_states_and_seventy_eight_stubs() {
+    fn explicit_support_inventory_has_seven_implemented_states_and_seventy_seven_stubs() {
         // Deliberate support inventory, independent of dispatch outcomes.
         const IMPLEMENTED: &[State] = &[
             State::Data,
@@ -187,6 +199,7 @@ mod tests {
             State::TagOpen,
             State::EndTagOpen,
             State::TagName,
+            State::BeforeAttributeName,
             State::BogusComment,
         ];
         assert_eq!(State::ALL.len(), 84);
@@ -195,7 +208,7 @@ mod tests {
             .copied()
             .filter(|state| !IMPLEMENTED.contains(state))
             .collect();
-        assert_eq!(stubs.len(), 78);
+        assert_eq!(stubs.len(), 77);
         for state in stubs {
             for finished in [false, true] {
                 let mut context = Context::default();
@@ -221,10 +234,10 @@ mod tests {
         }
         assert_eq!(
             UnimplementedState {
-                state: State::BeforeAttributeName
+                state: State::AttributeName
             }
             .to_string(),
-            "unimplemented HTML tokenizer state: Before attribute name state"
+            "unimplemented HTML tokenizer state: Attribute name state"
         );
     }
 
@@ -243,16 +256,16 @@ mod tests {
                 position: context.input.position(),
             });
             context.input.reconsume().unwrap();
-            Ok(Progress::Continue(State::BeforeAttributeName))
+            Ok(Progress::Continue(State::AttributeName))
         });
-        assert_eq!(result, Ok(Progress::Continue(State::BeforeAttributeName)));
-        assert_eq!(execution.state(), State::BeforeAttributeName);
+        assert_eq!(result, Ok(Progress::Continue(State::AttributeName)));
+        assert_eq!(execution.state(), State::AttributeName);
         assert_eq!(execution.context().tokens, [Token::Character('!'.into())]);
         assert_eq!(execution.context().errors.len(), 1);
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::BeforeAttributeName
+                state: State::AttributeName
             })
         );
         assert_eq!(
@@ -262,7 +275,7 @@ mod tests {
         assert_eq!(
             execution.step(),
             Err(UnimplementedState {
-                state: State::BeforeAttributeName
+                state: State::AttributeName
             })
         );
     }

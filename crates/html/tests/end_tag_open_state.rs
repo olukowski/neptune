@@ -26,9 +26,11 @@ fn seeded() -> Context {
         return_state: Some(State::Rcdata),
         pending_start_tag: Some(PendingStartTag {
             name: points("start"),
+            attributes: vec![],
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("end"),
+            attributes: vec![],
         }),
         pending_comment: Some(PendingComment {
             data: points("old comment"),
