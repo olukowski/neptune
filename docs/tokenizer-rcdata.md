@@ -16,9 +16,10 @@ stream** and opening **Tokenization** contracts. Revisions remain those in
 
 Every branch consumes once; none reconsumes. The two transition branches do not
 emit or report state diagnostics. Their source effects are inspectable before
-the next step reports the destination's own terminal `UnimplementedState`.
-Character reference, RCDATA less-than sign, and RCDATA end-tag states are not
-implemented here. Never reconstruct or resume blocked execution.
+the next step attempts the destination. [RCDATA less-than sign](tokenizer-rcdata-less-than-sign.md)
+and [RCDATA end tag open](tokenizer-rcdata-end-tag-open.md) now execute;
+Character reference and RCDATA end tag name remain terminal `UnimplementedState`
+stubs. Never reconstruct or resume blocked execution.
 
 Select RCDATA explicitly with `Execution::new(State::Rcdata, context)`. The
 fixture runner already recognizes `RCDATA state`; no mapping, input, execution,
@@ -45,7 +46,8 @@ unsupported destination resumability or whole-tokenizer conformance.
 `crates/html/tests/support/rcdata.rs` exercises the existing production adapter
 with explicit/repeated RCDATA initial states, Data defaults, empty input,
 double-escaped non-scalars and NUL, and matching output prefixes that must still
-block at each destination. These local tests are not upstream conformance runs.
+block at Character reference or RCDATA end tag name. EOF/non-alpha end tag open
+fallback now completes literally; these local tests are not upstream conformance runs.
 The additive [RCDATA baseline](../crates/html/tests/baselines/rcdata.json) records
 reviewed upstream identities without changing prior passes or upstream fixtures.
 Use the central [runner command and count definitions](tokenizer.md#fixture-runner)

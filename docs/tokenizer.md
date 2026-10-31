@@ -2,7 +2,9 @@
 
 ## Status and source
 
-**Only Data, RCDATA, PLAINTEXT, RAWTEXT, RAWTEXT end tag open, Tag open, End tag open, Tag name, Before
+**Only Data, RCDATA, RCDATA less-than sign, RCDATA end tag open, PLAINTEXT,
+RAWTEXT, RAWTEXT less-than sign, RAWTEXT end tag open, Tag open, End tag open,
+Tag name, Before
 attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, and Bogus comment are
@@ -15,6 +17,10 @@ Implementation evidence is the immutable HTML Standard source in
 and the opening **Tokenization** paragraphs (current/next input, reconsumption,
 and token creation/emission), plus **Data state** (`#data-state`), **PLAINTEXT
 state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
+**RAWTEXT less-than sign state** (`#rawtext-less-than-sign-state`;
+[state-local evidence](tokenizer-rawtext-less-than-sign.md)),
+**RAWTEXT end tag open state** (`#rawtext-end-tag-open-state`;
+[state-local branch and integrated fixture evidence](tokenizer-rawtext-end-tag-open.md)),
 **Tag open state** (`#tag-open-state`), **End tag open state** (`#end-tag-open-state`),
 **Tag name state** (`#tag-name-state`),
 **Before attribute name state** (`#before-attribute-name-state`),
@@ -31,7 +37,11 @@ state** (`#plaintext-state`), **RAWTEXT state** (`#rawtext-state`),
 [state-local evidence](tokenizer-before-attribute-value.md)),
 **Self-closing start tag state** (`#self-closing-start-tag-state`),
 **Bogus comment state** (`#bogus-comment-state`), and **RCDATA state**
-(`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)).
+(`#rcdata-state`; [state-local coverage](tokenizer-rcdata.md)), plus
+**RCDATA less-than sign state** (`#rcdata-less-than-sign-state`;
+[state-local branch evidence](tokenizer-rcdata-less-than-sign.md)), and
+**RCDATA end tag open state** (`#rcdata-end-tag-open-state`;
+[state-local branch evidence](tokenizer-rcdata-end-tag-open.md)).
 [Attribute value (single-quoted) branch evidence](tokenizer-attribute-value-single-quoted.md)
 cites its exact pinned source lines.
 Newline normalization follows the linked Infra
@@ -81,7 +91,8 @@ instruction states and no separate decimal-character-reference-start state.
   `Token::Comment { data }`. Isolated Bogus comment entry requires initialized
   pending-comment storage; existing data is preserved literally, not preprocessed again.
   Each creation replaces only its own pending storage; unrelated storage remains.
-  The code-point `temporary_buffer` is cleared by Tag open on `?`.
+  The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA
+  and RAWTEXT less-than sign on `/`.
 - Tag creation selects `current_tag: Option<TagKind>` (Start or End), independently
   of any unrelated retained pending storage. Tag name mutates only the selected
   name. Before attribute name appends only to the selected tag's attribute list.
@@ -284,9 +295,11 @@ return state. No branch schedules reconsumption. Open exhausted input suspends.
 
 Select RAWTEXT explicitly with `Execution::new(State::Rawtext, context)`; the
 fixture runner already maps `RAWTEXT state` to that initial state. No tree builder
-or automatic switching on `<style>` is added. RAWTEXT less-than sign and RAWTEXT end
-tag name remain terminal `UnimplementedState` stubs.
-[RAWTEXT end tag open](tokenizer-rawtext-end-tag-open.md) is implemented for isolated entry.
+or automatic switching on `<style>` is added. [RAWTEXT less-than sign](tokenizer-rawtext-less-than-sign.md)
+and [RAWTEXT end tag open](tokenizer-rawtext-end-tag-open.md) are implemented and
+reachable from RAWTEXT entry. Non-alpha `</` fallback, including EOF, can complete;
+ASCII alpha creates/selects the empty end tag and reconsumes into RAWTEXT end tag
+name, which remains a terminal `UnimplementedState` stub.
 A matching output prefix before a stub is blocked, never EOF or a passing run;
 blocked execution must not be reconstructed/resumed.
 [RCDATA is implemented separately](tokenizer-rcdata.md).
@@ -301,7 +314,7 @@ every source-step snapshot, including `<`, CRLF, consecutive/trailing CR, NUL,
 and terminal blocks. State-local adapter tests in
 `crates/html/tests/support/rawtext.rs` check explicit initial-state mapping,
 Data defaults, no automatic style handling,
-exact output/diagnostics, and matching-prefix rejection at the destination stub.
+exact output/diagnostics, and matching-prefix rejection at the end-tag-open stub.
 These are state-specific checks, not full tokenizer streaming conformance.
 
 ## Tag open coverage

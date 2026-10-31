@@ -1,6 +1,6 @@
 //! Source-local evidence for pinned RAWTEXT end tag open, lines 143589–143607:
 //! https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source
-//! Isolated entry only: neighboring entry/name states intentionally remain stubs.
+//! Isolated source evidence plus integrated RAWTEXT entry; end tag name stays a stub.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -253,31 +253,42 @@ fn every_other_ascii_and_non_ascii_point_falls_back_before_rawtext_destination_e
         assert_eq!(execution.context().errors, errors);
         assert_eq!(execution.context().tokens, tokens);
         if value == 0x3c {
-            assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
-            assert_eq!(
-                execution.context_mut().input.consume(),
-                Input::CodePoint('!'.into())
-            );
-        } else {
+            // The now-implemented less-than-sign destination consumes '!', emits
+            // '<' and reconsumes, without changing the assigned source snapshot.
             assert_eq!(execution.step(), Ok(Progress::Continue(State::Rawtext)));
-            tokens.push(Token::Character('!'.into()));
+            tokens.push(Token::Character('<'.into()));
             assert_eq!(execution.context().tokens, tokens);
             assert_eq!(
-                execution.context().input.position(),
-                if normalized == '\n'.into() {
-                    Position { line: 3, column: 1 }
-                } else {
+                execution.context().input.current(),
+                Some((
+                    Input::CodePoint('!'.into()),
                     Position { line: 2, column: 4 }
-                }
+                ))
             );
-            assert_eq!(execution.step(), Ok(Progress::Finished));
-            tokens.push(Token::Eof);
-            assert_eq!(execution.context().tokens, tokens);
-            assert_eq!(execution.context().errors, errors);
-            assert_eq!(execution.context().input.errors(), preprocessing);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
             assert_eq!(storage(execution.context()), preserved);
-            assert_terminal(&mut execution, Ok(Progress::Finished));
         }
+        assert_eq!(execution.step(), Ok(Progress::Continue(State::Rawtext)));
+        tokens.push(Token::Character('!'.into()));
+        assert_eq!(execution.context().tokens, tokens);
+        assert_eq!(
+            execution.context().input.position(),
+            if normalized == '\n'.into() {
+                Position { line: 3, column: 1 }
+            } else {
+                Position { line: 2, column: 4 }
+            }
+        );
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        tokens.push(Token::Eof);
+        assert_eq!(execution.context().tokens, tokens);
+        assert_eq!(execution.context().errors, errors);
+        assert_eq!(execution.context().input.errors(), preprocessing);
+        assert_eq!(storage(execution.context()), preserved);
+        assert_terminal(&mut execution, Ok(Progress::Finished));
     }
 }
 
@@ -392,6 +403,100 @@ fn temporary_buffer_is_neither_cleared_nor_appended_by_either_branch() {
     }
 }
 
+#[test]
+fn real_rawtext_entry_preserves_each_source_boundary_before_creation_or_literal_recovery() {
+    for suffix in ["", " XMP>", "Aname>"] {
+        let mut context = seeded_context();
+        context.temporary_buffer = points("stale scratch");
+        context.input.push(points(&format!("</{suffix}"))).unwrap();
+        context.input.finish();
+        let mut execution = Execution::new(State::Rawtext, context);
+        let mut expected = snapshot(&execution);
+        assert_eq!(
+            execution.step(),
+            Ok(Progress::Continue(State::RawtextLessThanSign))
+        );
+        expected.state = State::RawtextLessThanSign;
+        expected.current = Some((
+            Input::CodePoint('<'.into()),
+            Position { line: 1, column: 1 },
+        ));
+        assert_eq!(snapshot(&execution), expected);
+        assert_eq!(
+            execution.step(),
+            Ok(Progress::Continue(State::RawtextEndTagOpen))
+        );
+        expected.state = State::RawtextEndTagOpen;
+        expected.current = Some((
+            Input::CodePoint('/'.into()),
+            Position { line: 1, column: 2 },
+        ));
+        expected.storage.buffer.clear();
+        assert_eq!(snapshot(&execution), expected);
+        // Neither predecessor creates an end tag, appends a name, or emits.
+        let alpha = suffix.starts_with('A');
+        let target = if alpha {
+            State::RawtextEndTagName
+        } else {
+            State::Rawtext
+        };
+        assert_eq!(execution.step(), Ok(Progress::Continue(target)));
+        expected.state = target;
+        expected.current = Some((
+            suffix
+                .chars()
+                .next()
+                .map_or(Input::Eof, |point| Input::CodePoint(point.into())),
+            Position { line: 1, column: 3 },
+        ));
+        if alpha {
+            expected.storage.current_tag = Some(TagKind::End);
+            expected.storage.end = Some(PendingEndTag {
+                name: vec![],
+                self_closing: false,
+                attributes: vec![],
+                discarded_current_attribute: None,
+            });
+        } else {
+            expected
+                .tokens
+                .extend([Token::Character('<'.into()), Token::Character('/'.into())]);
+        }
+        assert_eq!(snapshot(&execution), expected);
+        assert_eq!(
+            execution.context_mut().input.reconsume(),
+            Err(CursorError::AlreadyReconsuming)
+        );
+        if alpha {
+            assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
+        } else {
+            for (index, point) in suffix.chars().enumerate() {
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::Rawtext)));
+                expected.current = Some((
+                    Input::CodePoint(point.into()),
+                    Position {
+                        line: 1,
+                        column: index + 3,
+                    },
+                ));
+                expected.tokens.push(Token::Character(point.into()));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            expected.current = Some((
+                Input::Eof,
+                Position {
+                    line: 1,
+                    column: suffix.chars().count() + 3,
+                },
+            ));
+            expected.tokens.push(Token::Eof);
+            assert_eq!(snapshot(&execution), expected);
+            assert_terminal(&mut execution, Ok(Progress::Finished));
+        }
+    }
+}
+
 // Compare every productive source step and terminal result, not just final output.
 type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;
 
@@ -427,49 +532,67 @@ fn all_two_chunk_splits_and_single_point_chunks_match_closed_input_source_traces
         points("&amp;"),
         points("<tail"),
         points("!<tail"),
+        points(" XMP>"),
+        points("0></A>"),
         points("\r\n"),
         points("\r\r\n\0\r"),
         malformed,
         vec![CodePoint::new(0xd800).unwrap(), '!'.into()],
     ] {
-        let run = |chunks: Vec<&[CodePoint]>, closed: bool| {
-            let context = entry(seeded_context(), "</");
-            let mut execution = Execution::new(State::RawtextEndTagOpen, context);
-            let mut trace = vec![];
-            if closed {
-                execution
-                    .context_mut()
-                    .input
-                    .push(input.iter().copied())
-                    .unwrap();
-                execution.context_mut().input.finish();
+        for initial in [State::RawtextEndTagOpen, State::Rawtext] {
+            let input = if initial == State::Rawtext {
+                points("</")
+                    .into_iter()
+                    .chain(input.iter().copied())
+                    .collect::<Vec<_>>()
             } else {
-                for chunk in chunks {
+                input.clone()
+            };
+            let run = |chunks: Vec<&[CodePoint]>, closed: bool| {
+                let context = if initial == State::Rawtext {
+                    let mut context = seeded_context();
+                    context.temporary_buffer = points("stale scratch");
+                    context
+                } else {
+                    entry(seeded_context(), "</")
+                };
+                let mut execution = Execution::new(initial, context);
+                let mut trace = vec![];
+                if closed {
                     execution
                         .context_mut()
                         .input
-                        .push(chunk.iter().copied())
+                        .push(input.iter().copied())
                         .unwrap();
-                    if drain(&mut execution, &mut trace, input.len() + 5) {
-                        // Never feed or reconstruct a terminally blocked execution.
-                        return trace;
+                    execution.context_mut().input.finish();
+                } else {
+                    for chunk in chunks {
+                        execution
+                            .context_mut()
+                            .input
+                            .push(chunk.iter().copied())
+                            .unwrap();
+                        if drain(&mut execution, &mut trace, input.len() * 3 + 5) {
+                            // Never feed or reconstruct a terminally blocked execution.
+                            return trace;
+                        }
+                        execution.context_mut().input.push([]).unwrap();
+                        assert!(!drain(&mut execution, &mut trace, 1));
                     }
-                    execution.context_mut().input.push([]).unwrap();
-                    assert!(!drain(&mut execution, &mut trace, 1));
+                    execution.context_mut().input.finish();
                 }
-                execution.context_mut().input.finish();
+                assert!(drain(&mut execution, &mut trace, input.len() * 3 + 5));
+                trace
+            };
+            let expected = run(vec![], true);
+            for split in 0..=input.len() {
+                assert_eq!(
+                    run(vec![&input[..split], &input[split..]], false),
+                    expected,
+                    "{initial:?}, split {split} of {input:?}"
+                );
             }
-            assert!(drain(&mut execution, &mut trace, input.len() + 5));
-            trace
-        };
-        let expected = run(vec![], true);
-        for split in 0..=input.len() {
-            assert_eq!(
-                run(vec![&input[..split], &input[split..]], false),
-                expected,
-                "split {split} of {input:?}"
-            );
+            assert_eq!(run(input.chunks(1).collect(), false), expected);
         }
-        assert_eq!(run(input.chunks(1).collect(), false), expected);
     }
 }

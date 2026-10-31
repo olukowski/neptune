@@ -8,8 +8,11 @@ fn explicit_support_inventory_matches_dispatch() {
     const IMPLEMENTED: &[State] = &[
         State::Data,
         State::Rcdata,
+        State::RcdataLessThanSign,
+        State::RcdataEndTagOpen,
         State::Plaintext,
         State::Rawtext,
+        State::RawtextLessThanSign,
         State::RawtextEndTagOpen,
         State::TagOpen,
         State::EndTagOpen,

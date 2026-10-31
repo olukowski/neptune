@@ -77,15 +77,15 @@ fn rawtext_adapter_compares_complete_output_and_exact_preprocessing_and_null_dia
 }
 
 #[test]
-fn rawtext_matching_prefix_before_less_than_is_terminally_blocked_not_passed() {
-    for input in ["&amp;<", "&amp;</style>", "&amp;<\0"] {
+fn rawtext_matching_prefix_before_end_tag_name_is_terminally_blocked_not_passed() {
+    for input in ["&amp;</style>", "&amp;</A"] {
         let case = json!({
             "description": "matching output prefix cannot pass at a stub",
             "input": input, "output": [["Character", "&amp;"]], "lastStartTag": "style"
         });
         assert_eq!(
             run_with(&case, "RAWTEXT state", None, execute),
-            Outcome::Blocked(Blocked::Unimplemented(State::RawtextLessThanSign))
+            Outcome::Blocked(Blocked::Unimplemented(State::RawtextEndTagName))
         );
     }
 }
