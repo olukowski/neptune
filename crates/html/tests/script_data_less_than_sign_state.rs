@@ -1,6 +1,7 @@
 //! Local branch evidence, not upstream conformance runs. HTML revision
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, #script-data-less-than-sign-state,
-//! source lines 143654–143673. All three destinations remain terminal stubs here.
+//! source lines 143654–143673. Script data is implemented; escape start and
+//! end tag open remain terminal stubs. Source and destination effects are separate.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -173,36 +174,78 @@ fn every_ascii_branch_and_non_scalar_has_exact_effects_before_destination_dispat
                     .collect();
                 assert_eq!(execution.step(), Ok(Progress::Continue(target)));
                 assert_eq!(snapshot(&execution), expected, "input U+{value:04X}");
-                assert_terminal_stub(&mut execution, target);
-
-                // Cursor inspection only, after terminality has been checked. Never
-                // reconstruct or resume execution to simulate a destination algorithm.
-                if target == State::ScriptData {
-                    assert_eq!(
-                        execution.context_mut().input.reconsume(),
-                        Err(CursorError::AlreadyReconsuming)
-                    );
+                let tail_position = if normalized == '\n'.into() {
+                    Position { line: 3, column: 1 }
+                } else {
+                    Position { line: 2, column: 3 }
+                };
+                if matches!(value, 0x2f | 0x21) {
+                    assert_terminal_stub(&mut execution, target);
+                    // Inspect the untouched tail only, never resume a stub.
                     assert_eq!(
                         execution.context_mut().input.consume(),
-                        Input::CodePoint(normalized)
+                        Input::CodePoint('z'.into())
                     );
-                    assert_eq!(execution.context().input.current(), expected.current);
+                    assert_eq!(execution.context().input.position(), tail_position);
                     assert_eq!(execution.context().input.errors(), expected.input_errors);
+                    continue;
                 }
-                // '/' and '!' did not reconsume. Fallback reconsumed exactly once.
+
                 assert_eq!(
-                    execution.context_mut().input.consume(),
-                    Input::CodePoint('z'.into())
+                    execution.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
                 );
-                assert_eq!(
-                    execution.context().input.position(),
-                    if normalized == '\n'.into() {
-                        Position { line: 3, column: 1 }
+                // The real Script data destination reconsumes at the SAME position.
+                // Only that step diagnoses/replaces NUL or handles another '<'.
+                if value == 0x3c {
+                    assert_eq!(
+                        execution.step(),
+                        Ok(Progress::Continue(State::ScriptDataLessThanSign))
+                    );
+                    expected.state = State::ScriptDataLessThanSign;
+                    assert_eq!(snapshot(&execution), expected);
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                    expected.state = State::ScriptData;
+                    expected.current = Some((Input::CodePoint('z'.into()), tail_position));
+                    expected.tokens.push(Token::Character('<'.into()));
+                    assert_eq!(snapshot(&execution), expected);
+                } else {
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                    expected.tokens.push(Token::Character(if value == 0 {
+                        expected
+                            .errors
+                            .push(error("unexpected-null-character", 2, 2));
+                        '\u{fffd}'.into()
                     } else {
-                        Position { line: 2, column: 3 }
+                        normalized
+                    }));
+                    assert_eq!(snapshot(&execution), expected);
+                }
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                expected.current = Some((Input::CodePoint('z'.into()), tail_position));
+                expected.tokens.push(Token::Character('z'.into()));
+                assert_eq!(snapshot(&execution), expected);
+                if !finished {
+                    for _ in 0..3 {
+                        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                        assert_eq!(snapshot(&execution), expected);
                     }
-                );
-                assert_eq!(execution.context().input.errors(), expected.input_errors);
+                    execution.context_mut().input.finish();
+                }
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                expected.current = Some((
+                    Input::Eof,
+                    Position {
+                        line: tail_position.line,
+                        column: tail_position.column + 1,
+                    },
+                ));
+                expected.tokens.push(Token::Eof);
+                assert_eq!(snapshot(&execution), expected);
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(&execution), expected);
+                }
             }
         }
     }
@@ -232,13 +275,18 @@ fn actual_eof_emits_only_less_than_and_schedules_conceptual_eof_reconsumption() 
         expected.tokens.push(Token::Character('<'.into()));
         assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
         assert_eq!(snapshot(&execution), expected);
-        assert_terminal_stub(&mut execution, State::ScriptData);
         assert_eq!(
             execution.context_mut().input.reconsume(),
             Err(CursorError::AlreadyReconsuming)
         );
-        assert_eq!(execution.context_mut().input.consume(), Input::Eof);
-        assert_eq!(snapshot(&execution), expected);
+        // EOF is emitted only by the real Script data destination, at the same
+        // conceptual EOF position. The less-than-sign source did not finish.
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        expected.tokens.push(Token::Eof);
+        for _ in 0..3 {
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+        }
     }
 }
 
@@ -271,7 +319,25 @@ fn default_storage_stays_absent_and_no_destination_creation_or_eof_is_invented()
                 .map(Token::Character)
                 .collect::<Vec<_>>()
         );
-        assert_terminal_stub(&mut execution, target);
+        if matches!(input, "/" | "!") {
+            assert_terminal_stub(&mut execution, target);
+        } else {
+            if input == "x" {
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                assert_eq!(
+                    execution.context().tokens,
+                    [Token::Character('<'.into()), Token::Character('x'.into())]
+                );
+            }
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            let mut expected: Vec<_> = points(if input == "x" { "<x" } else { "<" })
+                .into_iter()
+                .map(Token::Character)
+                .collect();
+            expected.push(Token::Eof);
+            assert_eq!(execution.context().tokens, expected);
+            assert_eq!(storage(execution.context()), storage(&Context::default()));
+        }
     }
 }
 
@@ -301,52 +367,58 @@ fn open_empty_input_suspends_without_a_current_item_and_can_then_accept_input() 
     assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
 }
 
-fn trace(chunks: &[&[CodePoint]], closed: bool, newline_prefix: bool) -> Vec<Snapshot> {
-    let mut execution = entry(seeded_context(), newline_prefix);
-    let mut snapshots = Vec::new();
-    if closed {
-        for chunk in chunks {
-            execution
-                .context_mut()
-                .input
-                .push(chunk.iter().copied())
-                .unwrap();
+type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;
+
+fn drain(execution: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
+    for _ in 0..bound {
+        let before = snapshot(execution);
+        let result = execution.step();
+        if result == Ok(Progress::NeedMoreInput) {
+            for _ in 0..3 {
+                assert_eq!(snapshot(execution), before);
+                assert_eq!(execution.step(), result);
+            }
+            return false;
         }
-        execution.context_mut().input.finish();
+        trace.push((result, snapshot(execution)));
+        if !matches!(result, Ok(Progress::Continue(_))) {
+            let terminal = snapshot(execution);
+            for _ in 0..3 {
+                assert_eq!(execution.step(), result);
+                assert_eq!(snapshot(execution), terminal);
+            }
+            return true;
+        }
+    }
+    panic!("source steps failed to consume, suspend, or terminate");
+}
+
+fn trace(chunks: &[&[CodePoint]], closed: bool, newline_prefix: bool, real_entry: bool) -> Trace {
+    let mut execution = if real_entry {
+        let mut context = seeded_context();
+        if newline_prefix {
+            context.input.push(points("\r\n")).unwrap();
+            assert_eq!(context.input.consume(), Input::CodePoint('\n'.into()));
+        }
+        Execution::new(State::ScriptData, context)
     } else {
-        for chunk in chunks {
-            execution
-                .context_mut()
-                .input
-                .push(chunk.iter().copied())
-                .unwrap();
-            if execution.state() != State::ScriptDataLessThanSign {
-                // Feed the remaining chunks before the first destination dispatch.
-                // No execution is ever fed for resumption after reaching a stub.
-                continue;
-            }
-            let before = snapshot(&execution);
-            match execution.step().unwrap() {
-                Progress::NeedMoreInput => {
-                    assert_eq!(snapshot(&execution), before);
-                    for _ in 0..2 {
-                        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
-                        assert_eq!(snapshot(&execution), before);
-                    }
-                }
-                Progress::Continue(_) => snapshots.push(snapshot(&execution)),
-                Progress::Finished => panic!("this state must not finish"),
-            }
+        entry(seeded_context(), newline_prefix)
+    };
+    let mut snapshots = Vec::new();
+    let bound = chunks.iter().map(|chunk| chunk.len()).sum::<usize>() * 3 + 4;
+    for chunk in chunks {
+        execution
+            .context_mut()
+            .input
+            .push(chunk.iter().copied())
+            .unwrap();
+        if !closed && drain(&mut execution, &mut snapshots, bound) {
+            // Stop immediately at a real terminal stub. Never feed or resume it.
+            return snapshots;
         }
-        execution.context_mut().input.finish();
     }
-    if snapshots.is_empty() {
-        assert!(matches!(execution.step(), Ok(Progress::Continue(_))));
-        snapshots.push(snapshot(&execution));
-    }
-    let target = execution.state();
-    assert_terminal_stub(&mut execution, target);
-    snapshots.push(snapshot(&execution));
+    execution.context_mut().input.finish();
+    assert!(drain(&mut execution, &mut snapshots, bound));
     snapshots
 }
 
@@ -379,21 +451,33 @@ fn every_split_and_single_code_point_chunking_matches_closed_source_and_stub_sna
     ]);
     inputs.push(vec![CodePoint::new(0x10ffff).unwrap(), '\0'.into()]);
     for input in &inputs {
-        for newline_prefix in [false, true] {
-            let expected = trace(&[input], true, newline_prefix);
-            for split in 0..=input.len() {
+        for real_entry in [false, true] {
+            let input = if real_entry {
+                [vec!['<'.into()], input.clone()].concat()
+            } else {
+                input.clone()
+            };
+            for newline_prefix in [false, true] {
+                let expected = trace(&[&input], true, newline_prefix, real_entry);
+                for split in 0..=input.len() {
+                    assert_eq!(
+                        trace(
+                            &[&input[..split], &[], &input[split..]],
+                            false,
+                            newline_prefix,
+                            real_entry
+                        ),
+                        expected,
+                        "split {split} of {input:?}, real entry: {real_entry}"
+                    );
+                }
+                let chunks: Vec<_> = input.chunks(1).collect();
                 assert_eq!(
-                    trace(
-                        &[&input[..split], &[], &input[split..]],
-                        false,
-                        newline_prefix
-                    ),
+                    trace(&chunks, false, newline_prefix, real_entry),
                     expected,
-                    "split {split} of {input:?}"
+                    "{input:?}"
                 );
             }
-            let chunks: Vec<_> = input.chunks(1).collect();
-            assert_eq!(trace(&chunks, false, newline_prefix), expected, "{input:?}");
         }
     }
 }

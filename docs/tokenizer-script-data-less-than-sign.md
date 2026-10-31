@@ -38,6 +38,9 @@ Relevant definitions inspected in the same pinned source:
 - [Token creation/emission, lines 143169–143191](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143169-L143191):
   clearing scratch storage is not creating a tag. This state creates no pending
   tag or comment and leaves creation defaults unchanged.
+- [Script data, lines 143338–143359](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143338-L143359):
+  the already-implemented destination handles reconsumed NUL replacement/errors,
+  ordinary character emission, another `<`, and terminal EOF on its own step.
 
 This state has **no state-generated parse errors**. NUL is neither replaced nor
 diagnosed here; non-scalars remain code points rather than scalar strings.
@@ -54,7 +57,10 @@ buffer; only the explicitly specified character tokens are appended.
 - Every ASCII input, representative Unicode scalars, actual lone surrogates,
   noncharacters and controls: exact source snapshots, normalized positions,
   diagnostics, emitted order, buffer behavior, and unconsumed tails. Both open
-  and closed input and absent/Start/End selectors are exercised.
+  and closed input and absent/Start/End selectors are exercised. Fallback then
+  executes the real Script data destination, checking NUL replacement/error at
+  the original position, another `<` transition, once-only preprocessing errors,
+  the following character, suspension, and terminal EOF in separate snapshots.
 - Actual EOF versus repeated open exhaustion after an already consumed `<`,
   with/without a CRLF prefix: only `<` is emitted at EOF and conceptual EOF is
   scheduled for reconsumption at the position after `<`.
@@ -64,36 +70,65 @@ buffer; only the explicitly specified character tokens are appended.
 - Every two-chunk split (with empty chunks) and single-code-point chunking of
   representative `/`, `!`, malformed/literal fallback, NUL, Unicode/non-scalars,
   CRLF, consecutive/trailing CR, and EOF inputs matches closed source-step and
-  terminal-stub snapshots. Remaining chunks are fed before the first destination
-  dispatch; no blocked execution is reconstructed or resumed.
+  terminal/finished snapshots through every real source step. Both isolated
+  entry and real Script data entry are tested, including splits before/after
+  the initial `<`. Open exhaustion is checked at every step. A stub immediately
+  ends the trace; it is never fed, reconstructed, or resumed.
 
 Isolated entry initializes the cursor as if `<` was already consumed; it does
-not simulate Script data's algorithm. `ScriptData`, `ScriptDataEndTagOpen`, and
-`ScriptDataEscapeStart` all remain **terminal `UnimplementedState`** destinations
-in this independent branch, including when the cursor is open/exhausted or at
-actual EOF. Repeated terminal steps have no effects. Tests inspect cursor
-reconsumption/tails directly after checking terminality, never execute a fake
-destination or restart execution after a stub. These are source-state/local
-streaming checks, not tokenizer conformance passes.
+not simulate Script data's algorithm. Real entry runs the merged Script data
+handler. `ScriptDataEndTagOpen` and `ScriptDataEscapeStart` remain **terminal
+`UnimplementedState`** destinations, including when input is open/exhausted or
+at actual EOF. Source snapshots are still asserted before any destination step.
+Repeated terminal steps have no effects. Only the real Script data destination
+emits terminal EOF after fallback; the less-than-sign source itself never does.
+
+`script_data_state.rs` retains its delimiter-only source boundary checks and now
+checks the real less-than-sign → escape-start terminal boundary. Its streaming
+trace includes the newly executable fallback steps rather than truncating at
+less-than-sign. `tests/support/script_data.rs` requires full output and exact
+errors for literal fallback (including NUL, EOF, CRLF and non-scalars), rejects
+wrong output and missing/duplicate diagnostics, and keeps explicit end-tag-open
+and escape-start blocks even after exact output/error prefixes. None of these
+expectations depends dynamically on dispatch support. These are local tests,
+not additional upstream conformance runs.
 
 ## Upstream report and validation
 
-At base `c8ec2da` with only this state added, the pinned runner reports:
+After rebasing onto main `c9c43fd0676d5dc39035a8da9317328b6e06745b`
+(PR #30, Script data), the pinned runner reports:
 
 - 6,827 fixture cases / 7,053 case-initial-state runs;
 - 6,190 dispatch-attempted;
-- **1,059 executed = 1,059 passed + 0 failed**;
-- **5,994 blocked**: Character reference 4,692; Markup declaration open 242;
-  Script data 89; CDATA section 56; Processing instruction open 52;
-  unsupported token variants 858; XML coercion 4; pending-spec review 1.
+- **1,111 executed = 1,111 passed + 0 failed**;
+- **5,942 blocked**: Character reference 4,692; Markup declaration open 242;
+  Script data end tag open 6; Script data escape start 31; CDATA section 56;
+  Processing instruction open 52; unsupported token variants 858; XML coercion 4;
+  pending-spec review 1.
 
-There are **zero newly passing upstream identities**: the runner's six initial
-states do not include this internal state, and Script data remains a stub, so
-no upstream run can reach this handler yet. All 903 previously protected
-identities still pass. No baseline file/registration, upstream fixture, fixture
-revision, or specification revision is changed. Inventory tests execute no
-conformance cases; local tests and blocked prefixes are not upstream passes.
-This partial report makes no full-conformance or browser-security claim.
+Main after PR #30 had 1,110 executed/passed, 0 failed, 5,943 blocked; its 38
+less-than-sign blocks now become **one newly comparable pass** and 37 explicit
+destination blocks. All 914 prior protected identities remain unchanged and
+passing. The single newly reviewed identity below brings the protected union
+to 915. No upstream fixture, comparison/policy rule, fixture revision, or
+specification revision is changed. Inventory tests execute no conformance
+cases; local tests and blocked prefixes are not upstream passes. This partial
+report makes no full-conformance or browser-security claim.
+
+### Reviewed upstream identity
+
+`baselines/script_data_less_than_sign.json` adds exactly:
+`["test1.test", "tests", 33, "< in script data", "Script data state", 0]`.
+The unchanged pinned fixture was inspected individually: input `<test-->`,
+expected one character string `<test-->`, no `errors`, no `doubleEscaped`,
+and a single Script data initial-state entry (index 0). Script data consumes
+`<`; less-than-sign consumes `t`, emits `<`, and reconsumes `t` in Script data;
+`t`, `e`, `s`, `t`, `-`, `-`, `>` then emit literally, followed by terminal EOF
+(omitted from fixture output). This follows the pinned anything-else branch
+and Script data algorithm, not execution-generated expectations. There is no
+closing-tag or escape branch in this case. Every other `<`-containing Script
+data fixture reaches `/` or `!` and remains blocked. Prior baseline files and
+identities are not changed or re-blessed.
 
 All required checks passed: `cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets --locked -- -D warnings`,
@@ -105,17 +140,24 @@ revision `c777c408b61078ea2eb4acefc2535f54dbc8b28a`.
 
 ## Scope and sibling integration
 
-Exactly one state is implemented. No Script data, end-tag-open/name, escape-start,
-other escape states, automatic mode switching, tree builder, API/storage helper,
-or dependency is added. There is no missing shared prerequisite.
+Exactly one additional state is implemented. Script data is inherited unchanged
+from main PR #30; no end-tag-open/name, escape-start, other escape state,
+automatic mode switching, tree builder, API/storage helper, or dependency is
+added. There is no missing shared prerequisite.
 Module/dispatch and independent support-inventory additions register only this
 state; shared documentation changes only identify support and buffer usage.
 
-The four parallel PRs start independently from main. No sibling changes are
-imported here. The user must review them before later integration/rebase.
-After neighboring implementations merge, retain the source snapshots but review
-obsolete terminal-block expectations in these local tests, rerun all checks and
-the upstream report, and review any newly comparable identities individually.
-Escape start remains an explicit block even with the other three sibling states.
-Dispatch, module/inventory lists, and status documentation can have small textual
-conflicts; resolve additively without silently keeping stale block expectations.
+The original four PRs started independently. This branch was user-directed to
+rebase onto current main after independently reviewed Script data PR #30 merged.
+Narrow module/dispatch, independent inventory, and status conflicts were resolved
+additively, preserving both states. No unmerged sibling branch was imported.
+Tests that assumed a Script data stub now execute the real destination and assert
+its effects; source-step assertions are preserved. No tests are skipped and no
+expected behavior is selected dynamically from support availability.
+
+End-tag-open/name remain separate PRs. Before each future merge the parent must
+independently review the exact pushed revision. After those merges, deliberately
+review/update destination-block tests, rerun every check and the upstream report,
+and individually review newly comparable identities. Escape start remains an
+explicit block even after the other three sibling states integrate. This thread
+does not merge or start a reviewer/subagent.
