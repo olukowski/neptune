@@ -194,6 +194,127 @@ fn less_than_consumes_only_the_delimiter_before_destination_dispatch() {
 }
 
 #[test]
+fn real_end_tag_open_entry_suspends_then_creates_or_falls_back_at_exact_boundaries() {
+    for suffix in ["A", " ", "\0", ""] {
+        for finished in [false, true] {
+            let mut context = seeded_context(Some(State::Rcdata));
+            context.current_tag = Some(TagKind::Start);
+            context.input.push(points("</")).unwrap();
+            let mut execution = Execution::new(State::ScriptData, context);
+            let mut expected = snapshot(&execution);
+            expected.state = State::ScriptDataLessThanSign;
+            expected.current = Some((
+                Input::CodePoint('<'.into()),
+                Position { line: 1, column: 1 },
+            ));
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            expected.state = State::ScriptDataEndTagOpen;
+            expected.current = Some((
+                Input::CodePoint('/'.into()),
+                Position { line: 1, column: 2 },
+            ));
+            expected.retained.temporary_buffer.clear();
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            execution.context_mut().input.push(points(suffix)).unwrap();
+            if finished {
+                execution.context_mut().input.finish();
+            } else if suffix.is_empty() {
+                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                assert_eq!(snapshot(&execution), expected);
+                execution.context_mut().input.finish();
+            }
+            expected.current = Some((
+                suffix
+                    .chars()
+                    .next()
+                    .map_or(Input::Eof, |c| Input::CodePoint(c.into())),
+                Position { line: 1, column: 3 },
+            ));
+            if suffix == "A" {
+                expected.state = State::ScriptDataEndTagName;
+                expected.retained.current_tag = Some(TagKind::End);
+                expected.retained.end = Some(PendingEndTag {
+                    name: vec![],
+                    self_closing: false,
+                    attributes: vec![],
+                    discarded_current_attribute: None,
+                });
+            } else {
+                expected.state = State::ScriptData;
+                expected
+                    .tokens
+                    .extend([Token::Character('<'.into()), Token::Character('/'.into())]);
+            }
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
+            if suffix == "A" {
+                for _ in 0..3 {
+                    assert_eq!(
+                        execution.step(),
+                        Err(UnimplementedState {
+                            state: State::ScriptDataEndTagName
+                        })
+                    );
+                    assert_eq!(snapshot(&execution), expected);
+                }
+                // Feeding/closing cannot clear the terminal block or append a name.
+                if !finished {
+                    execution
+                        .context_mut()
+                        .input
+                        .push(points("tail\0"))
+                        .unwrap();
+                    execution.context_mut().input.finish();
+                }
+                assert_eq!(
+                    execution.step(),
+                    Err(UnimplementedState {
+                        state: State::ScriptDataEndTagName
+                    })
+                );
+                assert_eq!(snapshot(&execution), expected);
+                continue;
+            }
+            if !suffix.is_empty() {
+                expected.tokens.push(Token::Character(if suffix == "\0" {
+                    expected
+                        .errors
+                        .push(error("unexpected-null-character", 1, 3));
+                    '\u{fffd}'.into()
+                } else {
+                    ' '.into()
+                }));
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                assert_eq!(snapshot(&execution), expected);
+                if !finished {
+                    assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                    assert_eq!(snapshot(&execution), expected);
+                    execution.context_mut().input.finish();
+                }
+                expected.current = Some((Input::Eof, Position { line: 1, column: 4 }));
+            }
+            expected.tokens.push(Token::Eof);
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&execution), expected);
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&execution), expected);
+            }
+        }
+    }
+}
+
+#[test]
 fn null_replacement_and_exact_normalized_diagnostics_preserve_context() {
     let mut context = seeded_context(Some(State::CharacterReference));
     context.input.push(points("\0\r\n\0")).unwrap();

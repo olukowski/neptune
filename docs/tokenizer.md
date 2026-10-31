@@ -9,9 +9,10 @@ Script data ([state-local evidence](tokenizer-script-data.md)),
 Tag open, End tag open, Tag name, Before attribute name, Attribute name,
 After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
-After attribute value (quoted), Self-closing start tag, and Bogus comment are
-implemented. All other states, including ordinary Comment and Character
-reference, remain `UnimplementedState` stubs.**
+After attribute value (quoted), Self-closing start tag, Bogus comment, and
+[Script data end tag open](tokenizer-script-data-end-tag-open.md) are implemented.
+All other states, including ordinary Comment and Character reference, remain
+`UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
 Implementation evidence is the immutable HTML Standard source in
@@ -82,8 +83,9 @@ instruction states and no separate decimal-character-reference-start state.
   `&` sets the return state to Data even while Character reference remains a stub.
   Tag open creates `pending_start_tag: Option<PendingStartTag>`; End tag open
   creates `pending_end_tag: Option<PendingEndTag>` or
-  `pending_comment: Option<PendingComment>`. RCDATA/RAWTEXT end tag open also
-  create empty selected end tags; their name states accumulate ASCII-normalized
+  `pending_comment: Option<PendingComment>`. RCDATA/RAWTEXT/Script data end tag
+  open also create empty selected end tags (Script data end tag name remains a
+  terminal stub). RCDATA/RAWTEXT name states accumulate ASCII-normalized
   names and original spelling in the temporary buffer, testing appropriateness
   only at delimiters. Tags store code-point names and an
   ordered `Vec<Attribute>` with code-point names/values. The current attribute is

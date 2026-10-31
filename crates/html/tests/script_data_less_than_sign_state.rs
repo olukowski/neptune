@@ -1,7 +1,7 @@
 //! Local branch evidence, not upstream conformance runs. HTML revision
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, #script-data-less-than-sign-state,
-//! source lines 143654–143673. Script data is implemented; escape start and
-//! end tag open remain terminal stubs. Source and destination effects are separate.
+//! source lines 143654–143673. Script data and end tag open execute; only
+//! end tag name and escape start remain terminal stubs in this chain.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -179,8 +179,34 @@ fn every_ascii_branch_and_non_scalar_has_exact_effects_before_destination_dispat
                 } else {
                     Position { line: 2, column: 3 }
                 };
-                if matches!(value, 0x2f | 0x21) {
-                    assert_terminal_stub(&mut execution, target);
+                if value == 0x2f {
+                    // Slash was consumed, not reconsumed: the real end-tag-open
+                    // step consumes z and creates/selects an EMPTY candidate.
+                    expected.state = State::ScriptDataEndTagName;
+                    expected.current = Some((Input::CodePoint('z'.into()), tail_position));
+                    expected.storage.current_tag = Some(TagKind::End);
+                    expected.storage.end = Some(PendingEndTag {
+                        name: vec![],
+                        self_closing: false,
+                        attributes: vec![],
+                        discarded_current_attribute: None,
+                    });
+                    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&execution), expected);
+                    assert_eq!(
+                        execution.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                    assert_terminal_stub(&mut execution, State::ScriptDataEndTagName);
+                    assert_eq!(
+                        execution.context_mut().input.consume(),
+                        Input::CodePoint('z'.into())
+                    );
+                    assert_eq!(execution.context().input.position(), tail_position);
+                    continue;
+                }
+                if value == 0x21 {
+                    assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
                     // Inspect the untouched tail only, never resume a stub.
                     assert_eq!(
                         execution.context_mut().input.consume(),
@@ -319,9 +345,23 @@ fn default_storage_stays_absent_and_no_destination_creation_or_eof_is_invented()
                 .map(Token::Character)
                 .collect::<Vec<_>>()
         );
-        if matches!(input, "/" | "!") {
-            assert_terminal_stub(&mut execution, target);
+        if input == "!" {
+            assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
         } else {
+            if input == "/" {
+                let mut expected = snapshot(&execution);
+                expected.state = State::ScriptData;
+                expected.current = Some((Input::Eof, Position { line: 1, column: 3 }));
+                expected
+                    .tokens
+                    .extend([Token::Character('<'.into()), Token::Character('/'.into())]);
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                assert_eq!(snapshot(&execution), expected);
+                assert_eq!(
+                    execution.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
+                );
+            }
             if input == "x" {
                 assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
                 assert_eq!(
@@ -330,10 +370,14 @@ fn default_storage_stays_absent_and_no_destination_creation_or_eof_is_invented()
                 );
             }
             assert_eq!(execution.step(), Ok(Progress::Finished));
-            let mut expected: Vec<_> = points(if input == "x" { "<x" } else { "<" })
-                .into_iter()
-                .map(Token::Character)
-                .collect();
+            let mut expected: Vec<_> = points(match input {
+                "x" => "<x",
+                "/" => "</",
+                _ => "<",
+            })
+            .into_iter()
+            .map(Token::Character)
+            .collect();
             expected.push(Token::Eof);
             assert_eq!(execution.context().tokens, expected);
             assert_eq!(storage(execution.context()), storage(&Context::default()));
@@ -428,6 +472,10 @@ fn every_split_and_single_code_point_chunking_matches_closed_source_and_stub_sna
         "",
         "/",
         "/ScRiPt>",
+        "/ XMP>",
+        "/\0tail",
+        "/<tail",
+        "/\r\n",
         "!",
         "!--escape",
         "x",

@@ -25,9 +25,10 @@ Only `State::ScriptData` is implemented in `script_data.rs`. Explicit entry uses
 `Execution::new(State::ScriptData, context)`; the existing fixture adapter already
 recognizes `Script data state`. There is no automatic element-based mode switch,
 tree builder, JavaScript parsing, character-reference processing, or implementation
-of end tag open/name or any escaped-script state.
-[Script data less-than sign](tokenizer-script-data-less-than-sign.md) is implemented
-separately and is now reachable from this state's `<` branch.
+of end tag name or any escaped-script state.
+[Script data less-than sign](tokenizer-script-data-less-than-sign.md) and
+[end tag open](tokenizer-script-data-end-tag-open.md) are implemented separately
+and reachable from this state's `<` branch.
 Existing Context/cursor/execution/storage conventions are reused without adding
 fields, dependencies, or shared algorithm abstractions.
 
@@ -45,8 +46,10 @@ following point is consumed/preprocessed here. Source effects are inspectable
 before the separately implemented `ScriptDataLessThanSign` destination executes.
 That destination clears the buffer on `/`, emits `<!` on `!`, or emits `<` and
 reconsumes anything else (including EOF) in Script data. Open exhaustion suspends
-there without emitting. Terminal `UnimplementedState` now occurs at end-tag-open
-or escape-start, never accepted as a matching prefix or recoverable parse error.
+there without emitting. End tag open creates/selects an empty candidate on ASCII
+alpha and reconsumes in end tag name; otherwise it emits `</` and reconsumes in
+Script data, including EOF. Terminal `UnimplementedState` now occurs at end tag
+name or escape start, never accepted as a matching prefix or recoverable parse error.
 Literal fallback and EOF reconsumption can complete through the real Script data
 handler. Repeated terminal checks retain the same result even if context is
 inspected or input is subsequently closed; no execution is reconstructed after
@@ -90,7 +93,7 @@ it to test a subsequent state.
 independent initial-state entries, Data defaults/no automatic switch after
 `<script>`, exact output and diagnostics (with deliberately wrong expectations),
 double-escaped non-scalars, literal ampersands, and terminal blocks despite exact
-prefix matches at end-tag-open or escape-start. Newly executable literal fallback
+prefix matches at end tag name or escape start. Newly executable literal fallback
 must compare complete output/errors, rejecting wrong prefixes and missing or
 duplicate diagnostics. These synthetic/local tests and the independent support
 inventory are **not** upstream conformance passes or whole-tokenizer streaming
@@ -138,12 +141,15 @@ remain unchanged. No full conformance or browser-security claim follows.
 Script data merged as independently reviewed PR #30, commit
 `c9c43fd0676d5dc39035a8da9317328b6e06745b`. Less-than-sign PR #29 was then
 user-directed to rebase onto that main revision. Its integration preserves this
-algorithm and delimiter-only source boundary, executes real fallback/EOF paths,
-and moves explicit stub assertions to end-tag-open and escape-start. See the
-[current integration report](tokenizer-script-data-less-than-sign.md#upstream-report-and-validation)
-for exact conformance counts and the single newly reviewed identity.
+algorithm and delimiter-only source boundary and executes real fallback/EOF paths.
+PR #28 is now rebased onto merged PR #29 main
+`3fc6b310a6ea3b3e229a795336eaca72218a14ca`. It adds real end-tag-open execution,
+exact source/destination boundaries (including suspension, creation, NUL and EOF),
+and moves genuine stub assertions to end tag name and escape start. See the
+[current integration report](tokenizer-script-data-end-tag-open.md#checks-and-upstream-results)
+for exact counts and its individually reviewed new identity.
 
-End tag open and end tag name remain separate PRs. Later user-directed integration
+End tag name remains a separate PR. Later user-directed integration
 must review dispatch/module registrations and independent support inventory,
 rerun all checks/upstream reporting, and deliberately update destination-boundary
 tests and individually review new passes. Never bypass terminal semantics,

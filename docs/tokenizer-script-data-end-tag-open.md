@@ -1,0 +1,155 @@
+# Script data end tag open
+
+Implements exactly `State::ScriptDataEndTagOpen`. Originally independent from
+main `c8ec2da`, PR #28 is now user-directed to rebase onto main
+`3fc6b310a6ea3b3e229a795336eaca72218a14ca`, after independently reviewed
+Script data PR #30 and less-than-sign PR #29 merged. Their algorithms and all
+prior baselines are preserved. Script data and less-than-sign execute; only
+Script data end tag name and escape start remain stubs in this chain. No
+unmerged sibling branch is imported.
+
+## Retrieved and inspected specification evidence
+
+Normative baseline: WHATWG HTML source revision
+`404b3eb14a7a936dddefb2d78e224dbeb01d2358`, unchanged in
+[sources.toml](sources.toml). The immutable raw source was retrieved and these
+sections inspected directly, rather than treating an existing state as evidence:
+
+- [Assigned algorithm, lines 143676–143692](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143676-L143692):
+  `#script-data-end-tag-open-state`.
+- [Preprocessing, current/next input and conceptual EOF, lines 142560–142608](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L142560-L142608).
+- [Reconsumption, temporary buffer, token defaults and creation versus emission,
+  lines 143150–143189](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143150-L143189).
+- [Appropriate end tag definition, lines 143212–143216](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143212-L143216).
+  This state does not compare names or alter the last emitted start tag.
+- [Imported ASCII definitions, lines 2297–2300](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L2297-L2300)
+  link to Infra. The linked [ASCII alpha definition](https://infra.spec.whatwg.org/#ascii-alpha)
+  and its upper/lower definitions were also retrieved and inspected: exactly
+  U+0041–U+005A or U+0061–U+007A, not Unicode alphabetic classification.
+
+| Input | Source effects | Intended destination |
+| --- | --- | --- |
+| ASCII alpha | Replace pending end tag with empty name, unset self-closing flag, empty attributes and no detached current attribute; select End; reconsume the original point. No append, lowercase conversion, emission or diagnostic. | Script data end tag name |
+| Anything else, including EOF | Emit `<` then `/` character tokens; reconsume the current point or conceptual EOF. No tag creation, storage abandonment, source parse error or EOF token. | Script data |
+| Open exhausted input | Effect-free `NeedMoreInput`, retaining current input and source state. This is not conceptual EOF. | No transition |
+
+`crates/html/src/tokenizer/script_data_end_tag_open.rs` reuses the existing
+`PendingEndTag::default()`, selector, cursor and execution contract; no shared
+prerequisite is missing. Only alpha creation replaces end-tag storage. Other
+pending storage, prior output/diagnostics, return state, last start tag and the
+temporary buffer are preserved. This state never clears or appends the buffer.
+NUL takes literal fallback without replacement or a state diagnostic here.
+Surrogates, noncharacters and controls retain the cursor's original diagnostics
+and normalized positions; reconsumption does not duplicate them.
+
+## Focused tests and explicit limits
+
+`crates/html/tests/script_data_end_tag_open_state.rs` contains five local tests:
+
+- All 52 ASCII letters, unchanged at the source boundary, with absent/stale
+  candidate storage, all selector choices, and open/closed input. Creation
+  defaults are independently explicit, including the cleared detached attribute.
+- Every other ASCII point plus non-ASCII letters/whitespace, supplementary
+  scalars, actual surrogates, noncharacters and controls. Exact literal token
+  order, source diagnostics, preprocessing codes/positions, CR normalization,
+  unrelated context and current-input identity are asserted. The next real
+  Script data step separately checks NUL replacement/error, once-only
+  preprocessing, literal emission or another `<` transition; the tail, repeated
+  suspension and exact EOF/escape-start terminal boundary are also asserted.
+- Repeated open-input suspension versus explicit EOF, including empty entry and
+  already-consumed prefixes at different normalized positions. EOF emits only
+  `</` here and schedules EOF reconsumption; only the following Script data
+  step emits terminal EOF, at the same conceptual position.
+- Resumption from suspension with fresh default context for both branches,
+  including NUL. Alpha still blocks at name; real fallback completes at EOF.
+- Every two-chunk split and single-code-point chunking of representative suffixes
+  matches closed-input productive source-step snapshots and terminal results.
+  Empty chunks, CRLF, consecutive/trailing CR, EOF, malformed input and non-scalars
+  are included. An already-consumed trailing CR additionally checks suppression
+  of a following LF before either alpha or fallback/EOF selection.
+
+Isolated cursor prefixes are positioned directly, not simulated algorithms.
+`script_data_state.rs` additionally asserts each real Script data → less-than-sign
+→ end-tag-open source boundary, buffer clearing, repeated end-tag-open
+suspension, candidate creation versus fallback/NUL/EOF destination steps and
+exact preserved context. Name-state blocks remain terminal even after input is
+fed/finished. `script_data_less_than_sign_state.rs` retains all source assertions
+and now checks real end-tag-open creation on a following letter and EOF fallback;
+its split/single-point traces include real entry, non-alpha `</` recovery, NUL,
+CRLF and later blocks. No expectations dynamically detect implementation support.
+
+The production-adapter checks require complete literal fallback output and exact
+errors, deliberately reject wrong prefixes/missing or duplicated diagnostics,
+and retain name/escape-start blocks despite matching output/error prefixes.
+Stored non-scalars are never preprocessed again. Repeated terminal EOF/stub
+steps preserve their result and all effects. Cursor-only inspection confirms
+alpha's original reconsumed item and untouched tail; no blocked execution is
+reconstructed/resumed. Traces execute every real step through completion or the
+first genuine stub; unread tails after a stub are not coverage. These are local
+streaming checks, not whole-tokenizer conformance.
+
+## Checks and upstream results
+
+All required checks passed:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`
+- `cargo test --workspace --locked` — 230 tests passed, 0 failed/ignored,
+  including all five state-local tests, the integrated source-boundary test,
+  merged tests and the prior pass-identity floor.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`
+- `cargo test --workspace --locked pinned_upstream_runner -- --nocapture`
+
+The fixture submodule was already initialized at the pinned
+`c777c408b61078ea2eb4acefc2535f54dbc8b28a` revision. Report:
+**6,827 fixture cases; 7,053 runs; 6,190 dispatch-attempted;
+1,112 executed; 1,112 passed; 0 failed; 5,941 blocked**.
+Executed = passed + failed; dispatch attempts ending at stubs are not passes.
+
+Blocked reasons: CharacterReference 4,692; TokenVariants 858;
+MarkupDeclarationOpen 242; ScriptDataEscapeStart 31; ScriptDataEndTagName 5;
+CdataSection 56; ProcessingInstructionOpen 52; XmlCoercion 4; PendingSpecReview 1.
+Local tests and support inventory are not upstream conformance passes. No fixture,
+pin, adapter execution/comparison or policy is changed. This is partial coverage,
+not full conformance or browser security.
+
+## Integrated fixture review
+
+The original isolated PR reported zero new passes because Script data was a stub.
+Main after PR #29 has 1,111 executed/passed, 0 failed, 5,942 blocked. All six
+end-tag-open-blocked Script data runs were inspected in the unchanged pinned
+fixtures. Five now block at Script data end tag name; one completes:
+
+| Fixture / tests index | Initial-state index | Unchanged input/output and pinned branch reasoning |
+| --- | --- | --- |
+| `domjs.test` 28, “bad endtag (space before name)” | 2, Script data | `lastStartTag: xmp`; input and sole Character output `</ XMP>`; no errors or double escaping. Script data consumes `<`; less-than-sign consumes `/`, clearing the buffer. End tag open consumes SPACE (not alpha), emits `</`, and reconsumes SPACE in Script data. SPACE and `XMP>` emit literally, then terminal EOF (not fixture output). No candidate, appropriateness check or parse error applies. |
+
+Only this individually reviewed identity is added in
+`baselines/script_data_end_tag_open.json` and registered alongside every prior
+file. All **915** previous protected identities remain unchanged and passing;
+the union is now **916**. Expectations are not generated from execution.
+
+The other five runs are `domjs.test` cases 27, 29–31 (Script data initial-state
+index 2) and 42 (index 0). Their unchanged inputs are `</XMP>`, `</xm>`,
+`</xm `, `</xm/`, and `<b>hello world</b>`, respectively. Each reaches ASCII alpha
+after `</`, creates an empty selected end tag and blocks terminally at name.
+Case 42 first emits `<b>hello world` literally, but that matching prefix is not
+a pass. None of these five identities is added; no name-state semantics are
+claimed. The 31 escape-start blocks and broader limitations remain explicit.
+
+## Sibling integration considerations
+
+No name-state logic, additional predecessor algorithm, automatic element-based
+mode switching, tree builder, dependency, abstraction or shared storage is added.
+Module/dispatch and independent support-inventory conflicts were resolved
+additively, preserving the merged states. Current-scope comments/docs and explicit
+source/destination tests are updated; no tests are skipped or implementation-
+detection expectations introduced.
+
+The user authorized sequential integration, independently reviewing each exact
+pushed revision immediately before merge. PRs #30/#29 are inherited from main;
+PR #28 does not merge, start reviewers/subagents or enable auto-merge. The parent
+will review the exact pushed revision. When the name-state sibling is integrated,
+retain source effects but deliberately review destination assertions, rerun all
+checks/upstream reporting, and individually review new pass identities. Escape
+start remains an explicit block. Never resume an execution that hit a stub.
