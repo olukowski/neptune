@@ -1,7 +1,7 @@
 //! Local branch evidence, not upstream conformance runs. HTML revision
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, #script-data-less-than-sign-state,
 //! source lines 143654–143673. Script data, end tag open and end tag name
-//! execute separately; escape start remains terminal in this chain.
+//! execute separately; escaped less-than sign remains terminal in this chain.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -105,16 +105,6 @@ fn entry(mut context: Context, newline_prefix: bool) -> Execution {
     context.input.push(points("<")).unwrap();
     assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
     Execution::new(State::ScriptDataLessThanSign, context)
-}
-
-fn assert_terminal_stub(execution: &mut Execution, target: State) {
-    let expected = snapshot(execution);
-    assert_eq!(execution.state(), target);
-    for _ in 0..3 {
-        assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-        assert_eq!(snapshot(execution), expected);
-    }
-    assert!(!execution.context().tokens.contains(&Token::Eof));
 }
 
 #[test]
@@ -232,14 +222,28 @@ fn every_ascii_branch_and_non_scalar_has_exact_effects_before_destination_dispat
                     continue;
                 }
                 if value == 0x21 {
-                    assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
-                    // Inspect the untouched tail only, never resume a stub.
+                    // Escape start consumes the untouched z, emits nothing and
+                    // schedules reconsumption; Script data emits it on its own step.
+                    expected.state = State::ScriptData;
+                    expected.current = Some((Input::CodePoint('z'.into()), tail_position));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                    assert_eq!(snapshot(&execution), expected);
                     assert_eq!(
-                        execution.context_mut().input.consume(),
-                        Input::CodePoint('z'.into())
+                        execution.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
                     );
-                    assert_eq!(execution.context().input.position(), tail_position);
-                    assert_eq!(execution.context().input.errors(), expected.input_errors);
+                    expected.tokens.push(Token::Character('z'.into()));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                    assert_eq!(snapshot(&execution), expected);
+                    if !finished {
+                        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                        assert_eq!(snapshot(&execution), expected);
+                        execution.context_mut().input.finish();
+                    }
+                    expected.current = Some((Input::Eof, Position { line: 2, column: 4 }));
+                    expected.tokens.push(Token::Eof);
+                    assert_eq!(execution.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(&execution), expected);
                     continue;
                 }
 
@@ -372,42 +376,50 @@ fn default_storage_stays_absent_and_no_destination_creation_or_eof_is_invented()
                 .collect::<Vec<_>>()
         );
         if input == "!" {
-            assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
-        } else {
-            if input == "/" {
-                let mut expected = snapshot(&execution);
-                expected.state = State::ScriptData;
-                expected.current = Some((Input::Eof, Position { line: 1, column: 3 }));
-                expected
-                    .tokens
-                    .extend([Token::Character('<'.into()), Token::Character('/'.into())]);
-                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
-                assert_eq!(snapshot(&execution), expected);
-                assert_eq!(
-                    execution.context_mut().input.reconsume(),
-                    Err(CursorError::AlreadyReconsuming)
-                );
-            }
-            if input == "x" {
-                assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
-                assert_eq!(
-                    execution.context().tokens,
-                    [Token::Character('<'.into()), Token::Character('x'.into())]
-                );
-            }
-            assert_eq!(execution.step(), Ok(Progress::Finished));
-            let mut expected: Vec<_> = points(match input {
-                "x" => "<x",
-                "/" => "</",
-                _ => "<",
-            })
-            .into_iter()
-            .map(Token::Character)
-            .collect();
-            expected.push(Token::Eof);
-            assert_eq!(execution.context().tokens, expected);
-            assert_eq!(storage(execution.context()), storage(&Context::default()));
+            let mut expected = snapshot(&execution);
+            expected.state = State::ScriptData;
+            expected.current = Some((Input::Eof, Position { line: 1, column: 3 }));
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
         }
+        if input == "/" {
+            let mut expected = snapshot(&execution);
+            expected.state = State::ScriptData;
+            expected.current = Some((Input::Eof, Position { line: 1, column: 3 }));
+            expected
+                .tokens
+                .extend([Token::Character('<'.into()), Token::Character('/'.into())]);
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
+        }
+        if input == "x" {
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+            assert_eq!(
+                execution.context().tokens,
+                [Token::Character('<'.into()), Token::Character('x'.into())]
+            );
+        }
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        let mut expected: Vec<_> = points(match input {
+            "x" => "<x",
+            "/" => "</",
+            "!" => "<!",
+            _ => "<",
+        })
+        .into_iter()
+        .map(Token::Character)
+        .collect();
+        expected.push(Token::Eof);
+        assert_eq!(execution.context().tokens, expected);
+        assert_eq!(storage(execution.context()), storage(&Context::default()));
     }
 }
 
@@ -430,11 +442,40 @@ fn open_empty_input_suspends_without_a_current_item_and_can_then_accept_input() 
         execution.context().tokens,
         [Token::Character('<'.into()), Token::Character('!'.into())]
     );
-    // Open exhaustion at the unimplemented destination is still a stub, not suspension.
-    assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
+    let before = snapshot(&execution);
+    for _ in 0..3 {
+        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+        assert_eq!(snapshot(&execution), before);
+    }
     execution.context_mut().input.push(points("--")).unwrap();
     execution.context_mut().input.finish();
-    assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
+    let mut expected = before;
+    expected.state = State::ScriptDataEscapeStartDash;
+    expected.current = Some((
+        Input::CodePoint('-'.into()),
+        Position { line: 1, column: 2 },
+    ));
+    expected.tokens.push(Token::Character('-'.into()));
+    assert_eq!(
+        execution.step(),
+        Ok(Progress::Continue(State::ScriptDataEscapeStartDash))
+    );
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataEscapedDashDash;
+    expected.current = Some((
+        Input::CodePoint('-'.into()),
+        Position { line: 1, column: 3 },
+    ));
+    expected.tokens.push(Token::Character('-'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.current = Some((Input::Eof, Position { line: 1, column: 4 }));
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 4));
+    expected.tokens.push(Token::Eof);
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
 }
 
 type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;

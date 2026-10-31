@@ -1,0 +1,11 @@
+[
+  ["test1.test", "tests", 34, "<! in script data", "Script data state", 0],
+  ["test1.test", "tests", 35, "<!- in script data", "Script data state", 0],
+  ["test1.test", "tests", 36, "Escaped script data", "Script data state", 0],
+  ["domjs.test", "tests", 5, "NUL in script HTML comment", "Script data state", 0],
+  ["domjs.test", "tests", 7, "EOF in script HTML comment", "Script data state", 0],
+  ["domjs.test", "tests", 8, "EOF in script HTML comment after dash", "Script data state", 0],
+  ["domjs.test", "tests", 9, "EOF in script HTML comment after dash dash", "Script data state", 0],
+  ["domjs.test", "tests", 13, "Dash in script HTML comment", "Script data state", 0],
+  ["domjs.test", "tests", 15, "Dash at end of script HTML comment", "Script data state", 0]
+]

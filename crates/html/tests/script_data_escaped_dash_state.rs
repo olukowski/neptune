@@ -432,7 +432,7 @@ fn split_crlf_is_suppressed_before_nul_or_conceptual_eof_at_normalized_position(
 }
 
 #[test]
-fn script_data_entry_still_stops_at_earlier_escape_start_stub() {
+fn script_data_entry_reaches_real_escaped_dash_dash_and_reports_escaped_eof() {
     let mut context = Context::default();
     context.input.push(points("<!---")).unwrap();
     context.input.finish();
@@ -450,16 +450,26 @@ fn script_data_entry_still_stops_at_earlier_escape_start_stub() {
         [Token::Character('<'.into()), Token::Character('!'.into())]
     );
     assert!(execution.context().errors.is_empty());
-    assert_terminal(
-        &mut execution,
-        Err(UnimplementedState {
-            state: State::ScriptDataEscapeStart,
-        }),
-    );
-    assert_eq!(
-        execution.context_mut().input.consume(),
-        Input::CodePoint('-'.into())
-    );
+    let mut expected = snapshot(&execution);
+    for (column, state) in [
+        (3, State::ScriptDataEscapeStartDash),
+        (4, State::ScriptDataEscapedDashDash),
+        (5, State::ScriptDataEscapedDashDash),
+    ] {
+        expected.state = state;
+        expected.current = Some((Input::CodePoint('-'.into()), Position { line: 1, column }));
+        expected.tokens.push(Token::Character('-'.into()));
+        assert_eq!(execution.step(), Ok(Progress::Continue(state)));
+        assert_eq!(snapshot(&execution), expected);
+    }
+    expected.current = Some((Input::Eof, Position { line: 1, column: 6 }));
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 6));
+    expected.tokens.push(Token::Eof);
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
+    assert_terminal(&mut execution, Ok(Progress::Finished));
 }
 
 type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;

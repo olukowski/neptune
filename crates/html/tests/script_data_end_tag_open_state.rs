@@ -1,7 +1,7 @@
 //! Source-local checks for #script-data-end-tag-open-state, pinned HTML source
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, lines 143676–143692.
 //! Real Script data / less-than-sign steps execute separately from this source;
-//! end tag name executes separately; escape start remains an explicit terminal stub.
+//! end tag name and the escape chain execute; escaped less-than sign remains a stub.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -246,7 +246,28 @@ fn every_other_ascii_and_representative_non_ascii_point_emits_only_literal_prefi
                         .extend([Token::Character('<'.into()), Token::Character('!'.into())]);
                     assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                     assert_eq!(snapshot(&execution), expected);
-                    assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
+                    if !finished {
+                        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                        assert_eq!(snapshot(&execution), expected);
+                        execution.context_mut().input.finish();
+                    }
+                    expected.state = State::ScriptData;
+                    expected.current = Some((
+                        Input::Eof,
+                        Position {
+                            line: tail_position.line,
+                            column: tail_position.column + 1,
+                        },
+                    ));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::ScriptData)));
+                    assert_eq!(snapshot(&execution), expected);
+                    assert_eq!(
+                        execution.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                    expected.tokens.push(Token::Eof);
+                    assert_eq!(execution.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(&execution), expected);
                     continue;
                 }
                 expected.tokens.push(Token::Character(if value == 0 {
@@ -438,7 +459,7 @@ fn drain(execution: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
         trace.push((result, snapshot(execution)));
         match result {
             Err(UnimplementedState { state }) => {
-                assert_eq!(state, State::ScriptDataEscapeStart);
+                assert_eq!(state, State::ScriptDataEscapedLessThanSign);
                 assert_terminal_stub(execution, state);
                 return true;
             }

@@ -450,7 +450,7 @@ fn greater_than_returns_to_real_script_data_with_normalized_diagnostics_and_late
     assert_eq!(retained(execution.context()), preserved);
 
     let mut context = Context::default();
-    context.input.push(points(">x<!tail")).unwrap();
+    context.input.push(points(">x<!--<tail")).unwrap();
     context.input.finish();
     let mut execution = Execution::new(SOURCE, context);
     for target in [
@@ -469,14 +469,32 @@ fn greater_than_returns_to_real_script_data_with_normalized_diagnostics_and_late
             .collect::<Vec<_>>()
     );
     assert!(execution.context().errors.is_empty());
-    let boundary = snapshot(&execution);
-    assert_eq!(
-        execution.step(),
-        Err(UnimplementedState {
-            state: State::ScriptDataEscapeStart
-        })
-    );
-    assert_eq!(snapshot(&execution), boundary);
+    let mut boundary = snapshot(&execution);
+    for (column, state, emitted) in [
+        (5, State::ScriptDataEscapeStartDash, Some('-')),
+        (6, SOURCE, Some('-')),
+        (7, State::ScriptDataEscapedLessThanSign, None),
+    ] {
+        boundary.state = state;
+        boundary.current = Some((
+            Input::CodePoint(emitted.unwrap_or('<').into()),
+            Position { line: 1, column },
+        ));
+        if let Some(point) = emitted {
+            boundary.tokens.push(Token::Character(point.into()));
+        }
+        assert_eq!(execution.step(), Ok(Progress::Continue(state)));
+        assert_eq!(snapshot(&execution), boundary);
+    }
+    for _ in 0..3 {
+        assert_eq!(
+            execution.step(),
+            Err(UnimplementedState {
+                state: State::ScriptDataEscapedLessThanSign
+            })
+        );
+        assert_eq!(snapshot(&execution), boundary);
+    }
 }
 
 #[test]

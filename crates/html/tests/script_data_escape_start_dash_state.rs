@@ -410,9 +410,14 @@ fn normalized_positions_and_diagnostic_multiplicities_survive_fallback_and_conti
 fn fallback_runs_real_script_data_and_keeps_later_stub_blocks_explicit() {
     for (input, output, blocked) in [
         // Suffix after the first hyphen of pinned test1.test tests[35]. This
-        // isolated local run is not the blocked upstream initial-state run.
+        // isolated local run is separate from the now-comparable upstream run.
         ("test-->", "ptest-->", None),
-        ("<!tail", "p<!", Some(State::ScriptDataEscapeStart)),
+        ("<!tail", "p<!tail", None),
+        (
+            "<!--<tail",
+            "p<!--",
+            Some(State::ScriptDataEscapedLessThanSign),
+        ),
         ("</script a='x&y'>", "p", Some(State::CharacterReference)),
     ] {
         let mut execution = entry(seeded_context(), false);
@@ -699,7 +704,7 @@ fn every_two_chunk_split_and_single_code_point_stream_matches_closed_source_trac
 }
 
 #[test]
-fn real_script_entry_still_stops_at_the_predecessor_without_consuming_its_tail() {
+fn real_script_entry_preserves_predecessor_effects_then_executes_the_escape_chain() {
     let mut context = Context::default();
     context.input.push(points("<!--tail")).unwrap();
     context.input.finish();
@@ -725,5 +730,30 @@ fn real_script_entry_still_stops_at_the_predecessor_without_consuming_its_tail()
     );
     assert!(execution.context().errors.is_empty());
     assert!(execution.context().input.errors().is_empty());
-    assert_terminal_stub(&mut execution, State::ScriptDataEscapeStart);
+    let mut expected = snapshot(&execution);
+    for (point, column, state) in [
+        ('-', 3, State::ScriptDataEscapeStartDash),
+        ('-', 4, State::ScriptDataEscapedDashDash),
+        ('t', 5, State::ScriptDataEscaped),
+        ('a', 6, State::ScriptDataEscaped),
+        ('i', 7, State::ScriptDataEscaped),
+        ('l', 8, State::ScriptDataEscaped),
+    ] {
+        expected.state = state;
+        expected.current = Some((Input::CodePoint(point.into()), Position { line: 1, column }));
+        expected.tokens.push(Token::Character(point.into()));
+        assert_eq!(execution.step(), Ok(Progress::Continue(state)));
+        assert_eq!(snapshot(&execution), expected);
+    }
+    expected.current = Some((Input::Eof, Position { line: 1, column: 9 }));
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 9));
+    expected.tokens.push(Token::Eof);
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
+    for _ in 0..3 {
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&execution), expected);
+    }
 }

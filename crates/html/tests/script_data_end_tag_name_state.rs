@@ -429,26 +429,26 @@ fn all_nonletter_ascii_and_nonscalars_fall_back_without_replacement_or_state_err
         expected.tokens.push(Token::Character('!'.into()));
         assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
         assert_eq!(snapshot(&run), expected);
+        expected.current = Some((
+            Input::Eof,
+            Position {
+                line: expected.current.unwrap().1.line,
+                column: expected.current.unwrap().1.column + 1,
+            },
+        ));
         if value == 0x3c {
-            terminal(
-                &mut run,
-                Err(UnimplementedState {
-                    state: State::ScriptDataEscapeStart,
-                }),
-            );
-        } else {
-            expected.current = Some((
-                Input::Eof,
-                Position {
-                    line: expected.current.unwrap().1.line,
-                    column: expected.current.unwrap().1.column + 1,
-                },
-            ));
-            expected.tokens.push(Token::Eof);
-            assert_eq!(run.step(), Ok(Progress::Finished));
+            expected.state = State::ScriptData;
+            assert_eq!(run.step(), Ok(Progress::Continue(State::ScriptData)));
             assert_eq!(snapshot(&run), expected);
-            terminal(&mut run, Ok(Progress::Finished));
+            assert_eq!(
+                run.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
         }
+        expected.tokens.push(Token::Eof);
+        assert_eq!(run.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&run), expected);
+        terminal(&mut run, Ok(Progress::Finished));
     }
     // Matching candidates still fall back on every non-delimiter tested here.
     for value in [
@@ -736,7 +736,7 @@ fn existing_destinations_complete_attributes_flags_malformed_recovery_and_eof() 
 #[test]
 fn fallback_and_later_stubs_remain_terminal_even_after_feeding_and_context_mutation() {
     for (input, state, current, column) in [
-        ("<!tail", State::ScriptDataEscapeStart, '!', 2),
+        ("<!--<tail", State::ScriptDataEscapedLessThanSign, '<', 5),
         (">&tail", State::CharacterReference, '&', 2),
         (" a='&tail", State::CharacterReference, '&', 5),
         ("><!tail", State::MarkupDeclarationOpen, '!', 3),
@@ -1032,18 +1032,18 @@ fn real_script_close_selects_data_and_genuine_escape_reference_markup_blocks_sta
     assert!(run.context().errors.is_empty());
     for (input, state, point, column, output) in [
         (
-            "<!tail",
-            State::ScriptDataEscapeStart,
-            '!',
-            2,
-            characters("<!"),
+            "<!--<tail",
+            State::ScriptDataEscapedLessThanSign,
+            '<',
+            5,
+            characters("<!--"),
         ),
         (
-            "</script<!tail",
-            State::ScriptDataEscapeStart,
-            '!',
-            10,
-            characters("</script<!"),
+            "</script<!--<tail",
+            State::ScriptDataEscapedLessThanSign,
+            '<',
+            13,
+            characters("</script<!--"),
         ),
         (
             "</script>&tail",

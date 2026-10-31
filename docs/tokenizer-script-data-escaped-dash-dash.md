@@ -1,5 +1,19 @@
 # Script data escaped dash dash state
 
+## PR #36 integration update
+
+The PR-local reports and earlier entry/stub descriptions below are **historical**.
+On merged main `da69390807532870f62ac6e8c2e88bc2fe608ae4` plus PR #36,
+EscapeStart now connects ordinary Script data entry through EscapeStartDash and
+the escaped trio; `>` in EscapedDashDash returns to Script data. Escaped `<`
+still stops terminally at EscapedLessThanSign; escaped end tags and double escaping
+remain unsupported. This state's production algorithm and source assertions are
+preserved. Tests now follow actual destinations, EOF diagnostics and later stubs.
+See [PR #36's current integration/fixture audit](tokenizer-script-data-escape-start.md)
+for the nine reviewed new passes and final counts; old reports below are not
+current conformance totals.
+
+
 ## Scope and immutable evidence
 
 Only `State::ScriptDataEscapedDashDash` is implemented here, in
