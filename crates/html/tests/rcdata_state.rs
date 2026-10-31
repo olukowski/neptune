@@ -32,6 +32,10 @@ fn seeded_context() -> Context {
                 name: points("start-attribute"),
                 value: points("value"),
             }],
+            discarded_current_attribute: Some(Attribute {
+                name: points("start-attribute"),
+                value: points("discarded-start-value"),
+            }),
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("End\r\0"),
@@ -40,6 +44,10 @@ fn seeded_context() -> Context {
                 name: points("end-attribute"),
                 value: points("other-value"),
             }],
+            discarded_current_attribute: Some(Attribute {
+                name: points("end-attribute"),
+                value: points("discarded-end-value"),
+            }),
         }),
         pending_comment: Some(PendingComment {
             data: points("comment\r\0"),

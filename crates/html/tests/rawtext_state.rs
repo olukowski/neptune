@@ -30,6 +30,10 @@ fn seeded_context(return_state: Option<State>) -> Context {
                 name: points("name"),
                 value: points("value"),
             }],
+            discarded_current_attribute: Some(Attribute {
+                name: points("name"),
+                value: points("discarded-value"),
+            }),
         }),
         pending_end_tag: Some(PendingEndTag {
             name: points("pending-end"),

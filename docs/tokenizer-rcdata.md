@@ -24,8 +24,8 @@ Select RCDATA explicitly with `Execution::new(State::Rcdata, context)`. The
 fixture runner already recognizes `RCDATA state`; no mapping, input, execution,
 token/storage, or emission API changes are needed. There is no tree-builder
 mode selection or automatic `<title>` / `<textarea>` handling. Attribute name
-remains a stub. RAWTEXT is implemented independently in merged PR #12; its
-handler, tests, inventory entry, and additive baseline are preserved.
+and RAWTEXT are implemented independently; their handlers, tests, inventory
+entries, and existing additive baselines are preserved.
 
 `crates/html/tests/rcdata_state.rs` covers all branches, exact emitted tokens,
 current input/normalized positions, state and preprocessing diagnostic codes and
@@ -51,8 +51,7 @@ reviewed upstream identities without changing prior passes or upstream fixtures.
 Use the central [runner command and count definitions](tokenizer.md#fixture-runner)
 for reproducible execution evidence; blocked cases are never passes.
 
-Attribute name is parallel worktree/PR work; RAWTEXT PR #12 is already integrated.
-After further neighboring merges, rebase and rerun all contributing checks plus
+After neighboring merges, rebase and rerun all contributing checks plus
 the pinned upstream report;
 resolve shared registration/baseline-list edits additively and review legitimate
 destination-block changes rather than weakening assertions. This remains a
