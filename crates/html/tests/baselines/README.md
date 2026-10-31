@@ -142,6 +142,17 @@ and `doubleEscaped`. No output or expectation was generated from execution.
 All 916 previous identities/files remain unchanged and passing (921 protected
 identities total). No escape-start block is accepted as a pass.
 
+`script_data_escape_start.json` adds nine individually inspected identities after
+PR #36 rebases onto merged #32/#34/#33/#35: `test1.test` tests[34–36] and
+`domjs.test` tests[5, 7–9, 13, 15], all Script data entry index 0.
+The [state-local audit](../../../../docs/tokenizer-script-data-escape-start.md#reviewed-upstream-identities)
+maps every unchanged fixture to pinned branches, exact output and diagnostics.
+The original standalone head protected only tests[34]; its dash destination
+was then a stub. The integrated head also admits the eight reviewed basic
+comment-like script runs, including all three escaped EOF states and three
+NUL replacements. All 921 prior protected identities/files remain unchanged
+(930 total). The other 22 runs stop at escaped less-than sign and are not passes.
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an

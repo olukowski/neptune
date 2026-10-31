@@ -25,8 +25,13 @@ The first component is a specification-first HTML tokenizer.
   tree-builder behavior is implied; see [RAWTEXT integration evidence](docs/tokenizer-rawtext-end-tag-name.md).
 - Explicit Script data entry now recognizes appropriate closing tags and returns
   to Data, with literal mismatch/EOF recovery and existing attribute/tag support.
-  `<!` still stops terminally at unimplemented Script data escape start. No
-  automatic mode switching or JavaScript parsing is implied; see
+  Basic comment-like script text (`<!--text-->`) now traverses the escape-start
+  and escaped/dash/dash-dash states, including NUL recovery and escaped EOF
+  diagnostics; `-->` returns to Script data. An escaped `<` still stops terminally
+  at unimplemented Script data escaped less-than sign; escaped end tags and
+  double escaping are not supported
+  ([integration evidence](docs/tokenizer-script-data-escape-start.md)). No
+  automatic mode switching, comment-token emission, or JavaScript parsing is implied; see
   [Script data integration evidence](docs/tokenizer-script-data-end-tag-name.md).
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).

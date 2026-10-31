@@ -149,7 +149,7 @@ fn less_than_consumes_only_the_delimiter_before_destination_dispatch() {
         }
     }
     // The real less-than-sign destination emits both '<' and '!' before the
-    // still-unimplemented escape-start destination becomes terminal.
+    // escape-start source suspends, then the real escape chain reaches its '<' stub.
     let mut context = Context::default();
     context.input.push(points("<!")).unwrap();
     let mut execution = Execution::new(State::ScriptData, context);
@@ -174,23 +174,54 @@ fn less_than_consumes_only_the_delimiter_before_destination_dispatch() {
     );
     assert!(execution.context().errors.is_empty());
     assert!(execution.context().input.errors().is_empty());
-    let blocked = Err(UnimplementedState {
-        state: State::ScriptDataEscapeStart,
-    });
     let boundary = snapshot(&execution);
     for _ in 0..3 {
-        assert_eq!(execution.step(), blocked);
+        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
         assert_eq!(snapshot(&execution), boundary);
     }
     execution
         .context_mut()
         .input
-        .push(points("tail\0"))
+        .push(points("--<tail\0"))
         .unwrap();
+    let mut expected = boundary;
+    expected.state = State::ScriptDataEscapeStartDash;
+    expected.current = Some((
+        Input::CodePoint('-'.into()),
+        Position { line: 1, column: 3 },
+    ));
+    expected.tokens.push(Token::Character('-'.into()));
+    assert_eq!(
+        execution.step(),
+        Ok(Progress::Continue(State::ScriptDataEscapeStartDash))
+    );
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataEscapedDashDash;
+    expected.current = Some((
+        Input::CodePoint('-'.into()),
+        Position { line: 1, column: 4 },
+    ));
+    expected.tokens.push(Token::Character('-'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataEscapedLessThanSign;
+    expected.current = Some((
+        Input::CodePoint('<'.into()),
+        Position { line: 1, column: 5 },
+    ));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    let blocked = Err(UnimplementedState {
+        state: State::ScriptDataEscapedLessThanSign,
+    });
+    for _ in 0..3 {
+        assert_eq!(execution.step(), blocked);
+        assert_eq!(snapshot(&execution), expected);
+    }
+    execution.context_mut().input.push(points("more")).unwrap();
     execution.context_mut().input.finish();
-    let before = snapshot(&execution);
     assert_eq!(execution.step(), blocked);
-    assert_eq!(snapshot(&execution), before);
+    assert_eq!(snapshot(&execution), expected);
 }
 
 #[test]

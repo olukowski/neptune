@@ -9,17 +9,27 @@ Script data ([state-local evidence](tokenizer-script-data.md)),
 Tag open, End tag open, Tag name, Before attribute name, Attribute name,
 After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
-After attribute value (quoted), Self-closing start tag, Bogus comment, and
-[Script data end tag open](tokenizer-script-data-end-tag-open.md) and
-[Script data end tag name](tokenizer-script-data-end-tag-name.md) are implemented.
+After attribute value (quoted), Self-closing start tag, Bogus comment,
+[Script data end tag open](tokenizer-script-data-end-tag-open.md),
+[Script data end tag name](tokenizer-script-data-end-tag-name.md),
+[Script data escape start](tokenizer-script-data-escape-start.md),
 [Script data escape start dash](tokenizer-script-data-escape-start-dash.md),
 [Script data escaped](tokenizer-script-data-escaped.md),
 [Script data escaped dash](tokenizer-script-data-escaped-dash.md), and
-[Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md) are also implemented
-(isolated entry while escape start remains a stub).
-All other states, including Script data escape start, ordinary Comment and
+[Script data escaped dash dash](tokenizer-script-data-escaped-dash-dash.md) are implemented.
+All other states, including Script data escaped less-than sign, ordinary Comment and
 Character reference, remain `UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
+
+Explicit Script data entry now reaches basic comment-like text through
+`<!` → escape start → escape start dash → escaped dash dash. The escaped trio
+handles literal characters, hyphen cycles, NUL replacement and
+`eof-in-script-html-comment-like-text`; `>` in escaped dash dash returns to
+Script data. This emits character tokens, not Comment tokens. An escaped `<`
+still reaches terminal Script data escaped less-than sign: escaped end tags,
+double escaping and their later states are not supported. Ordinary Script data
+closing-tag support remains separate. No tree builder or automatic element-based
+mode switching is implied. See the [integrated branch/fixture audit](tokenizer-script-data-escape-start.md).
 
 Implementation evidence is the immutable HTML Standard source in
 [docs/sources.toml](sources.toml), specifically **Preprocessing the input stream**

@@ -11,6 +11,20 @@ fn script_data_mapping_literals_replacement_and_non_scalars_compare_exactly() {
         json!({"description":"empty", "input":"", "output":[]}),
         json!({"description":"literal references", "input":"&amp;&#0;&bogus;",
             "output":[["Character","&amp;&#0;&bogus;"]]}),
+        json!({"description":"escaped dash dash EOF", "input":"<!--", "output":[["Character","<!--"]],
+            "errors":[{"code":"eof-in-script-html-comment-like-text","line":1,"col":5}]}),
+        json!({"description":"escaped EOF", "input":"<!--x", "output":[["Character","<!--x"]],
+            "errors":[{"code":"eof-in-script-html-comment-like-text","line":1,"col":6}]}),
+        json!({"description":"escaped dash EOF", "input":"<!--x-", "output":[["Character","<!--x-"]],
+            "errors":[{"code":"eof-in-script-html-comment-like-text","line":1,"col":7}]}),
+        json!({"description":"escaped normalization, non-scalars and return to Script data", "doubleEscaped":true,
+            "input":"<!--\r\n\\u0000\\uD800\\uFDD0\\u000B-->\\u0000",
+            "output":[["Character","<!--\n\\uFFFD\\uD800\\uFDD0\\u000B-->\\uFFFD"]],
+            "errors":[{"code":"unexpected-null-character","line":2,"col":1},
+                {"code":"surrogate-in-input-stream","line":2,"col":2},
+                {"code":"noncharacter-in-input-stream","line":2,"col":3},
+                {"code":"control-character-in-input-stream","line":2,"col":4},
+                {"code":"unexpected-null-character","line":2,"col":8}]}),
         json!({"description":"replacement, normalization and non-scalars", "doubleEscaped":true,
             "input":"\\u0000\r\n\\uD800\\uDFFF\\uFDD0\\u000B",
             "output":[["Character","\\uFFFD\n\\uD800\\uDFFF\\uFDD0\\u000B"]],
@@ -41,6 +55,16 @@ fn script_data_mapping_literals_replacement_and_non_scalars_compare_exactly() {
             Outcome::Failed(_)
         ));
         if case.get("errors").is_some() {
+            let mut duplicate_error = case.clone();
+            let first = duplicate_error["errors"][0].clone();
+            duplicate_error["errors"]
+                .as_array_mut()
+                .unwrap()
+                .push(first);
+            assert!(matches!(
+                run_with(&duplicate_error, "Script data state", None, execute),
+                Outcome::Failed(_)
+            ));
             let mut missing_error = case;
             missing_error["errors"].as_array_mut().unwrap().pop();
             assert!(matches!(
@@ -55,12 +79,20 @@ fn script_data_mapping_literals_replacement_and_non_scalars_compare_exactly() {
 fn script_data_less_than_keeps_real_escape_blocks_despite_exact_prefixes() {
     for (suffix, prefix, target) in [
         (
-            "/ XMP><!tail",
-            "&\u{fffd}</ XMP><!",
-            State::ScriptDataEscapeStart,
+            "/ XMP><!--<tail",
+            "&\u{fffd}</ XMP><!--",
+            State::ScriptDataEscapedLessThanSign,
         ),
-        ("!", "&\u{fffd}<!", State::ScriptDataEscapeStart),
-        ("!--tail", "&\u{fffd}<!", State::ScriptDataEscapeStart),
+        (
+            "!--<tail",
+            "&\u{fffd}<!--",
+            State::ScriptDataEscapedLessThanSign,
+        ),
+        (
+            "!--x-<tail",
+            "&\u{fffd}<!--x-",
+            State::ScriptDataEscapedLessThanSign,
+        ),
     ] {
         let case = json!({"description":"matching prefix must not pass",
             "input":format!("&\0<{suffix}"), "output":[["Character",prefix]],
@@ -84,13 +116,19 @@ fn script_data_less_than_fallback_requires_complete_literal_output_and_exact_err
         ("\0", "&\u{fffd}<\u{fffd}"),
         ("\r\n", "&\u{fffd}<\n"),
         ("test-->", "&\u{fffd}<test-->"),
+        ("!", "&\u{fffd}<!"),
+        ("!test-->", "&\u{fffd}<!test-->"),
+        ("!-", "&\u{fffd}<!-"),
+        ("!-tail", "&\u{fffd}<!-tail"),
+        ("!--test-->", "&\u{fffd}<!--test-->"),
+        ("!\0", "&\u{fffd}<!\u{fffd}"),
         ("<x", "&\u{fffd}<<x"),
         ("&", "&\u{fffd}<&"),
     ] {
         let mut case = json!({"description":"literal fallback must complete",
             "input":format!("&\0<{suffix}"), "output":[["Character",output]],
             "errors":[{"code":"unexpected-null-character","line":1,"col":2}]});
-        if matches!(suffix, "\0" | "/\0") {
+        if matches!(suffix, "\0" | "/\0" | "!\0") {
             case["errors"]
                 .as_array_mut()
                 .unwrap()
@@ -211,9 +249,9 @@ fn matching_script_close_does_not_hide_later_data_or_attribute_stubs() {
             State::MarkupDeclarationOpen,
         ),
         (
-            "</script<!tail",
-            json!([["Character", "</script<!"]]),
-            State::ScriptDataEscapeStart,
+            "</script<!--<tail",
+            json!([["Character", "</script<!--"]]),
+            State::ScriptDataEscapedLessThanSign,
         ),
     ] {
         let case = json!({"description":"complete-looking prefix remains blocked", "input":input,
