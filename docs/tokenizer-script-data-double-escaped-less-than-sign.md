@@ -1,6 +1,33 @@
 # Script data double escaped less-than sign state
 
-## Current PR #40 integration update
+## Current PR #42 integration update
+
+On exact main **`76add983570aba0fb8fc769aa8ea4f2510d37965`** (merged #43/#38/#39/#40)
+plus #42, DoubleEscaped completes the isolated double-escaped loop. All merged
+production algorithms, registrations, inventory scratch setup and original
+source-step evidence are preserved. No unmerged sibling is imported.
+
+All source snapshots remain independent of destination effects. Fallback now
+executes real DoubleEscaped on every ASCII/non-scalar point and its untouched
+suffix, including less-than/hyphen transitions and exact NUL/EOF diagnostics.
+Slash still clears scratch before DoubleEscapeEnd consumes the next name point.
+All three real predecessors are now tested: DoubleEscaped, Dash and DashDash.
+All nine local tests retain malformed-input and full split-streaming coverage.
+
+The ordinary-entry EscapedLessThanSign gateway remains a genuine terminal stub.
+All required checks pass: **329 Rust tests, 0 failed, 0 ignored**; upstream
+**1,126 executed/passed, 0 failed, 5,927 blocked**, zero new passes. Fixtures,
+pins, comparisons and baseline files/registrations are unchanged. See
+[#42's current integration evidence](tokenizer-script-data-double-escaped.md#current-pr-42-integration-after-merged-43-38-39-and-40)
+for exact source paths, all affected tests, counts and final-head location.
+Coordinator independent final-head review is separate; this thread does not
+merge or start subagents.
+
+**Everything below is historical for support boundaries and test totals.**
+
+<a id="current-pr-40-integration-update"></a>
+
+## Historical PR #40 integration update
 
 On exact main **`eecf0a3992d820f95990dcdca9201e1378e52a8f`** (merged #43/#38/#39)
 plus #40, Dash is implemented without changing any merged production algorithm

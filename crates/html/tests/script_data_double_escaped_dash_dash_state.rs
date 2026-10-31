@@ -156,6 +156,18 @@ fn every_ascii_branch_consumes_once_preserving_context_and_untouched_tail() {
     }
 }
 
+fn finish_at(execution: &mut Execution, expected: &mut Snapshot, line: usize, column: usize) {
+    expected.current = Some((Input::Eof, Position { line, column }));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", line, column));
+    for _ in 0..3 {
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(execution), *expected);
+    }
+}
+
 #[test]
 fn unicode_non_scalars_and_controls_are_literal_with_exact_preprocessing_errors() {
     for (value, diagnostic) in [
@@ -211,21 +223,23 @@ fn unicode_non_scalars_and_controls_are_literal_with_exact_preprocessing_errors(
             Some((Input::CodePoint(point), Position { line: 1, column: 3 }))
         );
         assert_eq!(retained(execution.context()), preserved);
-        let boundary = snapshot(&execution);
-        for _ in 0..3 {
-            assert_eq!(
-                execution.step(),
-                Err(UnimplementedState {
-                    state: State::ScriptDataDoubleEscaped
-                })
-            );
-            assert_eq!(snapshot(&execution), boundary);
-        }
+        let mut expected = snapshot(&execution);
+        expected.current = Some((
+            Input::CodePoint('\0'.into()),
+            Position { line: 1, column: 4 },
+        ));
+        expected.tokens.push(Token::Character('\u{fffd}'.into()));
+        expected
+            .errors
+            .push(error("unexpected-null-character", 1, 4));
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&execution), expected);
+        finish_at(&mut execution, &mut expected, 1, 5);
     }
 }
 
 #[test]
-fn less_than_executes_real_fallback_while_null_and_literals_retain_terminal_destination() {
+fn less_than_null_and_literals_execute_exact_double_escaped_continuations() {
     for (text, target, emitted, diagnostic) in [
         (
             "--<\0tail",
@@ -272,7 +286,7 @@ fn less_than_executes_real_fallback_while_null_and_literals_retain_terminal_dest
             assert_eq!(snapshot(&execution), expected);
             // The '<' source snapshot above is unchanged. Its real destination
             // now consumes the untouched NUL and schedules it for reconsumption;
-            // replacement/diagnosis still belongs to the remaining DoubleEscaped stub.
+            // replacement/diagnosis belongs to the next DoubleEscaped step.
             if target == State::ScriptDataDoubleEscapedLessThanSign {
                 expected.state = State::ScriptDataDoubleEscaped;
                 expected.current = Some((
@@ -286,15 +300,23 @@ fn less_than_executes_real_fallback_while_null_and_literals_retain_terminal_dest
                     Err(neptune_html::tokenizer::CursorError::AlreadyReconsuming)
                 );
             }
-            for _ in 0..3 {
-                assert_eq!(
-                    execution.step(),
-                    Err(UnimplementedState {
-                        state: State::ScriptDataDoubleEscaped
-                    })
-                );
+            for (index, point) in text.chars().skip(3).enumerate() {
+                let column = index + 4;
+                expected.current =
+                    Some((Input::CodePoint(point.into()), Position { line: 1, column }));
+                expected.state = State::ScriptDataDoubleEscaped;
+                expected.tokens.push(Token::Character(if point == '\0' {
+                    expected
+                        .errors
+                        .push(error("unexpected-null-character", 1, column));
+                    '\u{fffd}'.into()
+                } else {
+                    point.into()
+                }));
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&execution), expected);
             }
+            finish_at(&mut execution, &mut expected, 1, text.chars().count() + 1);
         }
     }
 }
@@ -584,19 +606,8 @@ fn real_less_than_slash_name_delimiter_chain_preserves_each_source_step() {
             expected.tokens.push(Token::Character(normalized.into()));
             assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&execution), expected);
-            if !matched {
-                for _ in 0..3 {
-                    assert_eq!(
-                        execution.step(),
-                        Err(UnimplementedState {
-                            state: State::ScriptDataDoubleEscaped
-                        })
-                    );
-                    assert_eq!(snapshot(&execution), expected);
-                }
-                continue;
-            }
-            // Real Escaped consumes CRLF once, then malformed input, then EOF.
+            // Matched Escaped and mismatched DoubleEscaped both execute the
+            // literal/newline/NUL tail, with identical once-only preprocessing.
             let newline_delimiter = normalized == '\n';
             expected.current = Some((
                 Input::CodePoint('\n'.into()),
@@ -606,10 +617,7 @@ fn real_less_than_slash_name_delimiter_chain_preserves_each_source_step() {
                 },
             ));
             expected.tokens.push(Token::Character('\n'.into()));
-            assert_eq!(
-                execution.step(),
-                Ok(Progress::Continue(State::ScriptDataEscaped))
-            );
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&execution), expected);
             let line = if newline_delimiter { 3 } else { 2 };
             for (index, value) in [0, 0, 0xd800, 0xfdd0, 0x0b].into_iter().enumerate() {
@@ -642,10 +650,7 @@ fn real_less_than_slash_name_delimiter_chain_preserves_each_source_step() {
                     )),
                     _ => unreachable!(),
                 }
-                assert_eq!(
-                    execution.step(),
-                    Ok(Progress::Continue(State::ScriptDataEscaped))
-                );
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&execution), expected);
             }
             expected.current = Some((Input::Eof, Position { line, column: 6 }));
@@ -662,7 +667,7 @@ fn real_less_than_slash_name_delimiter_chain_preserves_each_source_step() {
 }
 
 #[test]
-fn real_less_than_and_escape_end_suspend_then_reconsume_eof_before_remaining_stub() {
+fn real_less_than_and_escape_end_suspend_then_reconsume_eof_before_exact_destination_diagnostic() {
     for text in ["--<", "--</", "--</script"] {
         let mut context = seeded();
         context.input.push(points(text)).unwrap();
@@ -711,15 +716,7 @@ fn real_less_than_and_escape_end_suspend_then_reconsume_eof_before_remaining_stu
             execution.context_mut().input.reconsume(),
             Err(neptune_html::tokenizer::CursorError::AlreadyReconsuming)
         );
-        for _ in 0..3 {
-            assert_eq!(
-                execution.step(),
-                Err(UnimplementedState {
-                    state: State::ScriptDataDoubleEscaped
-                })
-            );
-            assert_eq!(snapshot(&execution), expected);
-        }
+        finish_at(&mut execution, &mut expected, 1, text.len() + 1);
     }
 }
 

@@ -109,6 +109,18 @@ fn assert_terminal(execution: &mut Execution, result: Result<Progress, Unimpleme
     }
 }
 
+fn finish_at(execution: &mut Execution, expected: &mut Snapshot, line: usize, column: usize) {
+    expected.current = Some((Input::Eof, Position { line, column }));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", line, column));
+    for _ in 0..3 {
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(execution), *expected);
+    }
+}
+
 #[test]
 fn every_ascii_branch_and_non_scalar_has_exact_source_effects_before_destination_execution() {
     // Every ASCII value plus non-ASCII letters, hyphen lookalikes and malformed points.
@@ -174,47 +186,32 @@ fn every_ascii_branch_and_non_scalar_has_exact_source_effects_before_destination
                     code: "surrogate-in-input-stream",
                     position: tail_position,
                 });
-                if matches!(value, 0x2d | 0x3c) {
-                    // Real DashDash emits the tail; real LessThanSign instead
-                    // reconsumes it. Both reach the genuine DoubleEscaped stub.
-                    expected.state = State::ScriptDataDoubleEscaped;
-                    expected.current = Some((Input::CodePoint(tail), tail_position));
-                    if value == 0x2d {
-                        expected.tokens.push(Token::Character(tail));
-                    }
+                // Preserve the original source snapshot; then execute the real
+                // destination on the surrogate tail without duplicate diagnostics.
+                expected.state = State::ScriptDataDoubleEscaped;
+                expected.current = Some((Input::CodePoint(tail), tail_position));
+                if value == 0x3c {
                     assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                     assert_eq!(snapshot(&execution), expected);
-                    if value == 0x3c {
-                        assert_eq!(
-                            execution.context_mut().input.reconsume(),
-                            Err(CursorError::AlreadyReconsuming)
-                        );
-                    }
-                    assert_terminal(
-                        &mut execution,
-                        Err(UnimplementedState {
-                            state: expected.state,
-                        }),
-                    );
-                    // Inspect only; no terminal execution is resumed.
                     assert_eq!(
-                        execution.context_mut().input.consume(),
-                        if value == 0x3c {
-                            Input::CodePoint(tail)
-                        } else if finished {
-                            Input::Eof
-                        } else {
-                            Input::NeedMoreInput
-                        }
+                        execution.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
                     );
-                } else {
-                    assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
-                    assert_eq!(
-                        execution.context_mut().input.consume(),
-                        Input::CodePoint(tail)
-                    );
-                    assert_eq!(execution.context().input.position(), tail_position);
                 }
+                expected.tokens.push(Token::Character(tail));
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+                if !finished {
+                    assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                    assert_eq!(snapshot(&execution), expected);
+                    execution.context_mut().input.finish();
+                }
+                finish_at(
+                    &mut execution,
+                    &mut expected,
+                    tail_position.line,
+                    tail_position.column + 1,
+                );
                 assert_eq!(execution.context().input.errors(), expected.input_errors);
             }
         }
@@ -222,7 +219,7 @@ fn every_ascii_branch_and_non_scalar_has_exact_source_effects_before_destination
 }
 
 #[test]
-fn default_entry_executes_real_destinations_and_preserves_genuine_double_escaped_stub() {
+fn default_entry_executes_real_destinations_through_suspension_and_exact_eof() {
     for (text, target, output) in [
         ("-", State::ScriptDataDoubleEscapedDashDash, "-"),
         ("<", State::ScriptDataDoubleEscapedLessThanSign, "<"),
@@ -258,10 +255,6 @@ fn default_entry_executes_real_destinations_and_preserves_genuine_double_escaped
                 }
             );
             assert!(execution.context().input.errors().is_empty());
-            if text != "-" && text != "<" {
-                assert_terminal(&mut execution, Err(UnimplementedState { state: target }));
-                continue;
-            }
             let mut expected = snapshot(&execution);
             if !finished {
                 for _ in 0..3 {
@@ -270,18 +263,9 @@ fn default_entry_executes_real_destinations_and_preserves_genuine_double_escaped
                 }
                 execution.context_mut().input.finish();
             }
-            expected.current = Some((Input::Eof, Position { line: 1, column: 2 }));
-            if text == "-" {
-                // DashDash, not Dash, emits/diagnoses this conceptual EOF.
-                expected.tokens.push(Token::Eof);
-                expected
-                    .errors
-                    .push(error("eof-in-script-html-comment-like-text", 1, 2));
-                assert_eq!(execution.step(), Ok(Progress::Finished));
-                assert_eq!(snapshot(&execution), expected);
-                assert_terminal(&mut execution, Ok(Progress::Finished));
-            } else {
-                // LessThanSign reconsumes EOF without emitting or diagnosing it.
+            if text == "<" {
+                // LessThanSign, not DoubleEscaped, first consumes and reconsumes EOF.
+                expected.current = Some((Input::Eof, Position { line: 1, column: 2 }));
                 expected.state = State::ScriptDataDoubleEscaped;
                 assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&execution), expected);
@@ -289,13 +273,8 @@ fn default_entry_executes_real_destinations_and_preserves_genuine_double_escaped
                     execution.context_mut().input.reconsume(),
                     Err(CursorError::AlreadyReconsuming)
                 );
-                assert_terminal(
-                    &mut execution,
-                    Err(UnimplementedState {
-                        state: expected.state,
-                    }),
-                );
             }
+            finish_at(&mut execution, &mut expected, 1, 2);
         }
     }
 }
@@ -433,21 +412,16 @@ fn split_crlf_suppresses_lf_before_source_nul_or_conceptual_eof() {
             assert_eq!(execution.step(), Ok(Progress::Finished));
         }
         assert_eq!(snapshot(&execution), expected);
-        assert_terminal(
-            &mut execution,
-            if nul {
-                Err(UnimplementedState {
-                    state: State::ScriptDataDoubleEscaped,
-                })
-            } else {
-                Ok(Progress::Finished)
-            },
-        );
+        if nul {
+            finish_at(&mut execution, &mut expected, 2, 2);
+        } else {
+            assert_terminal(&mut execution, Ok(Progress::Finished));
+        }
     }
 }
 
 #[test]
-fn real_script_path_and_direct_predecessor_are_still_blocked_before_assigned_state() {
+fn real_script_gateway_still_blocks_but_direct_predecessor_executes_the_hyphen_path() {
     let mut context = seeded_context();
     context.input.push(points("<!--<script>-\0")).unwrap();
     context.input.finish();
@@ -479,22 +453,33 @@ fn real_script_path_and_direct_predecessor_are_still_blocked_before_assigned_sta
         Input::CodePoint('s'.into())
     );
 
-    // The normative predecessor's hyphen branch (144000–144002) is unimplemented.
-    // Do not fabricate its '-' emission or reconstruct after its terminal block.
+    // The real normative predecessor now emits '-' and reaches Dash.
+    // This is independent direct entry, never reconstruction of the blocked run.
     let mut context = seeded_context();
     context.input.push(points("-\0")).unwrap();
     context.input.finish();
     let mut predecessor = Execution::new(State::ScriptDataDoubleEscaped, context);
-    assert_terminal(
-        &mut predecessor,
-        Err(UnimplementedState {
-            state: State::ScriptDataDoubleEscaped,
-        }),
-    );
-    assert_eq!(
-        predecessor.context_mut().input.consume(),
-        Input::CodePoint('-'.into())
-    );
+    let mut expected = snapshot(&predecessor);
+    expected.state = State::ScriptDataDoubleEscapedDash;
+    expected.current = Some((
+        Input::CodePoint('-'.into()),
+        Position { line: 1, column: 1 },
+    ));
+    expected.tokens.push(Token::Character('-'.into()));
+    assert_eq!(predecessor.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&predecessor), expected);
+    expected.state = State::ScriptDataDoubleEscaped;
+    expected.current = Some((
+        Input::CodePoint('\0'.into()),
+        Position { line: 1, column: 2 },
+    ));
+    expected.tokens.push(Token::Character('\u{fffd}'.into()));
+    expected
+        .errors
+        .push(error("unexpected-null-character", 1, 2));
+    assert_eq!(predecessor.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&predecessor), expected);
+    finish_at(&mut predecessor, &mut expected, 1, 3);
 }
 
 #[test]
@@ -655,7 +640,7 @@ fn real_neighbors_clear_scratch_preserve_spelling_and_return_through_hyphen_cycl
 }
 
 #[test]
-fn real_name_state_suspends_then_reconsumes_eof_without_inventing_a_pass() {
+fn real_name_state_suspends_then_reconsumes_eof_into_exact_double_escaped_diagnostic() {
     for prefix in ["-</", "</"] {
         for name in ["", "ScRiPt", "scrip"] {
             let text = format!("{prefix}{name}");
@@ -708,12 +693,7 @@ fn real_name_state_suspends_then_reconsumes_eof_without_inventing_a_pass() {
                 execution.context_mut().input.reconsume(),
                 Err(CursorError::AlreadyReconsuming)
             );
-            assert_terminal(
-                &mut execution,
-                Err(UnimplementedState {
-                    state: expected.state,
-                }),
-            );
+            finish_at(&mut execution, &mut expected, 1, text.len() + 1);
         }
     }
 }
