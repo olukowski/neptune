@@ -14,10 +14,11 @@ The first component is a specification-first HTML tokenizer.
 - Registry of all 84 tokenizer states in the pinned HTML Standard.
 - [Partial tokenizer scope](docs/tokenizer.md#status-and-source), with typed
   `UnimplementedState` stubs for unsupported states.
-  Attribute value (double-quoted) and (single-quoted) are implemented in isolation;
-  After attribute name, Before attribute value, and After attribute value (quoted)
-  remain stubs, so tags with whitespace/attributes cannot complete. Shared tag
-  emission and the
+  Attribute value (double-quoted), (single-quoted), and
+  [After attribute value (quoted)](docs/tokenizer-after-attribute-value-quoted.md)
+  are implemented in isolation. After attribute name, Before attribute value,
+  unquoted values, and Character reference remain stubs, so real Data entry
+  cannot complete tags with attributes. Shared tag emission and the
   test adapter preserve/compare attributes, but those paths are not yet reachable.
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
