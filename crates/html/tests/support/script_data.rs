@@ -54,8 +54,12 @@ fn script_data_mapping_literals_replacement_and_non_scalars_compare_exactly() {
 #[test]
 fn script_data_less_than_keeps_real_end_tag_and_escape_blocks_despite_exact_prefixes() {
     for (suffix, prefix, target) in [
-        ("/script>", "&\u{fffd}", State::ScriptDataEndTagOpen),
-        ("/", "&\u{fffd}", State::ScriptDataEndTagOpen),
+        ("/script>", "&\u{fffd}", State::ScriptDataEndTagName),
+        (
+            "/ XMP><!tail",
+            "&\u{fffd}</ XMP><!",
+            State::ScriptDataEscapeStart,
+        ),
         ("!", "&\u{fffd}<!", State::ScriptDataEscapeStart),
         ("!--tail", "&\u{fffd}<!", State::ScriptDataEscapeStart),
     ] {
@@ -74,6 +78,10 @@ fn script_data_less_than_keeps_real_end_tag_and_escape_blocks_despite_exact_pref
 fn script_data_less_than_fallback_requires_complete_literal_output_and_exact_errors() {
     for (suffix, output) in [
         ("", "&\u{fffd}<"),
+        ("/", "&\u{fffd}</"),
+        ("/ XMP>", "&\u{fffd}</ XMP>"),
+        ("/\0", "&\u{fffd}</\u{fffd}"),
+        ("/\r\n", "&\u{fffd}</\n"),
         ("\0", "&\u{fffd}<\u{fffd}"),
         ("\r\n", "&\u{fffd}<\n"),
         ("test-->", "&\u{fffd}<test-->"),
@@ -83,11 +91,11 @@ fn script_data_less_than_fallback_requires_complete_literal_output_and_exact_err
         let mut case = json!({"description":"literal fallback must complete",
             "input":format!("&\0<{suffix}"), "output":[["Character",output]],
             "errors":[{"code":"unexpected-null-character","line":1,"col":2}]});
-        if suffix == "\0" {
+        if matches!(suffix, "\0" | "/\0") {
             case["errors"]
                 .as_array_mut()
                 .unwrap()
-                .push(json!({"code":"unexpected-null-character","line":1,"col":4}));
+                .push(json!({"code":"unexpected-null-character","line":1,"col":if suffix == "\0" { 4 } else { 5 }}));
         }
         assert_eq!(
             run_with(&case, "Script data state", None, execute),
@@ -105,24 +113,30 @@ fn script_data_less_than_fallback_requires_complete_literal_output_and_exact_err
             Outcome::Failed(_)
         ));
     }
-    let case = json!({"description":"reconsumed non-scalars diagnose only once", "doubleEscaped":true,
-        "input":"<\\uD800\\uFDD0\\u000B", "output":[["Character","<\\uD800\\uFDD0\\u000B"]],
-        "errors":[{"code":"surrogate-in-input-stream","line":1,"col":2},
-            {"code":"noncharacter-in-input-stream","line":1,"col":3},
-            {"code":"control-character-in-input-stream","line":1,"col":4}]});
-    assert_eq!(
-        run_with(&case, "Script data state", None, execute),
-        Outcome::Passed
-    );
-    let mut doubled = case;
-    doubled["errors"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"code":"surrogate-in-input-stream","line":1,"col":2}));
-    assert!(matches!(
-        run_with(&doubled, "Script data state", None, execute),
-        Outcome::Failed(_)
-    ));
+    for case in [
+        json!({"description":"less-than fallback non-scalars diagnose only once", "doubleEscaped":true,
+            "input":"<\\uD800\\uFDD0\\u000B", "output":[["Character","<\\uD800\\uFDD0\\u000B"]],
+            "errors":[{"code":"surrogate-in-input-stream","line":1,"col":2},
+                {"code":"noncharacter-in-input-stream","line":1,"col":3},
+                {"code":"control-character-in-input-stream","line":1,"col":4}]}),
+        json!({"description":"end-tag-open fallback non-scalars diagnose only once", "doubleEscaped":true,
+            "input":"</\\uD800\\uFDD0\\u000B", "output":[["Character","</\\uD800\\uFDD0\\u000B"]],
+            "errors":[{"code":"surrogate-in-input-stream","line":1,"col":3},
+                {"code":"noncharacter-in-input-stream","line":1,"col":4},
+                {"code":"control-character-in-input-stream","line":1,"col":5}]}),
+    ] {
+        assert_eq!(
+            run_with(&case, "Script data state", None, execute),
+            Outcome::Passed
+        );
+        let first_error = case["errors"][0].clone();
+        let mut doubled = case;
+        doubled["errors"].as_array_mut().unwrap().push(first_error);
+        assert!(matches!(
+            run_with(&doubled, "Script data state", None, execute),
+            Outcome::Failed(_)
+        ));
+    }
 }
 
 #[test]

@@ -83,8 +83,9 @@ instruction states and no separate decimal-character-reference-start state.
   `&` sets the return state to Data even while Character reference remains a stub.
   Tag open creates `pending_start_tag: Option<PendingStartTag>`; End tag open
   creates `pending_end_tag: Option<PendingEndTag>` or
-  `pending_comment: Option<PendingComment>`. RCDATA/RAWTEXT end tag open also
-  create empty selected end tags; their name states accumulate ASCII-normalized
+  `pending_comment: Option<PendingComment>`. RCDATA/RAWTEXT/Script data end tag
+  open also create empty selected end tags (Script data end tag name remains a
+  terminal stub). RCDATA/RAWTEXT name states accumulate ASCII-normalized
   names and original spelling in the temporary buffer, testing appropriateness
   only at delimiters. Tags store code-point names and an
   ordered `Vec<Attribute>` with code-point names/values. The current attribute is

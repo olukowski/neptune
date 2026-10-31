@@ -1,9 +1,12 @@
 # Script data end tag open
 
-Implements exactly `State::ScriptDataEndTagOpen` from main
-`c8ec2da` (RAWTEXT end tag name, PR #22). Script data, Script data less-than
-sign, and Script data end tag name remain unimplemented on this independent
-branch. No sibling branch is imported or integrated.
+Implements exactly `State::ScriptDataEndTagOpen`. Originally independent from
+main `c8ec2da`, PR #28 is now user-directed to rebase onto main
+`3fc6b310a6ea3b3e229a795336eaca72218a14ca`, after independently reviewed
+Script data PR #30 and less-than-sign PR #29 merged. Their algorithms and all
+prior baselines are preserved. Script data and less-than-sign execute; only
+Script data end tag name and escape start remain stubs in this chain. No
+unmerged sibling branch is imported.
 
 ## Retrieved and inspected specification evidence
 
@@ -49,26 +52,41 @@ and normalized positions; reconsumption does not duplicate them.
 - Every other ASCII point plus non-ASCII letters/whitespace, supplementary
   scalars, actual surrogates, noncharacters and controls. Exact literal token
   order, source diagnostics, preprocessing codes/positions, CR normalization,
-  unrelated context and current-input identity are asserted.
+  unrelated context and current-input identity are asserted. The next real
+  Script data step separately checks NUL replacement/error, once-only
+  preprocessing, literal emission or another `<` transition; the tail, repeated
+  suspension and exact EOF/escape-start terminal boundary are also asserted.
 - Repeated open-input suspension versus explicit EOF, including empty entry and
   already-consumed prefixes at different normalized positions. EOF emits only
-  `</` here and schedules EOF reconsumption, never a successful EOF token.
+  `</` here and schedules EOF reconsumption; only the following Script data
+  step emits terminal EOF, at the same conceptual position.
 - Resumption from suspension with fresh default context for both branches,
-  including NUL.
+  including NUL. Alpha still blocks at name; real fallback completes at EOF.
 - Every two-chunk split and single-code-point chunking of representative suffixes
   matches closed-input productive source-step snapshots and terminal results.
   Empty chunks, CRLF, consecutive/trailing CR, EOF, malformed input and non-scalars
   are included. An already-consumed trailing CR additionally checks suppression
   of a following LF before either alpha or fallback/EOF selection.
 
-Cursor prefixes are positioned directly; these tests do not simulate or execute
-unimplemented predecessors. Stored non-scalars are not preprocessed again.
-Both destinations are terminal `UnimplementedState` on the next execution step,
-including Script data after EOF fallback. Repeated steps preserve the same block
-and all effects. Cursor-only inspection confirms the original reconsumed item,
-its position and unconsumed tail; no blocked execution is reconstructed/resumed.
-Chunk traces stop at the first stub and do not claim coverage of unread tails,
-predecessor streaming, destination recovery or whole-tokenizer conformance.
+Isolated cursor prefixes are positioned directly, not simulated algorithms.
+`script_data_state.rs` additionally asserts each real Script data → less-than-sign
+→ end-tag-open source boundary, buffer clearing, repeated end-tag-open
+suspension, candidate creation versus fallback/NUL/EOF destination steps and
+exact preserved context. Name-state blocks remain terminal even after input is
+fed/finished. `script_data_less_than_sign_state.rs` retains all source assertions
+and now checks real end-tag-open creation on a following letter and EOF fallback;
+its split/single-point traces include real entry, non-alpha `</` recovery, NUL,
+CRLF and later blocks. No expectations dynamically detect implementation support.
+
+The production-adapter checks require complete literal fallback output and exact
+errors, deliberately reject wrong prefixes/missing or duplicated diagnostics,
+and retain name/escape-start blocks despite matching output/error prefixes.
+Stored non-scalars are never preprocessed again. Repeated terminal EOF/stub
+steps preserve their result and all effects. Cursor-only inspection confirms
+alpha's original reconsumed item and untouched tail; no blocked execution is
+reconstructed/resumed. Traces execute every real step through completion or the
+first genuine stub; unread tails after a stub are not coverage. These are local
+streaming checks, not whole-tokenizer conformance.
 
 ## Checks and upstream results
 
@@ -76,38 +94,62 @@ All required checks passed:
 
 - `cargo fmt --all -- --check`
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`
-- `cargo test --workspace --locked` — 215 tests passed, 0 failed/ignored,
-  including all five new state-local tests and the existing pass-identity floor.
+- `cargo test --workspace --locked` — 230 tests passed, 0 failed/ignored,
+  including all five state-local tests, the integrated source-boundary test,
+  merged tests and the prior pass-identity floor.
 - `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`
 - `cargo test --workspace --locked pinned_upstream_runner -- --nocapture`
 
 The fixture submodule was already initialized at the pinned
 `c777c408b61078ea2eb4acefc2535f54dbc8b28a` revision. Report:
 **6,827 fixture cases; 7,053 runs; 6,190 dispatch-attempted;
-1,059 executed; 1,059 passed; 0 failed; 5,994 blocked**.
+1,112 executed; 1,112 passed; 0 failed; 5,941 blocked**.
 Executed = passed + failed; dispatch attempts ending at stubs are not passes.
 
 Blocked reasons: CharacterReference 4,692; TokenVariants 858;
-MarkupDeclarationOpen 242; ScriptData 89; CdataSection 56;
-ProcessingInstructionOpen 52; XmlCoercion 4; PendingSpecReview 1.
-The assigned state is not reachable from the runner's existing entry states
-while Script data remains a stub: **zero new upstream passes**. No baseline
-addition is warranted; all 903 existing protected identities and their files and
-registrations remain unchanged. Local tests and support inventory are not
-upstream conformance passes. No fixture, pin, adapter, comparison or policy is
-changed. This is partial coverage, not full conformance or browser security.
+MarkupDeclarationOpen 242; ScriptDataEscapeStart 31; ScriptDataEndTagName 5;
+CdataSection 56; ProcessingInstructionOpen 52; XmlCoercion 4; PendingSpecReview 1.
+Local tests and support inventory are not upstream conformance passes. No fixture,
+pin, adapter execution/comparison or policy is changed. This is partial coverage,
+not full conformance or browser security.
+
+## Integrated fixture review
+
+The original isolated PR reported zero new passes because Script data was a stub.
+Main after PR #29 has 1,111 executed/passed, 0 failed, 5,942 blocked. All six
+end-tag-open-blocked Script data runs were inspected in the unchanged pinned
+fixtures. Five now block at Script data end tag name; one completes:
+
+| Fixture / tests index | Initial-state index | Unchanged input/output and pinned branch reasoning |
+| --- | --- | --- |
+| `domjs.test` 28, “bad endtag (space before name)” | 2, Script data | `lastStartTag: xmp`; input and sole Character output `</ XMP>`; no errors or double escaping. Script data consumes `<`; less-than-sign consumes `/`, clearing the buffer. End tag open consumes SPACE (not alpha), emits `</`, and reconsumes SPACE in Script data. SPACE and `XMP>` emit literally, then terminal EOF (not fixture output). No candidate, appropriateness check or parse error applies. |
+
+Only this individually reviewed identity is added in
+`baselines/script_data_end_tag_open.json` and registered alongside every prior
+file. All **915** previous protected identities remain unchanged and passing;
+the union is now **916**. Expectations are not generated from execution.
+
+The other five runs are `domjs.test` cases 27, 29–31 (Script data initial-state
+index 2) and 42 (index 0). Their unchanged inputs are `</XMP>`, `</xm>`,
+`</xm `, `</xm/`, and `<b>hello world</b>`, respectively. Each reaches ASCII alpha
+after `</`, creates an empty selected end tag and blocks terminally at name.
+Case 42 first emits `<b>hello world` literally, but that matching prefix is not
+a pass. None of these five identities is added; no name-state semantics are
+claimed. The 31 escape-start blocks and broader limitations remain explicit.
 
 ## Sibling integration considerations
 
-No name-state logic, predecessor algorithm, automatic element-based mode
-switching, tree builder, new dependency, abstraction or shared storage is added.
-Module/dispatch and independent support-inventory changes register only this
-state; the shared status document only adds its state-local link.
+No name-state logic, additional predecessor algorithm, automatic element-based
+mode switching, tree builder, dependency, abstraction or shared storage is added.
+Module/dispatch and independent support-inventory conflicts were resolved
+additively, preserving the merged states. Current-scope comments/docs and explicit
+source/destination tests are updated; no tests are skipped or implementation-
+detection expectations introduced.
 
-The user will integrate/rebase the four independent Script data PRs later.
-Once destinations are implemented, source expectations should remain unchanged,
-but destination-block assertions must be reviewed and replaced with the real
-next-step effects. Rerun all checks and the upstream report after integration;
-review newly comparable fixture identities individually before adding a
-state-specific baseline. Never resume an execution that already hit a stub.
-This PR is for review only, not merge or auto-merge.
+The user authorized sequential integration, independently reviewing each exact
+pushed revision immediately before merge. PRs #30/#29 are inherited from main;
+PR #28 does not merge, start reviewers/subagents or enable auto-merge. The parent
+will review the exact pushed revision. When the name-state sibling is integrated,
+retain source effects but deliberately review destination assertions, rerun all
+checks/upstream reporting, and individually review new pass identities. Escape
+start remains an explicit block. Never resume an execution that hit a stub.

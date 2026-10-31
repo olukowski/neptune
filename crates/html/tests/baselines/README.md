@@ -117,8 +117,19 @@ Input/output `<test-->` is literal with no errors: less-than-sign fallback emits
 emit literally before EOF. The
 [state-local integration audit](../../../../docs/tokenizer-script-data-less-than-sign.md#reviewed-upstream-identity)
 records the unchanged fixture and pinned branches. All 914 prior identities and
-baseline files remain unchanged (915 protected identities total). End-tag-open
-and escape-start runs still block explicitly; no prefix is a passing run.
+baseline files remain unchanged (915 protected identities total). At that PR's
+merge, end-tag-open and escape-start runs still blocked explicitly; no prefix
+was counted as a passing run.
+
+`script_data_end_tag_open.json` adds exactly one individually reviewed identity:
+`domjs.test`, `tests[28]`, “bad endtag (space before name)”, Script data entry
+index 2. The unchanged input/output `</ XMP>` is literal with no errors: SPACE
+takes end-tag-open fallback, emitting `</` and reconsuming SPACE in Script data,
+which emits the remaining input and EOF. The
+[state-local fixture audit](../../../../docs/tokenizer-script-data-end-tag-open.md#integrated-fixture-review)
+records all six affected upstream runs and this sole newly comparable identity.
+All 915 prior protected identities/files remain unchanged (916 total). The five
+alpha runs now block at Script data end tag name; escape-start blocks remain.
 
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
