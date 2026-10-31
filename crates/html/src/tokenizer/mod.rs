@@ -2,6 +2,7 @@
 //! See docs/tokenizer.md for current scope and pinned specification provenance.
 
 mod attribute_name;
+mod attribute_value_double_quoted;
 mod attribute_value_single_quoted;
 mod before_attribute_name;
 mod bogus_comment;
@@ -156,6 +157,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::TagName => Ok(tag_name::step(context)),
         State::BeforeAttributeName => Ok(before_attribute_name::step(context)),
         State::AttributeName => Ok(attribute_name::step(context)),
+        State::AttributeValueDoubleQuoted => Ok(attribute_value_double_quoted::step(context)),
         State::AttributeValueSingleQuoted => Ok(attribute_value_single_quoted::step(context)),
         State::SelfClosingStartTag => Ok(self_closing_start_tag::step(context)),
         State::BogusComment => Ok(bogus_comment::step(context)),
