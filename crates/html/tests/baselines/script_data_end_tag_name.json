@@ -1,0 +1,7 @@
+[
+  ["domjs.test", "tests", 27, "lowercase endtags", "Script data state", 2],
+  ["domjs.test", "tests", 29, "bad endtag (not matching last start tag)", "Script data state", 2],
+  ["domjs.test", "tests", 30, "bad endtag (without close bracket)", "Script data state", 2],
+  ["domjs.test", "tests", 31, "bad endtag (trailing solidus)", "Script data state", 2],
+  ["domjs.test", "tests", 42, "HTML tag in script data", "Script data state", 0]
+]

@@ -216,13 +216,12 @@ fn isolated_entry_accepts_a_scheduled_first_letter_without_advancing_or_resettin
     );
     assert_eq!(run.context().tokens, literal(&points("ScRiPt")));
     assert!(run.context().errors.is_empty());
-    terminal(
-        &mut run,
-        Err(UnimplementedState {
-            state: State::ScriptData,
-        }),
-    );
-    assert_eq!(run.context_mut().input.consume(), Input::CodePoint(point));
+    let mut expected = snapshot(&run);
+    expected.tokens.push(Token::Character(point));
+    assert_eq!(run.step(), Ok(Progress::Continue(State::ScriptData)));
+    assert_eq!(snapshot(&run), expected);
+    assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+    assert_eq!(snapshot(&run), expected);
     assert_eq!(
         run.context().input.errors(),
         [error("surrogate-in-input-stream", 1, 1)]
@@ -302,21 +301,36 @@ fn appropriate_means_exact_candidate_name_not_scratch_or_unemitted_storage() {
                 run.context_mut().input.reconsume(),
                 Err(CursorError::AlreadyReconsuming)
             );
-            terminal(
-                &mut run,
-                Err(UnimplementedState {
-                    state: State::ScriptData,
-                }),
-            );
-            // Cursor inspection only, not execution resumption after a stub.
-            assert_eq!(
-                run.context_mut().input.consume(),
-                expected.current.unwrap().0
-            );
-            assert_eq!(
-                run.context_mut().input.consume(),
-                Input::CodePoint('!'.into())
-            );
+            expected
+                .tokens
+                .push(Token::Character(match expected.current.unwrap().0 {
+                    Input::CodePoint(point) => point,
+                    _ => unreachable!(),
+                }));
+            assert_eq!(run.step(), Ok(Progress::Continue(State::ScriptData)));
+            assert_eq!(snapshot(&run), expected);
+            expected.current = Some((
+                Input::CodePoint('!'.into()),
+                if matches!(delimiter, '\r' | '\n') {
+                    Position { line: 2, column: 1 }
+                } else {
+                    Position { line: 1, column: 2 }
+                },
+            ));
+            expected.tokens.push(Token::Character('!'.into()));
+            assert_eq!(run.step(), Ok(Progress::Continue(State::ScriptData)));
+            assert_eq!(snapshot(&run), expected);
+            expected.current = Some((
+                Input::Eof,
+                Position {
+                    line: expected.current.unwrap().1.line,
+                    column: expected.current.unwrap().1.column + 1,
+                },
+            ));
+            expected.tokens.push(Token::Eof);
+            assert_eq!(run.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&run), expected);
+            terminal(&mut run, Ok(Progress::Finished));
         }
     }
     // Seeded storage probes isolate the definition from scratch and scalar strings.
@@ -388,22 +402,53 @@ fn all_nonletter_ascii_and_nonscalars_fall_back_without_replacement_or_state_err
             "{point:?}"
         );
         assert_eq!(snapshot(&run), expected);
-        terminal(
-            &mut run,
-            Err(UnimplementedState {
-                state: State::ScriptData,
-            }),
-        );
-        assert!(!run.context().tokens.contains(&Token::Eof));
-        assert_eq!(
-            run.context_mut().input.consume(),
-            Input::CodePoint(normalized)
-        );
-        assert_eq!(run.context().input.errors(), expected.input_errors);
-        assert_eq!(
-            run.context_mut().input.consume(),
-            Input::CodePoint('!'.into())
-        );
+        if value == 0x3c {
+            expected.state = State::ScriptDataLessThanSign;
+        } else if value == 0 {
+            expected.tokens.push(Token::Character('\u{fffd}'.into()));
+            expected
+                .errors
+                .push(error("unexpected-null-character", 2, 1));
+        } else {
+            expected.tokens.push(Token::Character(normalized));
+        }
+        assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&run), expected);
+        expected.current = Some((
+            Input::CodePoint('!'.into()),
+            if normalized == '\n'.into() {
+                Position { line: 3, column: 1 }
+            } else {
+                Position { line: 2, column: 2 }
+            },
+        ));
+        if value == 0x3c {
+            expected.state = State::ScriptDataEscapeStart;
+            expected.tokens.push(Token::Character('<'.into()));
+        }
+        expected.tokens.push(Token::Character('!'.into()));
+        assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&run), expected);
+        if value == 0x3c {
+            terminal(
+                &mut run,
+                Err(UnimplementedState {
+                    state: State::ScriptDataEscapeStart,
+                }),
+            );
+        } else {
+            expected.current = Some((
+                Input::Eof,
+                Position {
+                    line: expected.current.unwrap().1.line,
+                    column: expected.current.unwrap().1.column + 1,
+                },
+            ));
+            expected.tokens.push(Token::Eof);
+            assert_eq!(run.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&run), expected);
+            terminal(&mut run, Ok(Progress::Finished));
+        }
     }
     // Matching candidates still fall back on every non-delimiter tested here.
     for value in [
@@ -442,12 +487,24 @@ fn scratch_is_emitted_in_order_without_preprocessing_and_without_including_misma
         run.context_mut().input.reconsume(),
         Err(CursorError::AlreadyReconsuming)
     );
-    terminal(
-        &mut run,
-        Err(UnimplementedState {
-            state: State::ScriptData,
-        }),
-    );
+    let mut expected = snapshot(&run);
+    for (i, point) in points("!tail").into_iter().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point),
+            Position {
+                line: 1,
+                column: i + 1,
+            },
+        ));
+        expected.tokens.push(Token::Character(point));
+        assert_eq!(run.step(), Ok(Progress::Continue(State::ScriptData)));
+        assert_eq!(snapshot(&run), expected);
+    }
+    expected.current = Some((Input::Eof, Position { line: 1, column: 6 }));
+    expected.tokens.push(Token::Eof);
+    assert_eq!(run.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&run), expected);
+    terminal(&mut run, Ok(Progress::Finished));
 }
 
 #[test]
@@ -476,13 +533,10 @@ fn open_input_suspends_but_explicit_eof_recovers_literally_even_for_matching_nam
             run.context_mut().input.reconsume(),
             Err(CursorError::AlreadyReconsuming)
         );
-        terminal(
-            &mut run,
-            Err(UnimplementedState {
-                state: State::ScriptData,
-            }),
-        );
-        assert_eq!(run.context_mut().input.consume(), Input::Eof);
+        expected.tokens.push(Token::Eof);
+        assert_eq!(run.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&run), expected);
+        terminal(&mut run, Ok(Progress::Finished));
         assert_eq!(
             run.context_mut().input.push([]),
             Err(CursorError::InputAlreadyFinished)
@@ -506,12 +560,11 @@ fn open_input_suspends_but_explicit_eof_recovers_literally_even_for_matching_nam
     );
     assert_eq!(run.context().tokens, literal(&points("ScRiPt")));
     assert!(run.context().errors.is_empty());
-    terminal(
-        &mut run,
-        Err(UnimplementedState {
-            state: State::ScriptData,
-        }),
-    );
+    let mut expected = snapshot(&run);
+    expected.tokens.push(Token::Eof);
+    assert_eq!(run.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&run), expected);
+    terminal(&mut run, Ok(Progress::Finished));
 }
 
 #[test]
@@ -683,7 +736,7 @@ fn existing_destinations_complete_attributes_flags_malformed_recovery_and_eof() 
 #[test]
 fn fallback_and_later_stubs_remain_terminal_even_after_feeding_and_context_mutation() {
     for (input, state, current, column) in [
-        ("!tail", State::ScriptData, '!', 1),
+        ("<!tail", State::ScriptDataEscapeStart, '!', 2),
         (">&tail", State::CharacterReference, '&', 2),
         (" a='&tail", State::CharacterReference, '&', 5),
         ("><!tail", State::MarkupDeclarationOpen, '!', 3),
@@ -715,6 +768,392 @@ fn fallback_and_later_stubs_remain_terminal_even_after_feeding_and_context_mutat
             run.context().input.current().unwrap().0,
             Input::CodePoint(current.into())
         );
+    }
+}
+
+fn characters(text: &str) -> Vec<Token> {
+    points(text).into_iter().map(Token::Character).collect()
+}
+
+fn script_entry(input: &[CodePoint], last: Option<&str>, finished: bool) -> Execution {
+    let mut seeded = context("stale-end", "stale-scratch", last);
+    seeded.input.push(input.iter().copied()).unwrap();
+    if finished {
+        seeded.input.finish();
+    }
+    Execution::new(State::ScriptData, seeded)
+}
+
+#[test]
+fn real_script_entry_preserves_each_creation_accumulation_emission_and_data_boundary() {
+    let mut run = script_entry(&points("p</ScRiPt>\0"), Some("script"), true);
+    let mut expected = snapshot(&run);
+    for (state, point, column) in [
+        (State::ScriptData, 'p', 1),
+        (State::ScriptDataLessThanSign, '<', 2),
+        (State::ScriptDataEndTagOpen, '/', 3),
+        (State::ScriptDataEndTagName, 'S', 4),
+    ] {
+        expected.state = state;
+        expected.current = Some((Input::CodePoint(point.into()), Position { line: 1, column }));
+        match column {
+            1 => expected.tokens.push(Token::Character('p'.into())),
+            3 => expected.buffer.clear(),
+            4 => {
+                expected.selected = Some(TagKind::End);
+                expected.end = Some(PendingEndTag {
+                    name: vec![],
+                    attributes: vec![],
+                    self_closing: false,
+                    discarded_current_attribute: None,
+                });
+            }
+            _ => {}
+        }
+        assert_eq!(run.step(), Ok(Progress::Continue(state)));
+        assert_eq!(snapshot(&run), expected);
+    }
+    assert_eq!(
+        run.context_mut().input.reconsume(),
+        Err(CursorError::AlreadyReconsuming)
+    );
+    for (index, (original, normalized)) in "ScRiPt".chars().zip("script".chars()).enumerate() {
+        expected.current = Some((
+            Input::CodePoint(original.into()),
+            Position {
+                line: 1,
+                column: index + 4,
+            },
+        ));
+        expected.end.as_mut().unwrap().name.push(normalized.into());
+        expected.buffer.push(original.into());
+        assert_eq!(
+            run.step(),
+            Ok(Progress::Continue(State::ScriptDataEndTagName))
+        );
+        assert_eq!(snapshot(&run), expected);
+    }
+    expected.state = State::Data;
+    expected.current = Some((
+        Input::CodePoint('>'.into()),
+        Position {
+            line: 1,
+            column: 10,
+        },
+    ));
+    expected.end = None;
+    expected.selected = None;
+    expected.tokens.push(end_tag(vec![], false));
+    assert_eq!(run.step(), Ok(Progress::Continue(State::Data)));
+    assert_eq!(snapshot(&run), expected);
+    // Data, not Script data, emits the original NUL after an appropriate close.
+    expected.current = Some((
+        Input::CodePoint('\0'.into()),
+        Position {
+            line: 1,
+            column: 11,
+        },
+    ));
+    expected.tokens.push(Token::Character('\0'.into()));
+    expected
+        .errors
+        .push(error("unexpected-null-character", 1, 11));
+    assert_eq!(run.step(), Ok(Progress::Continue(State::Data)));
+    assert_eq!(snapshot(&run), expected);
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 12,
+        },
+    ));
+    expected.tokens.push(Token::Eof);
+    assert_eq!(run.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&run), expected);
+    terminal(&mut run, Ok(Progress::Finished));
+}
+
+#[test]
+fn real_script_entry_completes_matching_mismatched_eof_delimiters_and_malformed_paths_exactly() {
+    for (input, last, output, errors) in [
+        (
+            "</script>",
+            Some("script"),
+            vec![end_tag(vec![], false)],
+            vec![],
+        ),
+        (
+            "&amp;</ScRiPt>",
+            Some("script"),
+            [characters("&amp;"), vec![end_tag(vec![], false)]].concat(),
+            vec![],
+        ),
+        ("</ScRiPt>", None, characters("</ScRiPt>"), vec![]),
+        ("</ScRiPt>", Some("SCRIPT"), characters("</ScRiPt>"), vec![]),
+        (
+            "</other></ScRiPt>",
+            Some("script"),
+            [characters("</other>"), vec![end_tag(vec![], false)]].concat(),
+            vec![],
+        ),
+        ("</scrip>", Some("script"), characters("</scrip>"), vec![]),
+        (
+            "</scriptx>",
+            Some("script"),
+            characters("</scriptx>"),
+            vec![],
+        ),
+        (
+            "</scriptÉ>",
+            Some("script"),
+            characters("</scriptÉ>"),
+            vec![],
+        ),
+        ("</ScRiPt", Some("script"), characters("</ScRiPt"), vec![]),
+        (
+            "</script ",
+            Some("script"),
+            vec![],
+            vec![error("eof-in-tag", 1, 10)],
+        ),
+        (
+            "</script/",
+            Some("script"),
+            vec![],
+            vec![error("eof-in-tag", 1, 10)],
+        ),
+        (
+            "</ScRiPt a='x'/>",
+            Some("script"),
+            vec![end_tag(vec![attribute("a", "x")], true)],
+            vec![
+                error("end-tag-with-attributes", 1, 16),
+                error("end-tag-with-trailing-solidus", 1, 16),
+            ],
+        ),
+        (
+            "</script/!>",
+            Some("script"),
+            vec![end_tag(vec![attribute("!", "")], false)],
+            vec![
+                error("unexpected-solidus-in-tag", 1, 10),
+                error("end-tag-with-attributes", 1, 11),
+            ],
+        ),
+        (
+            "</script\0>",
+            Some("script"),
+            characters("</script\u{fffd}>"),
+            vec![error("unexpected-null-character", 1, 9)],
+        ),
+        (
+            "</script</ScRiPt>",
+            Some("script"),
+            [characters("</script"), vec![end_tag(vec![], false)]].concat(),
+            vec![],
+        ),
+        (
+            "<b>hello world</b>",
+            None,
+            characters("<b>hello world</b>"),
+            vec![],
+        ),
+    ] {
+        let mut run = script_entry(&points(input), last, true);
+        let mut trace = vec![];
+        assert!(drain(&mut run, &mut trace));
+        assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished), "{input:?}");
+        assert_eq!(
+            run.context().tokens,
+            [output, vec![Token::Eof]].concat(),
+            "{input:?}"
+        );
+        assert_eq!(run.context().errors, errors, "{input:?}");
+        assert!(run.context().input.errors().is_empty());
+        assert_eq!(run.context().last_start_tag, last.map(points));
+    }
+    for separator in ["\t", "\n", "\u{c}", " ", "\r", "\r\n"] {
+        let mut run = script_entry(
+            &points(&format!("</ScRiPt{separator}>")),
+            Some("script"),
+            true,
+        );
+        let mut trace = vec![];
+        assert!(drain(&mut run, &mut trace));
+        assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+        assert_eq!(run.context().tokens, [end_tag(vec![], false), Token::Eof]);
+        assert!(run.context().errors.is_empty());
+    }
+    for (value, code) in [
+        (0xd800, "surrogate-in-input-stream"),
+        (0xdfff, "surrogate-in-input-stream"),
+        (0xfdd0, "noncharacter-in-input-stream"),
+        (0x10ffff, "noncharacter-in-input-stream"),
+        (0xb, "control-character-in-input-stream"),
+    ] {
+        let point = CodePoint::new(value).unwrap();
+        let input = [points("</ScRiPt"), vec![point], points(">")].concat();
+        let mut run = script_entry(&input, Some("script"), true);
+        let mut trace = vec![];
+        assert!(drain(&mut run, &mut trace));
+        assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+        assert_eq!(
+            run.context().tokens,
+            [
+                input.into_iter().map(Token::Character).collect::<Vec<_>>(),
+                vec![Token::Eof]
+            ]
+            .concat()
+        );
+        assert_eq!(run.context().input.errors(), [error(code, 1, 9)]);
+        assert!(run.context().errors.is_empty());
+    }
+}
+
+#[test]
+fn real_script_close_selects_data_and_genuine_escape_reference_markup_blocks_stay_terminal() {
+    let mut run = script_entry(&points("</script><DIV>"), Some("script"), true);
+    let mut trace = vec![];
+    assert!(drain(&mut run, &mut trace));
+    assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+    assert_eq!(
+        run.context().tokens,
+        [
+            end_tag(vec![], false),
+            Token::StartTag {
+                name: points("div"),
+                attributes: vec![],
+                self_closing: false,
+            },
+            Token::Eof
+        ]
+    );
+    assert_eq!(run.context().last_start_tag, Some(points("div")));
+    assert!(run.context().errors.is_empty());
+    for (input, state, point, column, output) in [
+        (
+            "<!tail",
+            State::ScriptDataEscapeStart,
+            '!',
+            2,
+            characters("<!"),
+        ),
+        (
+            "</script<!tail",
+            State::ScriptDataEscapeStart,
+            '!',
+            10,
+            characters("</script<!"),
+        ),
+        (
+            "</script>&tail",
+            State::CharacterReference,
+            '&',
+            10,
+            vec![end_tag(vec![], false)],
+        ),
+        (
+            "</script a='&tail",
+            State::CharacterReference,
+            '&',
+            13,
+            vec![],
+        ),
+        (
+            "</script><!tail",
+            State::MarkupDeclarationOpen,
+            '!',
+            11,
+            vec![end_tag(vec![], false)],
+        ),
+    ] {
+        let mut run = script_entry(&points(input), Some("script"), false);
+        let mut trace = vec![];
+        assert!(drain(&mut run, &mut trace));
+        let blocked = Err(UnimplementedState { state });
+        assert_eq!(trace.last().unwrap().0, blocked);
+        assert_eq!(run.context().tokens, output);
+        assert_eq!(
+            run.context().input.current(),
+            Some((Input::CodePoint(point.into()), Position { line: 1, column }))
+        );
+        assert!(run.context().errors.is_empty());
+        run.context_mut().input.push(points("more")).unwrap();
+        run.context_mut().input.finish();
+        terminal(&mut run, blocked);
+    }
+}
+
+#[test]
+fn real_script_entry_every_split_and_single_point_chunks_match_all_integrated_steps() {
+    let mut inputs: Vec<_> = [
+        "",
+        "</",
+        "</script",
+        "</ScRiPt>",
+        "</ScRiPt>\0",
+        "</other></script>",
+        "</ScRiPt a='x'/>",
+        "</script\t>",
+        "</script\u{c}>",
+        "</script\r\n a='\0'>",
+        "</script a='1' a='2'>",
+        "</script/!>",
+        "</script/",
+        "</script\r",
+        "</script\r\r>",
+        "</script\0>",
+        "</scriptÉ>",
+        "</script</script>",
+        "</script<",
+        "<!tail",
+        "</script<!tail",
+        "</script>&tail",
+        "</script a='&tail",
+        "</script><!tail",
+        "&amp;</script><DIV>",
+    ]
+    .into_iter()
+    .map(points)
+    .collect();
+    for value in [0xd800, 0xdfff, 0xfdd0, 0x10ffff, 0xb] {
+        inputs.push(
+            [
+                points("</ScRiPt"),
+                vec![CodePoint::new(value).unwrap()],
+                points(">\r\n</script>"),
+            ]
+            .concat(),
+        );
+    }
+    for input in inputs {
+        for last in [None, Some("script"), Some("SCRIPT")] {
+            let mut closed = script_entry(&input, last, true);
+            let mut expected = vec![];
+            assert!(drain(&mut closed, &mut expected));
+            let mut chunkings: Vec<Vec<&[CodePoint]>> = (0..=input.len())
+                .map(|split| vec![&input[..split], &[], &input[split..]])
+                .collect();
+            chunkings.push(input.chunks(1).collect());
+            for chunks in chunkings {
+                let mut run = script_entry(&[], last, false);
+                let mut actual = vec![];
+                assert!(!drain(&mut run, &mut actual));
+                let mut ended = false;
+                for chunk in chunks {
+                    if ended {
+                        break;
+                    }
+                    run.context_mut().input.push(chunk.iter().copied()).unwrap();
+                    ended = drain(&mut run, &mut actual);
+                }
+                if !ended {
+                    run.context_mut().input.finish();
+                    assert!(drain(&mut run, &mut actual));
+                }
+                assert_eq!(actual, expected, "input={input:?}, last={last:?}");
+            }
+        }
     }
 }
 

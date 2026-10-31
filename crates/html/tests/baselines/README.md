@@ -128,8 +128,19 @@ takes end-tag-open fallback, emitting `</` and reconsuming SPACE in Script data,
 which emits the remaining input and EOF. The
 [state-local fixture audit](../../../../docs/tokenizer-script-data-end-tag-open.md#integrated-fixture-review)
 records all six affected upstream runs and this sole newly comparable identity.
-All 915 prior protected identities/files remain unchanged (916 total). The five
-alpha runs now block at Script data end tag name; escape-start blocks remain.
+All 915 prior protected identities/files remain unchanged (916 total at PR #28's
+merge). Its five alpha runs then blocked at Script data end tag name;
+escape-start blocks remain.
+
+`script_data_end_tag_name.json` adds exactly five individually inspected identities:
+`domjs.test` cases 27 and 29–31 (Script data entry index 2), and case 42 (entry
+index 0). The [state-local fixture audit](../../../../docs/tokenizer-script-data-end-tag-name.md#integrated-fixture-review)
+records each unchanged input/output and its pinned branch reasoning: mixed-case
+appropriate emission; inappropriate `>`, SPACE and `/` literal recovery; and
+absent start-tag history keeping tag-like input literal. All lack fixture errors
+and `doubleEscaped`. No output or expectation was generated from execution.
+All 916 previous identities/files remain unchanged and passing (921 protected
+identities total). No escape-start block is accepted as a pass.
 
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from

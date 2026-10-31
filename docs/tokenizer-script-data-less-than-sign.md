@@ -80,18 +80,21 @@ not simulate Script data's algorithm. Real entry runs the merged Script data
 handler. The real `ScriptDataEndTagOpen` step now creates/selects an empty
 candidate on alpha and schedules name-state reconsumption; EOF/non-alpha fallback
 emits `</` then reconsumes in Script data. Exact source and destination snapshots
-remain separate. Only `ScriptDataEndTagName` and `ScriptDataEscapeStart` remain
-**terminal `UnimplementedState`** in this chain, regardless of input availability.
+remain separate. End tag name now reconsumes and accumulates the candidate and
+original spelling, then emits an appropriate tag into Data or recovers literally
+in Script data. Only `ScriptDataEscapeStart` remains **terminal
+`UnimplementedState`** in this simple chain, regardless of input availability.
 Repeated terminal steps have no effects. Only real Script data emits terminal EOF
-after fallback; neither less-than-sign nor end-tag-open itself does.
+after fallback; neither less-than-sign, end-tag-open nor end-tag-name itself does.
 
 `script_data_state.rs` retains its delimiter-only source boundary checks and now
 checks the real less-than-sign → escape-start terminal boundary. Its streaming
 trace includes the newly executable fallback steps rather than truncating at
 less-than-sign. `tests/support/script_data.rs` requires full output and exact
 errors for literal fallback (including NUL, EOF, CRLF and non-scalars), rejects
-wrong output and missing/duplicate diagnostics, and keeps explicit end-tag-name
-and escape-start blocks even after exact output/error prefixes. None of these
+wrong output and missing/duplicate diagnostics, compares complete matching-tag
+and literal name fallback/EOF output, and keeps explicit escape-start/later Data
+blocks even after exact output/error prefixes. None of these
 expectations depends dynamically on dispatch support. These are local tests,
 not additional upstream conformance runs.
 
@@ -99,8 +102,9 @@ not additional upstream conformance runs.
 
 Historical PR #29 merge report after rebasing onto main
 `c9c43fd0676d5dc39035a8da9317328b6e06745b` (PR #30, Script data).
-For current integrated counts and the new literal `</` pass, see the
-[end-tag-open report](tokenizer-script-data-end-tag-open.md#checks-and-upstream-results):
+For current integrated counts and the name-state additions, see the
+[name-state report](tokenizer-script-data-end-tag-name.md#validation-and-current-limits).
+The following numbers are historical, at PR #29's merge:
 
 - 6,827 fixture cases / 7,053 case-initial-state runs;
 - 6,190 dispatch-attempted;
@@ -132,9 +136,11 @@ and a single Script data initial-state entry (index 0). Script data consumes
 and Script data algorithm, not execution-generated expectations. There is no
 closing-tag or escape branch in this case. At PR #29's merge, every other
 `<`-containing Script data fixture reached `/` or `!` and remained blocked.
-PR #28 now adds one separately reviewed `</ XMP>` literal fallback identity;
-the remaining alpha/name and escape-start runs still block. Prior baseline files
-and identities are not changed or re-blessed.
+PR #28 subsequently added one separately reviewed `</ XMP>` literal fallback
+identity; at its merge the remaining alpha/name and escape-start runs still
+blocked. PR #31 now adds five independently reviewed name-state identities;
+escape start still blocks. Prior baseline files and identities are not changed
+or re-blessed.
 
 All required checks passed: `cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets --locked -- -D warnings`,
@@ -147,8 +153,9 @@ revision `c777c408b61078ea2eb4acefc2535f54dbc8b28a`.
 ## Scope and sibling integration
 
 PR #29 implemented exactly one additional state, inheriting Script data
-unchanged from main PR #30. PR #28 now inherits both merged states and adds
-end-tag-open; name, escape start and other escape states remain unimplemented.
+unchanged from main PR #30. PR #28 subsequently inherited both merged states and
+added end-tag-open. PR #31 now inherits all three from main and adds end-tag-name;
+escape start and all other escape states remain unimplemented.
 No automatic mode switching, tree builder, API/storage helper, or dependency is
 added. There is no missing shared prerequisite.
 Module/dispatch and independent support-inventory additions register only this
@@ -162,12 +169,14 @@ Tests that assumed a Script data stub now execute the real destination and asser
 its effects; source-step assertions are preserved. No tests are skipped and no
 expected behavior is selected dynamically from support availability.
 
-PR #28 rebases onto merged PR #29 main
+Historically PR #28 rebased onto merged PR #29 main
 `3fc6b310a6ea3b3e229a795336eaca72218a14ca`, preserving all source assertions.
-The `/` branch now separately checks real end-tag-open creation and EOF fallback;
-streaming checks include non-alpha `</` recovery, NUL and CRLF. No expectation
-dynamically detects implementation support. Only name-state integration remains
-for the sibling wave. Before each future merge the parent must independently
-review the exact pushed revision; deliberately review destination tests, rerun
-all checks/upstream reporting and individually review newly comparable identities.
-Escape start remains an explicit block. PR #28 does not merge or start reviewers.
+PR #31 now rebases onto main `59bc9ec055074a04419af7fb7068f95a836ff13d` after
+PR #28 merged. The `/` branch checks real end-tag-open empty creation before
+name-state reconsumption/accumulation, suspension and literal EOF fallback in
+separate exact snapshots. Streaming checks run all real steps including name
+recognition/recovery; no expectation dynamically detects implementation support.
+The parent will freshly review this final revision before merging. Every
+CONTRIBUTING check and upstream report must pass, with individually reviewed new
+identities. Escape start remains an explicit block; no branch starts reviewers
+or merges itself.

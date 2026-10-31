@@ -52,9 +52,8 @@ fn script_data_mapping_literals_replacement_and_non_scalars_compare_exactly() {
 }
 
 #[test]
-fn script_data_less_than_keeps_real_end_tag_and_escape_blocks_despite_exact_prefixes() {
+fn script_data_less_than_keeps_real_escape_blocks_despite_exact_prefixes() {
     for (suffix, prefix, target) in [
-        ("/script>", "&\u{fffd}", State::ScriptDataEndTagName),
         (
             "/ XMP><!tail",
             "&\u{fffd}</ XMP><!",
@@ -136,6 +135,93 @@ fn script_data_less_than_fallback_requires_complete_literal_output_and_exact_err
             run_with(&doubled, "Script data state", None, execute),
             Outcome::Failed(_)
         ));
+    }
+}
+
+#[test]
+fn integrated_script_names_require_complete_matching_literal_eof_and_diagnostics() {
+    for case in [
+        json!({"description":"formerly name-blocked exact adapter path now completes", "input":"&\0</script>",
+            "lastStartTag":"script", "output":[["Character","&\u{fffd}"],["EndTag","script"]],
+            "errors":[{"code":"unexpected-null-character","line":1,"col":2}]}),
+        json!({"description":"appropriate mixed case and following Data NUL", "input":"&amp;</ScRiPt>\0",
+            "lastStartTag":"script", "output":[["Character","&amp;"],["EndTag","script"],["Character","\0"]],
+            "errors":[{"code":"unexpected-null-character","line":1,"col":15}]}),
+        json!({"description":"mismatch then appropriate close", "input":"</other></ScRiPt>",
+            "lastStartTag":"script", "output":[["Character","</other>"],["EndTag","script"]]}),
+        json!({"description":"absent history keeps end tag literal", "input":"</ScRiPt>",
+            "output":[["Character","</ScRiPt>"]]}),
+        json!({"description":"name EOF is literal, not tag EOF", "input":"</ScRiPt",
+            "lastStartTag":"script", "output":[["Character","</ScRiPt"]]}),
+        json!({"description":"delimiter hands EOF to attribute destination", "input":"</script ",
+            "lastStartTag":"script", "output":[], "errors":[{"code":"eof-in-tag","line":1,"col":10}]}),
+        json!({"description":"end tag emission errors coexist", "input":"</ScRiPt a='x'/>",
+            "lastStartTag":"script", "output":[["EndTag","script"]],
+            "errors":[{"code":"end-tag-with-attributes","line":1,"col":16},
+                {"code":"end-tag-with-trailing-solidus","line":1,"col":16}]}),
+        json!({"description":"name fallback non-scalars diagnose only once", "doubleEscaped":true,
+            "input":"</ScRiPt\\uD800\\uFDD0\\u000B>", "lastStartTag":"script",
+            "output":[["Character","</ScRiPt\\uD800\\uFDD0\\u000B>"]],
+            "errors":[{"code":"surrogate-in-input-stream","line":1,"col":9},
+                {"code":"noncharacter-in-input-stream","line":1,"col":10},
+                {"code":"control-character-in-input-stream","line":1,"col":11}]}),
+    ] {
+        assert_eq!(
+            run_with(&case, "Script data state", None, execute),
+            Outcome::Passed
+        );
+        let mut truncated = case.clone();
+        truncated["output"] = json!([["Character", "&amp;"]]);
+        assert!(matches!(
+            run_with(&truncated, "Script data state", None, execute),
+            Outcome::Failed(_)
+        ));
+        if let Some(errors) = case["errors"].as_array() {
+            let mut missing = case.clone();
+            missing["errors"].as_array_mut().unwrap().pop();
+            assert!(matches!(
+                run_with(&missing, "Script data state", None, execute),
+                Outcome::Failed(_)
+            ));
+            let mut doubled = case.clone();
+            doubled["errors"]
+                .as_array_mut()
+                .unwrap()
+                .push(errors[0].clone());
+            assert!(matches!(
+                run_with(&doubled, "Script data state", None, execute),
+                Outcome::Failed(_)
+            ));
+        }
+    }
+}
+
+#[test]
+fn matching_script_close_does_not_hide_later_data_or_attribute_stubs() {
+    for (input, output, target) in [
+        (
+            "</script>&tail",
+            json!([["EndTag", "script"]]),
+            State::CharacterReference,
+        ),
+        ("</script a='&tail", json!([]), State::CharacterReference),
+        (
+            "</script><!tail",
+            json!([["EndTag", "script"]]),
+            State::MarkupDeclarationOpen,
+        ),
+        (
+            "</script<!tail",
+            json!([["Character", "</script<!"]]),
+            State::ScriptDataEscapeStart,
+        ),
+    ] {
+        let case = json!({"description":"complete-looking prefix remains blocked", "input":input,
+            "lastStartTag":"script", "output":output});
+        assert_eq!(
+            run_with(&case, "Script data state", None, execute),
+            Outcome::Blocked(Blocked::Unimplemented(target))
+        );
     }
 }
 

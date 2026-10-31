@@ -25,9 +25,10 @@ Only `State::ScriptData` is implemented in `script_data.rs`. Explicit entry uses
 `Execution::new(State::ScriptData, context)`; the existing fixture adapter already
 recognizes `Script data state`. There is no automatic element-based mode switch,
 tree builder, JavaScript parsing, character-reference processing, or implementation
-of end tag name or any escaped-script state.
+of any escaped-script state.
 [Script data less-than sign](tokenizer-script-data-less-than-sign.md) and
-[end tag open](tokenizer-script-data-end-tag-open.md) are implemented separately
+[end tag open](tokenizer-script-data-end-tag-open.md), and
+[end tag name](tokenizer-script-data-end-tag-name.md) are implemented separately
 and reachable from this state's `<` branch.
 Existing Context/cursor/execution/storage conventions are reused without adding
 fields, dependencies, or shared algorithm abstractions.
@@ -48,8 +49,10 @@ That destination clears the buffer on `/`, emits `<!` on `!`, or emits `<` and
 reconsumes anything else (including EOF) in Script data. Open exhaustion suspends
 there without emitting. End tag open creates/selects an empty candidate on ASCII
 alpha and reconsumes in end tag name; otherwise it emits `</` and reconsumes in
-Script data, including EOF. Terminal `UnimplementedState` now occurs at end tag
-name or escape start, never accepted as a matching prefix or recoverable parse error.
+Script data, including EOF. End tag name normalizes ASCII names, preserves
+original spelling, emits appropriate end tags into Data or recovers literally
+with reconsumption in Script data. Terminal `UnimplementedState` still occurs at
+escape start, never accepted as a matching prefix or recoverable parse error.
 Literal fallback and EOF reconsumption can complete through the real Script data
 handler. Repeated terminal checks retain the same result even if context is
 inspected or input is subsequently closed; no execution is reconstructed after
@@ -93,7 +96,8 @@ it to test a subsequent state.
 independent initial-state entries, Data defaults/no automatic switch after
 `<script>`, exact output and diagnostics (with deliberately wrong expectations),
 double-escaped non-scalars, literal ampersands, and terminal blocks despite exact
-prefix matches at end tag name or escape start. Newly executable literal fallback
+prefix matches at escape start or later Data/attribute stubs. Closing tags and
+literal name mismatch/EOF recovery compare complete output. Newly executable literal fallback
 must compare complete output/errors, rejecting wrong prefixes and missing or
 duplicate diagnostics. These synthetic/local tests and the independent support
 inventory are **not** upstream conformance passes or whole-tokenizer streaming
@@ -142,16 +146,20 @@ Script data merged as independently reviewed PR #30, commit
 `c9c43fd0676d5dc39035a8da9317328b6e06745b`. Less-than-sign PR #29 was then
 user-directed to rebase onto that main revision. Its integration preserves this
 algorithm and delimiter-only source boundary and executes real fallback/EOF paths.
-PR #28 is now rebased onto merged PR #29 main
-`3fc6b310a6ea3b3e229a795336eaca72218a14ca`. It adds real end-tag-open execution,
+Historically PR #28 then rebased onto merged PR #29 main
+`3fc6b310a6ea3b3e229a795336eaca72218a14ca`. It added real end-tag-open execution,
 exact source/destination boundaries (including suspension, creation, NUL and EOF),
-and moves genuine stub assertions to end tag name and escape start. See the
-[current integration report](tokenizer-script-data-end-tag-open.md#checks-and-upstream-results)
-for exact counts and its individually reviewed new identity.
+and moved genuine stub assertions to then-unimplemented end tag name and escape
+start. Its historical report/identity is retained in the
+[end-tag-open audit](tokenizer-script-data-end-tag-open.md#historical-pr-28-checks-and-upstream-results).
 
-End tag name remains a separate PR. Later user-directed integration
-must review dispatch/module registrations and independent support inventory,
-rerun all checks/upstream reporting, and deliberately update destination-boundary
-tests and individually review new passes. Never bypass terminal semantics,
-automatically bless results, or resume old blocked executions. No shared
-prerequisite was missing for this state.
+PR #31 now rebases onto main `59bc9ec055074a04419af7fb7068f95a836ff13d` after
+PR #28 merged, adding real end-tag-name execution and updating every obsolete
+stub expectation across all four suites/adapters. Source-step assertions remain:
+empty creation precedes normalization; name EOF emits a literal candidate before
+Script data emits EOF. Escape start remains terminal; Character reference and
+Markup declaration open still block after appropriate closes where applicable.
+See the [current name-state integration report](tokenizer-script-data-end-tag-name.md#validation-and-current-limits)
+for counts and the five independently reviewed newly comparable identities.
+Never bypass terminal semantics, automatically bless results, or resume old
+blocked executions. No shared prerequisite was missing for this state.
