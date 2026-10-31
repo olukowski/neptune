@@ -254,7 +254,7 @@ fn conceptual_eof_reports_once_and_open_exhaustion_has_no_effects() {
 }
 
 #[test]
-fn default_context_suspends_in_real_destinations_and_preserves_later_stubs() {
+fn default_context_suspends_then_executes_real_end_tag_or_double_escape_destinations() {
     for (text, target, output) in [
         ("-", State::ScriptDataEscapedDashDash, "-"),
         ("<", State::ScriptDataEscapedLessThanSign, ""),
@@ -298,12 +298,45 @@ fn default_context_suspends_in_real_destinations_and_preserves_later_stubs() {
             ));
             assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&execution), expected);
-            assert_terminal(
-                &mut execution,
-                Err(UnimplementedState {
-                    state: expected.state,
-                }),
-            );
+            expected.state = State::ScriptDataEscapedEndTagName;
+            expected.current = Some((
+                Input::CodePoint('t'.into()),
+                Position { line: 1, column: 3 },
+            ));
+            expected.storage.current_tag = Some(TagKind::End);
+            expected.storage.end = Some(PendingEndTag::default());
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            for (index, point) in points("tail").into_iter().enumerate() {
+                expected.current = Some((
+                    Input::CodePoint(point),
+                    Position {
+                        line: 1,
+                        column: index + 3,
+                    },
+                ));
+                expected.storage.end.as_mut().unwrap().name.push(point);
+                expected.storage.buffer.push(point);
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&execution), expected);
+            execution.context_mut().input.finish();
+            expected.state = State::ScriptDataEscaped;
+            expected.current = Some((Input::Eof, Position { line: 1, column: 7 }));
+            expected
+                .tokens
+                .extend(points("</tail").into_iter().map(Token::Character));
+            assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+            assert_eq!(snapshot(&execution), expected);
+            expected.tokens.push(Token::Eof);
+            expected
+                .errors
+                .push(error("eof-in-script-html-comment-like-text", 1, 7));
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&execution), expected);
+            assert_terminal(&mut execution, Ok(Progress::Finished));
             continue;
         }
         for _ in 0..3 {
@@ -347,16 +380,47 @@ fn default_context_suspends_in_real_destinations_and_preserves_later_stubs() {
         expected.tokens.push(Token::Character('<'.into()));
         assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
         assert_eq!(snapshot(&execution), expected);
-        assert_terminal(
-            &mut execution,
-            Err(UnimplementedState {
-                state: State::ScriptDataDoubleEscapeStart,
-            }),
-        );
-        assert_eq!(
-            execution.context_mut().input.consume(),
-            Input::CodePoint('t'.into())
-        );
+        for (index, point) in points("tail").into_iter().enumerate() {
+            expected.current = Some((
+                Input::CodePoint(point),
+                Position {
+                    line: 1,
+                    column: 4 + index,
+                },
+            ));
+            expected.storage.buffer.push(point);
+            expected.tokens.push(Token::Character(point));
+            assert_eq!(
+                execution.step(),
+                Ok(Progress::Continue(State::ScriptDataDoubleEscapeStart))
+            );
+            assert_eq!(snapshot(&execution), expected);
+        }
+
+        for _ in 0..3 {
+            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        execution.context_mut().input.finish();
+
+        expected.state = State::ScriptDataEscaped;
+        expected.current = Some((
+            Input::Eof,
+            Position {
+                line: 1,
+                column: 4 + 4,
+            },
+        ));
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&execution), expected);
+        expected.tokens.push(Token::Eof);
+        expected
+            .errors
+            .push(error("eof-in-script-html-comment-like-text", 1, 4 + 4));
+        for _ in 0..3 {
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&execution), expected);
+        }
     }
 }
 

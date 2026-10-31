@@ -84,15 +84,6 @@ fn entry(buffer: Vec<CodePoint>) -> Execution {
     assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
     Execution::new(State::ScriptDataDoubleEscapeStart, context)
 }
-fn terminal_stub(e: &mut Execution, target: State) {
-    let before = snapshot(e);
-    assert_eq!(before.state, target);
-    for _ in 0..3 {
-        assert_eq!(e.step(), Err(UnimplementedState { state: target }));
-        assert_eq!(snapshot(e), before);
-    }
-    assert!(!before.tokens.contains(&Token::Eof));
-}
 
 #[test]
 fn exhaustive_source_branches_preserve_context_spelling_and_current_input() {
@@ -445,7 +436,7 @@ fn isolated_entry_accepts_explicit_predecessor_contract_without_executing_stub()
 }
 
 #[test]
-fn predecessor_remains_terminal_no_fake_real_entry() {
+fn real_predecessor_clears_scratch_and_reconsumes_original_spelling_into_double_escaped() {
     let mut context = seeded(points("sentinel"));
     context.input.push(points("<!--<ScRiPt>tail")).unwrap();
     context.input.finish();
@@ -475,7 +466,75 @@ fn predecessor_remains_terminal_no_fake_real_entry() {
         ]
         .concat()
     );
-    terminal_stub(&mut e, State::ScriptDataEscapedLessThanSign);
+    let mut expected = snapshot(&e);
+    expected.state = State::ScriptDataDoubleEscapeStart;
+    expected.current = Some((
+        Input::CodePoint('S'.into()),
+        Position { line: 1, column: 6 },
+    ));
+    expected.buffer.clear();
+    expected.tokens.push(Token::Character('<'.into()));
+    assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&e), expected);
+    for (index, point) in points("ScRiPt").into_iter().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point),
+            Position {
+                line: 1,
+                column: index + 6,
+            },
+        ));
+        expected.buffer.push(
+            CodePoint::new(if (0x41..=0x5a).contains(&point.value()) {
+                point.value() + 0x20
+            } else {
+                point.value()
+            })
+            .unwrap(),
+        );
+        expected.tokens.push(Token::Character(point));
+        assert_eq!(
+            e.step(),
+            Ok(Progress::Continue(State::ScriptDataDoubleEscapeStart))
+        );
+        assert_eq!(snapshot(&e), expected);
+    }
+    expected.state = State::ScriptDataDoubleEscaped;
+    expected.current = Some((
+        Input::CodePoint('>'.into()),
+        Position {
+            line: 1,
+            column: 12,
+        },
+    ));
+    expected.tokens.push(Token::Character('>'.into()));
+    assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&e), expected);
+    for (index, point) in points("tail").into_iter().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point),
+            Position {
+                line: 1,
+                column: index + 13,
+            },
+        ));
+        expected.tokens.push(Token::Character(point));
+        assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&e), expected);
+    }
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 17,
+        },
+    ));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 17));
+    assert_eq!(e.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&e), expected);
 }
 
 // Pinned HTML 143958–144142: fixed cross-state expectations, not a second

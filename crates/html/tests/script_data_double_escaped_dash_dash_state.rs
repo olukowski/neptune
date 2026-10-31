@@ -437,7 +437,8 @@ fn explicitly_reconsumed_entry_and_eof_keep_normalized_positions_without_duplica
 }
 
 #[test]
-fn greater_than_returns_to_real_script_data_from_dash_or_dash_dash_but_gateway_still_blocks() {
+fn greater_than_returns_to_real_script_data_from_dash_or_dash_dash_and_real_script_gateway_executes()
+ {
     for initial in [SOURCE, State::ScriptDataDoubleEscapedDash] {
         let mut context = seeded();
         context.input.push(points("-->\r\n\0\0")).unwrap();
@@ -486,8 +487,8 @@ fn greater_than_returns_to_real_script_data_from_dash_or_dash_dash_but_gateway_s
         assert_eq!(retained(execution.context()), preserved);
     }
 
-    // Ordinary Script data entry still stops at the genuine earlier gateway.
-    // Exercise the real available chain, without reconstructing after its stub.
+    // Ordinary Script data entry reaches the real double-escaped loop.
+    // Retain the gateway's predecessor boundary before completing this execution.
     let mut context = Context::default();
     context.input.push(points("<!--<script>-->")).unwrap();
     context.input.finish();
@@ -516,16 +517,34 @@ fn greater_than_returns_to_real_script_data_from_dash_or_dash_dash_but_gateway_s
         ))
     );
     assert!(execution.context().errors.is_empty());
-    let boundary = snapshot(&execution);
-    for _ in 0..3 {
-        assert_eq!(
-            execution.step(),
-            Err(UnimplementedState {
-                state: State::ScriptDataEscapedLessThanSign
-            })
-        );
-        assert_eq!(snapshot(&execution), boundary);
-    }
+    let mut expected = snapshot(&execution);
+    expected.state = State::ScriptDataDoubleEscapeStart;
+    expected.current = Some((
+        Input::CodePoint('s'.into()),
+        Position { line: 1, column: 6 },
+    ));
+    expected.retained.buffer.clear();
+    expected.tokens.push(Token::Character('<'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    let mut trace = vec![];
+    assert!(drain(&mut execution, &mut trace, 100));
+    expected.state = State::ScriptData;
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 16,
+        },
+    ));
+    expected.tokens = points("<!--<script>-->")
+        .into_iter()
+        .map(Token::Character)
+        .chain([Token::Eof])
+        .collect();
+    expected.retained.buffer = points("script");
+    assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
 }
 
 #[test]

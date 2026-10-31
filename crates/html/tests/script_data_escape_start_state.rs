@@ -562,7 +562,7 @@ fn real_entry_distinguishes_ordinary_eof_from_each_escaped_eof_state() {
 }
 
 #[test]
-fn real_entry_inspects_escaped_less_than_then_reaches_terminal_double_escape_start() {
+fn real_entry_inspects_escaped_less_than_then_runs_double_escape_start_and_eof_fallback() {
     for (input, output, column) in [
         ("<!--<tail", "<!--", 5),
         ("<!--x<tail", "<!--x", 6),
@@ -597,19 +597,49 @@ fn real_entry_inspects_escaped_less_than_then_reaches_terminal_double_escape_sta
         expected.storage.buffer.clear();
         assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
         assert_eq!(snapshot(&run), expected);
-        let blocked = Err(UnimplementedState {
-            state: State::ScriptDataDoubleEscapeStart,
-        });
-        let mut trace = vec![];
-        assert!(drain(&mut run, &mut trace));
-        assert_eq!(trace.last().unwrap().0, blocked);
-        assert_eq!(snapshot(&run), expected);
-        terminal(&mut run, blocked);
-        // Negative terminality check, not supported resumption or a new execution.
-        run.context_mut().input.push(points("more\0")).unwrap();
+        for (index, point) in points("tail").into_iter().enumerate() {
+            expected.current = Some((
+                Input::CodePoint(point),
+                Position {
+                    line: 1,
+                    column: column + 1 + index,
+                },
+            ));
+            expected.storage.buffer.push(point);
+            expected.tokens.push(Token::Character(point));
+            assert_eq!(
+                run.step(),
+                Ok(Progress::Continue(State::ScriptDataDoubleEscapeStart))
+            );
+            assert_eq!(snapshot(&run), expected);
+        }
+
+        for _ in 0..3 {
+            assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&run), expected);
+        }
         run.context_mut().input.finish();
-        terminal(&mut run, blocked);
+
+        expected.state = State::ScriptDataEscaped;
+        expected.current = Some((
+            Input::Eof,
+            Position {
+                line: 1,
+                column: column + 1 + 4,
+            },
+        ));
+        assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
         assert_eq!(snapshot(&run), expected);
+        expected.tokens.push(Token::Eof);
+        expected.errors.push(error(
+            "eof-in-script-html-comment-like-text",
+            1,
+            column + 1 + 4,
+        ));
+        for _ in 0..3 {
+            assert_eq!(run.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&run), expected);
+        }
     }
 }
 

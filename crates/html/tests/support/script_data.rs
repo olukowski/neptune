@@ -76,32 +76,42 @@ fn script_data_mapping_literals_replacement_and_non_scalars_compare_exactly() {
 }
 
 #[test]
-fn script_data_less_than_keeps_real_escape_blocks_despite_exact_prefixes() {
-    for (suffix, prefix, target) in [
-        (
-            "/ XMP><!--<tail",
-            "&\u{fffd}</ XMP><!--<",
-            State::ScriptDataDoubleEscapeStart,
-        ),
-        (
-            "!--<tail",
-            "&\u{fffd}<!--<",
-            State::ScriptDataDoubleEscapeStart,
-        ),
-        (
-            "!--x-<tail",
-            "&\u{fffd}<!--x-<",
-            State::ScriptDataDoubleEscapeStart,
-        ),
+fn script_data_less_than_requires_complete_escape_fallback_despite_matching_prefixes() {
+    for (suffix, output, eof_column) in [
+        ("/ XMP><!--<tail", "&\u{fffd}</ XMP><!--<tail", 19),
+        ("!--<tail", "&\u{fffd}<!--<tail", 12),
+        ("!--x-<tail", "&\u{fffd}<!--x-<tail", 14),
     ] {
-        let case = json!({"description":"matching prefix must not pass",
-            "input":format!("&\0<{suffix}"), "output":[["Character",prefix]],
+        let case = json!({"description":"formerly blocked escape fallback must complete",
+            "input":format!("&\0<{suffix}"), "output":[["Character",output]],
             "lastStartTag":"script",
-            "errors":[{"code":"unexpected-null-character","line":1,"col":2}]});
+            "errors":[{"code":"unexpected-null-character","line":1,"col":2},
+                {"code":"eof-in-script-html-comment-like-text","line":1,"col":eof_column}]});
         assert_eq!(
             run_with(&case, "Script data state", None, execute),
-            Outcome::Blocked(Blocked::Unimplemented(target))
+            Outcome::Passed
         );
+        let mut truncated = case.clone();
+        truncated["output"] = json!([["Character", "&\u{fffd}<!--<"]]);
+        assert!(matches!(
+            run_with(&truncated, "Script data state", None, execute),
+            Outcome::Failed(_)
+        ));
+        let mut missing = case.clone();
+        missing["errors"].as_array_mut().unwrap().pop();
+        assert!(matches!(
+            run_with(&missing, "Script data state", None, execute),
+            Outcome::Failed(_)
+        ));
+        let mut doubled = case.clone();
+        doubled["errors"]
+            .as_array_mut()
+            .unwrap()
+            .push(case["errors"][1].clone());
+        assert!(matches!(
+            run_with(&doubled, "Script data state", None, execute),
+            Outcome::Failed(_)
+        ));
     }
 }
 
@@ -249,9 +259,9 @@ fn matching_script_close_does_not_hide_later_data_or_attribute_stubs() {
             State::MarkupDeclarationOpen,
         ),
         (
-            "</script<!--<tail",
-            json!([["Character", "</script<!--<"]]),
-            State::ScriptDataDoubleEscapeStart,
+            "</script<!--<tail></script>&tail",
+            json!([["Character", "</script<!--<tail>"], ["EndTag", "script"]]),
+            State::CharacterReference,
         ),
     ] {
         let case = json!({"description":"complete-looking prefix remains blocked", "input":input,
@@ -260,6 +270,62 @@ fn matching_script_close_does_not_hide_later_data_or_attribute_stubs() {
             run_with(&case, "Script data state", None, execute),
             Outcome::Blocked(Blocked::Unimplemented(target))
         );
+    }
+}
+
+#[test]
+fn complete_script_family_adapter_requires_exact_output_errors_and_completion() {
+    for case in [
+        json!({"description":"escaped close attributes and duplicate identity", "lastStartTag":"script",
+            "input":"<!--</ScRiPt A='first' a='discard' B=last />\0",
+            "output":[["Character","<!--"],["EndTag","script"],["Character","\0"]],
+            "errors":[{"code":"duplicate-attribute","line":1,"col":25},
+                {"code":"end-tag-with-attributes","line":1,"col":44},
+                {"code":"end-tag-with-trailing-solidus","line":1,"col":44},
+                {"code":"unexpected-null-character","line":1,"col":45}]}),
+        json!({"description":"double escaped nesting is not a nesting depth counter", "lastStartTag":"script",
+            "input":"<!--<ScRiPt><script></ScRiPt></sCrIpT>X",
+            "output":[["Character","<!--<ScRiPt><script></ScRiPt>"],["EndTag","script"],["Character","X"]]}),
+        json!({"description":"nul recovery in double escaped, escaped, then Data", "lastStartTag":"script",
+            "input":"<!--<ScRiPt>\0</sCrIpT>\0</ScRiPt>\0",
+            "output":[["Character","<!--<ScRiPt>\u{fffd}</sCrIpT>\u{fffd}"],["EndTag","script"],["Character","\0"]],
+            "errors":[{"code":"unexpected-null-character","line":1,"col":13},
+                {"code":"unexpected-null-character","line":1,"col":23},
+                {"code":"unexpected-null-character","line":1,"col":33}]}),
+        json!({"description":"incomplete double escape end owns no EOF diagnostic",
+            "input":"<!--<ScRiPt></ScRiPt", "output":[["Character","<!--<ScRiPt></ScRiPt"]],
+            "errors":[{"code":"eof-in-script-html-comment-like-text","line":1,"col":21}]}),
+        json!({"description":"absent last start tag leaves escaped closing tag literal",
+            "input":"<!--</ScRiPt>X", "output":[["Character","<!--</ScRiPt>X"]],
+            "errors":[{"code":"eof-in-script-html-comment-like-text","line":1,"col":15}]}),
+    ] {
+        assert_eq!(
+            run_with(&case, "Script data state", None, execute),
+            Outcome::Passed
+        );
+        let mut wrong = case.clone();
+        wrong["output"] = json!([["Character", "<!--"]]);
+        assert!(matches!(
+            run_with(&wrong, "Script data state", None, execute),
+            Outcome::Failed(_)
+        ));
+        if let Some(errors) = case["errors"].as_array() {
+            let mut missing = case.clone();
+            missing["errors"].as_array_mut().unwrap().pop();
+            assert!(matches!(
+                run_with(&missing, "Script data state", None, execute),
+                Outcome::Failed(_)
+            ));
+            let mut duplicate = case.clone();
+            duplicate["errors"]
+                .as_array_mut()
+                .unwrap()
+                .push(errors[0].clone());
+            assert!(matches!(
+                run_with(&duplicate, "Script data state", None, execute),
+                Outcome::Failed(_)
+            ));
+        }
     }
 }
 

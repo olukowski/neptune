@@ -736,7 +736,12 @@ fn existing_destinations_complete_attributes_flags_malformed_recovery_and_eof() 
 #[test]
 fn fallback_and_later_stubs_remain_terminal_even_after_feeding_and_context_mutation() {
     for (input, state, current, column) in [
-        ("<!--<tail", State::ScriptDataDoubleEscapeStart, 't', 6),
+        (
+            "<!--<tail></script>&tail",
+            State::CharacterReference,
+            '&',
+            20,
+        ),
         (">&tail", State::CharacterReference, '&', 2),
         (" a='&tail", State::CharacterReference, '&', 5),
         ("><!tail", State::MarkupDeclarationOpen, '!', 3),
@@ -1032,18 +1037,22 @@ fn real_script_close_selects_data_and_genuine_escape_reference_markup_blocks_sta
     assert!(run.context().errors.is_empty());
     for (input, state, point, column, output) in [
         (
-            "<!--<tail",
-            State::ScriptDataDoubleEscapeStart,
-            't',
-            6,
-            characters("<!--<"),
+            "<!--<tail></script>&tail",
+            State::CharacterReference,
+            '&',
+            20,
+            [characters("<!--<tail>"), vec![end_tag(vec![], false)]].concat(),
         ),
         (
-            "</script<!--<tail",
-            State::ScriptDataDoubleEscapeStart,
-            't',
-            14,
-            characters("</script<!--<"),
+            "</script<!--<tail></script>&tail",
+            State::CharacterReference,
+            '&',
+            28,
+            [
+                characters("</script<!--<tail>"),
+                vec![end_tag(vec![], false)],
+            ]
+            .concat(),
         ),
         (
             "</script>&tail",

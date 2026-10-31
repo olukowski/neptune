@@ -99,16 +99,6 @@ fn entry(mut context: Context, buffer: Vec<CodePoint>) -> Execution {
     Execution::new(State::ScriptDataDoubleEscapeEnd, context)
 }
 
-fn assert_stub(execution: &mut Execution, state: State) {
-    let before = snapshot(execution);
-    assert_eq!(before.state, state);
-    for _ in 0..3 {
-        assert_eq!(execution.step(), Err(UnimplementedState { state }));
-        assert_eq!(snapshot(execution), before);
-    }
-    assert!(!before.tokens.contains(&Token::Eof));
-}
-
 // EOF is diagnosed/emitted by the actual Escaped/DoubleEscaped destination.
 fn finish_at(execution: &mut Execution, expected: &mut Snapshot, line: usize, column: usize) {
     expected.current = Some((Input::Eof, Position { line, column }));
@@ -564,7 +554,7 @@ fn matched_delimiter_executes_real_escaped_continuation_and_exact_diagnostics() 
 }
 
 #[test]
-fn real_predecessor_entry_clears_scratch_while_ordinary_script_entry_still_blocks() {
+fn real_predecessor_entry_clears_scratch_and_ordinary_script_entry_completes() {
     let mut context = Context::default();
     context
         .input
@@ -595,7 +585,34 @@ fn real_predecessor_entry_clears_scratch_while_ordinary_script_entry_still_block
             Position { line: 1, column: 5 }
         ))
     );
-    assert_stub(&mut execution, State::ScriptDataEscapedLessThanSign);
+    let mut expected = snapshot(&execution);
+    expected.state = State::ScriptDataDoubleEscapeStart;
+    expected.current = Some((
+        Input::CodePoint('s'.into()),
+        Position { line: 1, column: 6 },
+    ));
+    expected.buffer.clear();
+    expected.tokens.push(Token::Character('<'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    let mut trace = vec![];
+    assert!(drain(&mut execution, &mut trace));
+    expected.state = State::ScriptData;
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 26,
+        },
+    ));
+    expected.tokens = points("<!--<script></script> -->")
+        .into_iter()
+        .map(Token::Character)
+        .chain([Token::Eof])
+        .collect();
+    expected.buffer = points("script");
+    assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
 
     // Retain immediate-predecessor assertions and also execute the new Dash
     // source before LessThanSign, without reconstructing any terminal run.
@@ -692,7 +709,10 @@ fn drain(
             Ok(Progress::Continue(_)) => {}
             Ok(Progress::Finished) | Err(_) => {
                 if let Err(block) = result {
-                    assert!(matches!(block.state, State::ScriptDataEscapedLessThanSign));
+                    assert!(matches!(
+                        block.state,
+                        State::CharacterReference | State::MarkupDeclarationOpen
+                    ));
                 }
                 let before = snapshot(execution);
                 assert_eq!(execution.step(), result);

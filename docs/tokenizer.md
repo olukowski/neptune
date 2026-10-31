@@ -44,7 +44,7 @@ matching double-escape-end delimiter or Script data on double-escaped dash-dash
 `>`. Appropriate escaped end tags emit through existing attribute/tag support
 and return to Data; mismatches/EOF recover literally. This emits character/tag
 tokens, not Comment tokens. No tree builder or automatic element-based
-mode switching is implied. See the [integrated branch/fixture audit](tokenizer-script-data-escape-start.md).
+mode switching is implied. See the [current integrated branch/fixture audit](tokenizer-script-data-escaped-less-than-sign.md#final-integration-after-all-eight-siblings).
 
 Implementation evidence is the immutable HTML Standard source in
 [docs/sources.toml](sources.toml), specifically **Preprocessing the input stream**

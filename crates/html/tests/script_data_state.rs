@@ -149,7 +149,7 @@ fn less_than_consumes_only_the_delimiter_before_destination_dispatch() {
         }
     }
     // The real less-than-sign destination emits both '<' and '!' before the
-    // escape-start source suspends, then the real escape chain reaches its '<' stub.
+    // escape-start source suspends, then the real escape chain executes its '<' gateway.
     let mut context = Context::default();
     context.input.push(points("<!")).unwrap();
     let mut execution = Execution::new(State::ScriptData, context);
@@ -220,16 +220,63 @@ fn less_than_consumes_only_the_delimiter_before_destination_dispatch() {
     expected.tokens.push(Token::Character('<'.into()));
     assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
     assert_eq!(snapshot(&execution), expected);
-    let blocked = Err(UnimplementedState {
-        state: State::ScriptDataDoubleEscapeStart,
-    });
-    for _ in 0..3 {
-        assert_eq!(execution.step(), blocked);
+    for (index, point) in points("tail").into_iter().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point),
+            Position {
+                line: 1,
+                column: index + 6,
+            },
+        ));
+        expected.retained.temporary_buffer.push(point);
+        expected.tokens.push(Token::Character(point));
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
         assert_eq!(snapshot(&execution), expected);
     }
+    expected.state = State::ScriptDataEscaped;
+    expected.current = Some((
+        Input::CodePoint('\0'.into()),
+        Position {
+            line: 1,
+            column: 10,
+        },
+    ));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.tokens.push(Token::Character('\u{fffd}'.into()));
+    expected
+        .errors
+        .push(error("unexpected-null-character", 1, 10));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+    assert_eq!(snapshot(&execution), expected);
     execution.context_mut().input.push(points("more")).unwrap();
     execution.context_mut().input.finish();
-    assert_eq!(execution.step(), blocked);
+    for (index, point) in points("more").into_iter().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point),
+            Position {
+                line: 1,
+                column: index + 11,
+            },
+        ));
+        expected.tokens.push(Token::Character(point));
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&execution), expected);
+    }
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 15,
+        },
+    ));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 15));
+    assert_eq!(execution.step(), Ok(Progress::Finished));
     assert_eq!(snapshot(&execution), expected);
 }
 

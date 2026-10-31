@@ -1,5 +1,26 @@
 # Script data double escaped state
 
+## Current final Script data integration (PR #45)
+
+On merged main `022baca4abb8593974d29c018597f9d5678231a6` plus PR #45,
+the complete Script data state family is reachable from explicit Script data
+entry. EscapedLessThanSign is no longer a stub: escaped closing tags and the
+full double-escaped loop execute, including returns to Escaped, Script data and
+Data. This state's production algorithm and source-branch assertions are
+preserved; tests now execute newly reachable destinations instead of stopping at
+obsolete script-state blocks. Character reference/Markup declaration and other
+unrelated unsupported states remain genuine terminal limitations.
+
+See [PR #45's final integration and individually reviewed fixture audit](tokenizer-script-data-escaped-less-than-sign.md#final-integration-after-all-eight-siblings)
+and `crates/html/tests/script_data_integration.rs` for current paths, source-step
+effects, exact diagnostics, attributes/duplicates, nesting/case/delimiters and
+chunk-splitting evidence. This remains a standalone tokenizer, not automatic
+mode switching, tree construction, JavaScript parsing or full conformance.
+
+**All support boundaries, counts and PR-local “current” labels below are
+historical snapshots. Their normative branch evidence remains applicable.**
+
+
 ## Current PR #37 integration update
 
 On exact merged main **`b67a7ee7445965257d0733569ac3c4e4f0bde8c8`** (#43/#38/#39/#40/#42)

@@ -1,7 +1,7 @@
 //! Source-local checks for #script-data-end-tag-open-state, pinned HTML source
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, lines 143676–143692.
 //! Real Script data / less-than-sign steps execute separately from this source;
-//! end tag name and the escape chain execute; escaped less-than sign remains a stub.
+//! end tag name and the complete escape/double-escape chain execute.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -459,7 +459,10 @@ fn drain(execution: &mut Execution, trace: &mut Trace, bound: usize) -> bool {
         trace.push((result, snapshot(execution)));
         match result {
             Err(UnimplementedState { state }) => {
-                assert_eq!(state, State::ScriptDataEscapedLessThanSign);
+                assert!(matches!(
+                    state,
+                    State::CharacterReference | State::MarkupDeclarationOpen
+                ));
                 assert_terminal_stub(execution, state);
                 return true;
             }

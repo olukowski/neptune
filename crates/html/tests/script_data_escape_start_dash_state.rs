@@ -109,16 +109,6 @@ fn entry(mut context: Context, newline_prefix: bool) -> Execution {
     Execution::new(State::ScriptDataEscapeStartDash, context)
 }
 
-fn assert_terminal_stub(execution: &mut Execution, target: State) {
-    let before = snapshot(execution);
-    assert_eq!(before.state, target);
-    for _ in 0..3 {
-        assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-        assert_eq!(snapshot(execution), before);
-    }
-    assert!(!before.tokens.contains(&Token::Eof));
-}
-
 #[test]
 fn every_ascii_branch_and_non_scalar_preserves_source_effects_and_reconsumes_exactly_once() {
     for value in (0..=0x7f).chain([
@@ -413,11 +403,7 @@ fn fallback_runs_real_script_data_and_keeps_later_stub_blocks_explicit() {
         // isolated local run is separate from the now-comparable upstream run.
         ("test-->", "ptest-->", None),
         ("<!tail", "p<!tail", None),
-        (
-            "<!--<tail",
-            "p<!--<",
-            Some(State::ScriptDataDoubleEscapeStart),
-        ),
+        ("<!--<tail", "p<!--<tail", None),
         ("</script a='x&y'>", "p", Some(State::CharacterReference)),
     ] {
         let mut execution = entry(seeded_context(), false);
@@ -445,10 +431,15 @@ fn fallback_runs_real_script_data_and_keeps_later_stub_blocks_explicit() {
             tokens.push(Token::Eof);
         }
         assert_eq!(execution.context().tokens, tokens);
-        assert_eq!(
-            execution.context().errors,
-            [error("prior-diagnostic", 1, 1)]
-        );
+        let mut errors = vec![error("prior-diagnostic", 1, 1)];
+        if input == "<!--<tail" {
+            errors.push(error(
+                "eof-in-script-html-comment-like-text",
+                1,
+                input.len() + 4,
+            ));
+        }
+        assert_eq!(execution.context().errors, errors);
         assert!(execution.context().input.errors().is_empty());
         let after = snapshot(&execution);
         for _ in 0..3 {
@@ -538,7 +529,49 @@ fn hyphen_executes_real_escaped_cycles_with_exact_source_steps_and_later_boundar
                 expected.storage.buffer.clear();
                 assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&execution), expected);
-                assert_terminal_stub(&mut execution, State::ScriptDataDoubleEscapeStart);
+                for (index, point) in points("tail").into_iter().enumerate() {
+                    expected.current = Some((
+                        Input::CodePoint(point),
+                        Position {
+                            line: 3,
+                            column: 8 + index,
+                        },
+                    ));
+                    expected.storage.buffer.push(point);
+                    expected.tokens.push(Token::Character(point));
+                    assert_eq!(
+                        execution.step(),
+                        Ok(Progress::Continue(State::ScriptDataDoubleEscapeStart))
+                    );
+                    assert_eq!(snapshot(&execution), expected);
+                }
+                if !finished {
+                    for _ in 0..3 {
+                        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                        assert_eq!(snapshot(&execution), expected);
+                    }
+                    execution.context_mut().input.finish();
+                }
+
+                expected.state = State::ScriptDataEscaped;
+                expected.current = Some((
+                    Input::Eof,
+                    Position {
+                        line: 3,
+                        column: 8 + 4,
+                    },
+                ));
+                assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&execution), expected);
+                expected.tokens.push(Token::Eof);
+                expected
+                    .errors
+                    .push(error("eof-in-script-html-comment-like-text", 3, 8 + 4));
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(&execution), expected);
+                }
+
                 continue;
             }
             let eof_position = if exit.is_empty() {

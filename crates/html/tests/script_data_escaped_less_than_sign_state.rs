@@ -168,7 +168,7 @@ fn every_ascii_branch_and_non_scalars_preserve_exact_source_effects_and_spelling
 }
 
 #[test]
-fn slash_and_alpha_destinations_are_terminal_with_no_destination_effects() {
+fn slash_and_alpha_destinations_execute_separate_source_steps_and_complete_exactly() {
     for suffix in ["/", "/ScRiPt>", "A", "sCrIpT ", "Z\0"] {
         for finished in [false, true] {
             let mut run = direct(seeded_context());
@@ -193,17 +193,102 @@ fn slash_and_alpha_destinations_are_terminal_with_no_destination_effects() {
             }
             assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&run), expected);
-            let blocked = Err(UnimplementedState {
-                state: expected.state,
-            });
-            for _ in 0..3 {
-                assert_eq!(run.step(), blocked);
-                assert_eq!(snapshot(&run), expected);
+            let mut final_expected = snapshot(&run);
+            if slash {
+                if suffix == "/" && !finished {
+                    for _ in 0..3 {
+                        assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+                        assert_eq!(snapshot(&run), expected);
+                    }
+                    run.context_mut().input.finish();
+                }
+                if suffix == "/" {
+                    expected.state = State::ScriptDataEscaped;
+                    expected.current = Some((Input::Eof, Position { line: 1, column: 3 }));
+                    expected
+                        .tokens
+                        .extend(points("</").into_iter().map(Token::Character));
+                } else {
+                    expected.state = State::ScriptDataEscapedEndTagName;
+                    expected.current = Some((
+                        Input::CodePoint('S'.into()),
+                        Position { line: 1, column: 3 },
+                    ));
+                    expected.current_tag = Some(TagKind::End);
+                    expected.end = Some(PendingEndTag::default());
+                }
+            } else {
+                let original = suffix.chars().next().unwrap();
+                expected
+                    .temporary_buffer
+                    .push(original.to_ascii_lowercase().into());
+                expected.tokens.push(Token::Character(original.into()));
             }
-            // A terminality assertion, not an attempt to resume execution.
-            run.context_mut().input.finish();
-            assert_eq!(run.step(), blocked);
+            assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&run), expected);
+            let mut trace = vec![];
+            if !drain(&mut run, &mut trace) {
+                assert!(!finished);
+                run.context_mut().input.finish();
+                assert!(drain(&mut run, &mut trace));
+            }
+            final_expected.current = Some((
+                Input::Eof,
+                Position {
+                    line: 1,
+                    column: suffix.len() + 2,
+                },
+            ));
+            final_expected.state = if suffix == "/ScRiPt>" {
+                State::Data
+            } else if suffix == "sCrIpT " {
+                State::ScriptDataDoubleEscaped
+            } else {
+                State::ScriptDataEscaped
+            };
+            final_expected.temporary_buffer = points(match suffix {
+                "/ScRiPt>" => "ScRiPt",
+                "/" => "",
+                "A" => "a",
+                "sCrIpT " => "script",
+                "Z\0" => "z",
+                _ => unreachable!(),
+            });
+            if suffix == "/ScRiPt>" {
+                final_expected.current_tag = None;
+                final_expected.end = None;
+                final_expected.tokens.push(Token::EndTag {
+                    name: points("script"),
+                    attributes: vec![],
+                    self_closing: false,
+                });
+            } else {
+                let literal = if suffix == "/" {
+                    "</".to_owned()
+                } else {
+                    suffix.replace('\0', "\u{fffd}")
+                };
+                final_expected
+                    .tokens
+                    .extend(points(&literal).into_iter().map(Token::Character));
+                if suffix == "Z\0" {
+                    final_expected
+                        .errors
+                        .push(error("unexpected-null-character", 1, 3));
+                }
+                final_expected.errors.push(error(
+                    "eof-in-script-html-comment-like-text",
+                    1,
+                    suffix.len() + 2,
+                ));
+            }
+            final_expected.tokens.push(Token::Eof);
+            assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
+            assert_eq!(snapshot(&run), final_expected);
+            for _ in 0..3 {
+                assert_eq!(run.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&run), final_expected);
+            }
         }
     }
 }
@@ -351,15 +436,28 @@ fn all_real_predecessors_reach_the_gateway_before_its_source_step() {
             }
             assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&run), expected);
-            if slash || alpha {
-                assert_eq!(
-                    run.step(),
-                    Err(UnimplementedState {
-                        state: expected.state
-                    })
-                );
+            if slash {
+                expected.state = State::ScriptDataEscapedEndTagName;
+                expected.current = Some((
+                    Input::CodePoint('S'.into()),
+                    Position {
+                        line: 1,
+                        column: prefix.len() + 3,
+                    },
+                ));
+                expected.current_tag = Some(TagKind::End);
+                expected.end = Some(PendingEndTag::default());
+                assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&run), expected);
+            } else if alpha {
+                expected.temporary_buffer.push('s'.into());
+                expected.tokens.push(Token::Character('S'.into()));
+                assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
                 assert_eq!(snapshot(&run), expected);
             }
+            let mut trace = vec![];
+            assert!(drain(&mut run, &mut trace));
+            assert_eq!(trace.last().unwrap().0, Ok(Progress::Finished));
         }
     }
 }

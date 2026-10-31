@@ -459,7 +459,7 @@ fn incoming_reconsumption_keeps_positions_and_once_only_preprocessing() {
 }
 
 #[test]
-fn real_script_entry_stops_at_predecessor_without_reaching_double_escaped() {
+fn real_script_entry_reaches_double_escaped_with_exact_null_and_eof_ownership() {
     let mut context = seeded_context();
     context.input.push(points("<!--<script>\0")).unwrap();
     context.input.finish();
@@ -483,23 +483,76 @@ fn real_script_entry_stops_at_predecessor_without_reaching_double_escaped() {
         assert_eq!(execution.step(), Ok(Progress::Continue(target)));
         assert_eq!(snapshot(&execution), expected);
     }
-    let blocked = Err(UnimplementedState {
-        state: State::ScriptDataEscapedLessThanSign,
-    });
-    for _ in 0..3 {
-        assert_eq!(execution.step(), blocked);
+    expected.state = State::ScriptDataDoubleEscapeStart;
+    expected.current = Some((
+        Input::CodePoint('s'.into()),
+        Position { line: 1, column: 6 },
+    ));
+    expected.temporary_buffer.clear();
+    expected.tokens.push(Token::Character('<'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    for (index, point) in points("script").into_iter().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point),
+            Position {
+                line: 1,
+                column: index + 6,
+            },
+        ));
+        expected.temporary_buffer.push(
+            CodePoint::new(if (0x41..=0x5a).contains(&point.value()) {
+                point.value() + 0x20
+            } else {
+                point.value()
+            })
+            .unwrap(),
+        );
+        expected.tokens.push(Token::Character(point));
+        assert_eq!(
+            execution.step(),
+            Ok(Progress::Continue(State::ScriptDataDoubleEscapeStart))
+        );
         assert_eq!(snapshot(&execution), expected);
     }
-    assert_eq!(
-        execution.context_mut().input.consume(),
-        Input::CodePoint('s'.into())
-    );
-    assert_eq!(
-        execution.context().input.position(),
-        Position { line: 1, column: 6 }
-    );
-    // Do not reconstruct or resume this terminal execution. Assigned-state tests
-    // use independent direct entry, requiring no pending tag or scratch setup.
+    expected.state = State::ScriptDataDoubleEscaped;
+    expected.current = Some((
+        Input::CodePoint('>'.into()),
+        Position {
+            line: 1,
+            column: 12,
+        },
+    ));
+    expected.tokens.push(Token::Character('>'.into()));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.state = State::ScriptDataDoubleEscaped;
+    expected.current = Some((
+        Input::CodePoint('\0'.into()),
+        Position {
+            line: 1,
+            column: 13,
+        },
+    ));
+    expected.tokens.push(Token::Character('\u{fffd}'.into()));
+    expected
+        .errors
+        .push(error("unexpected-null-character", 1, 13));
+    assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&execution), expected);
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 14,
+        },
+    ));
+    expected.tokens.push(Token::Eof);
+    expected
+        .errors
+        .push(error("eof-in-script-html-comment-like-text", 1, 14));
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
 }
 
 #[test]
