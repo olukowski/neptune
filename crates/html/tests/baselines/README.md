@@ -110,6 +110,16 @@ records unchanged expected tokens/errors and pinned branch reasoning. All 903
 prior identities/files remain unchanged (914 protected identities total).
 The baseline is a reviewed subset, not all newly passing runs or a conformance claim.
 
+`script_data_less_than_sign.json` adds exactly one independently reviewed identity:
+`test1.test`, `tests[33]`, “< in script data”, Script data initial-state index 0.
+Input/output `<test-->` is literal with no errors: less-than-sign fallback emits
+`<` and reconsumes `t` in the existing Script data state; the remaining points
+emit literally before EOF. The
+[state-local integration audit](../../../../docs/tokenizer-script-data-less-than-sign.md#reviewed-upstream-identity)
+records the unchanged fixture and pinned branches. All 914 prior identities and
+baseline files remain unchanged (915 protected identities total). End-tag-open
+and escape-start runs still block explicitly; no prefix is a passing run.
+
 There is deliberately no updater. Add individually reviewed new pass identities
 in state PRs; do not remove existing entries, infer expected tokens/errors from
 execution, or widen exclusions to obtain a pass. New passes need not match an

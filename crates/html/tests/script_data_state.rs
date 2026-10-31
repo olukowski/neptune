@@ -99,7 +99,7 @@ fn snapshot(execution: &Execution) -> Snapshot {
 }
 
 #[test]
-fn less_than_consumes_only_the_delimiter_then_blocks_terminally() {
+fn less_than_consumes_only_the_delimiter_before_destination_dispatch() {
     for finished in [false, true] {
         for suffix in [
             vec![],
@@ -133,16 +133,10 @@ fn less_than_consumes_only_the_delimiter_then_blocks_terminally() {
             assert_eq!(execution.context().tokens, tokens);
             assert_eq!(execution.context().errors, errors);
             assert!(execution.context().input.errors().is_empty());
-            let boundary = snapshot(&execution);
-            let blocked = Err(UnimplementedState {
-                state: State::ScriptDataLessThanSign,
-            });
-            for _ in 0..3 {
-                assert_eq!(execution.step(), blocked);
-                assert_eq!(snapshot(&execution), boundary);
-            }
-            // Inspect the untouched cursor, not a reconstructed/resumed execution.
-            // No '<' reconsumption and no eager preprocessing of the tail.
+            // Inspect the untouched cursor at the source boundary, without
+            // executing the destination. This proves no '<' reconsumption and
+            // no eager preprocessing of the tail. Real destination execution is
+            // covered separately in script_data_less_than_sign_state.rs.
             let next = suffix.first().copied().map_or(
                 if finished {
                     Input::Eof
@@ -152,23 +146,42 @@ fn less_than_consumes_only_the_delimiter_then_blocks_terminally() {
                 Input::CodePoint,
             );
             assert_eq!(execution.context_mut().input.consume(), next);
-            let inspected = snapshot(&execution);
-            assert_eq!(execution.step(), blocked);
-            assert_eq!(snapshot(&execution), inspected);
         }
     }
-    // Even feeding and closing input cannot clear an already terminal stub.
+    // The real less-than-sign destination emits both '<' and '!' before the
+    // still-unimplemented escape-start destination becomes terminal.
     let mut context = Context::default();
-    context.input.push(points("<")).unwrap();
+    context.input.push(points("<!")).unwrap();
     let mut execution = Execution::new(State::ScriptData, context);
     assert_eq!(
         execution.step(),
         Ok(Progress::Continue(State::ScriptDataLessThanSign))
     );
+    assert_eq!(
+        execution.step(),
+        Ok(Progress::Continue(State::ScriptDataEscapeStart))
+    );
+    assert_eq!(
+        execution.context().tokens,
+        [Token::Character('<'.into()), Token::Character('!'.into())]
+    );
+    assert_eq!(
+        execution.context().input.current(),
+        Some((
+            Input::CodePoint('!'.into()),
+            Position { line: 1, column: 2 }
+        ))
+    );
+    assert!(execution.context().errors.is_empty());
+    assert!(execution.context().input.errors().is_empty());
     let blocked = Err(UnimplementedState {
-        state: State::ScriptDataLessThanSign,
+        state: State::ScriptDataEscapeStart,
     });
-    assert_eq!(execution.step(), blocked);
+    let boundary = snapshot(&execution);
+    for _ in 0..3 {
+        assert_eq!(execution.step(), blocked);
+        assert_eq!(snapshot(&execution), boundary);
+    }
     execution
         .context_mut()
         .input
@@ -400,7 +413,7 @@ fn every_split_and_single_point_chunking_matches_closed_source_step_traces() {
                         .input
                         .push(chunk.iter().copied())
                         .unwrap();
-                    if drain(&mut execution, &mut trace, input.len() + 2) {
+                    if drain(&mut execution, &mut trace, input.len() * 3 + 4) {
                         // A terminal stub is never fed, reconstructed or resumed.
                         return trace;
                     }
@@ -409,7 +422,7 @@ fn every_split_and_single_point_chunking_matches_closed_source_step_traces() {
                 }
                 execution.context_mut().input.finish();
             }
-            assert!(drain(&mut execution, &mut trace, input.len() + 2));
+            assert!(drain(&mut execution, &mut trace, input.len() * 3 + 4));
             trace
         };
         let expected = run(vec![], true);

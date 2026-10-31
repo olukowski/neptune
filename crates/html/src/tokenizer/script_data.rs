@@ -2,7 +2,7 @@
 //! 404b3eb14a7a936dddefb2d78e224dbeb01d2358, lines 143338–143359:
 //! <https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143338-L143359>
 //! Branch/definition evidence: docs/tokenizer-script-data.md.
-//! Script data less-than sign remains a terminal unimplemented destination.
+//! Script data less-than sign is implemented separately in script_data_less_than_sign.rs.
 
 use super::{Context, Input, ParseError, Progress, State, Token};
 

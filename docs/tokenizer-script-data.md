@@ -25,7 +25,9 @@ Only `State::ScriptData` is implemented in `script_data.rs`. Explicit entry uses
 `Execution::new(State::ScriptData, context)`; the existing fixture adapter already
 recognizes `Script data state`. There is no automatic element-based mode switch,
 tree builder, JavaScript parsing, character-reference processing, or implementation
-of Script data less-than sign, end tag open/name, or any escaped-script state.
+of end tag open/name or any escaped-script state.
+[Script data less-than sign](tokenizer-script-data-less-than-sign.md) is implemented
+separately and is now reachable from this state's `<` branch.
 Existing Context/cursor/execution/storage conventions are reused without adding
 fields, dependencies, or shared algorithm abstractions.
 
@@ -33,19 +35,22 @@ fields, dependencies, or shared algorithm abstractions.
 
 | Consumed input | Pinned lines | Source effects / intended destination | Focused evidence |
 | --- | --- | --- | --- |
-| U+003C `<` | 143345–143346 | Consume once; switch to Script data less-than sign, without emission, diagnostic, or reconsumption. | `less_than_consumes_only_the_delimiter_then_blocks_terminally` |
+| U+003C `<` | 143345–143346 | Consume once; switch to Script data less-than sign, without emission, diagnostic, or reconsumption. | `less_than_consumes_only_the_delimiter_before_destination_dispatch` |
 | U+0000 NUL | 143348–143351 | Report `unexpected-null-character` at the current normalized position; emit U+FFFD, not the original NUL; stay in Script data. | `null_replacement_and_exact_normalized_diagnostics_preserve_context` |
 | EOF | 143353–143354 | Emit one terminal EOF, without a parse error. | NUL test plus `empty_open_input_suspends_and_only_explicit_eof_finishes_once_without_creation` |
 | Anything else | 143356–143357 | Emit the current code point unchanged; stay in Script data. `&` is literal, including malformed/valid-looking reference strings. | `anything_else_including_entity_like_text_and_non_scalars_is_literal` |
 
 No branch reconsumes. `<` itself is not emitted or saved by this state and no
 following point is consumed/preprocessed here. Source effects are inspectable
-before the destination step reports terminal `UnimplementedState` for
-`ScriptDataLessThanSign`. Matching output/error prefixes, actual EOF after `<`,
-and open exhaustion after `<` cannot turn that block into success, EOF, a parse
-error, or a resumable execution. Repeated terminal checks retain the same result
-even if context is inspected or input is subsequently closed; no execution is
-reconstructed after a stub.
+before the separately implemented `ScriptDataLessThanSign` destination executes.
+That destination clears the buffer on `/`, emits `<!` on `!`, or emits `<` and
+reconsumes anything else (including EOF) in Script data. Open exhaustion suspends
+there without emitting. Terminal `UnimplementedState` now occurs at end-tag-open
+or escape-start, never accepted as a matching prefix or recoverable parse error.
+Literal fallback and EOF reconsumption can complete through the real Script data
+handler. Repeated terminal checks retain the same result even if context is
+inspected or input is subsequently closed; no execution is reconstructed after
+a stub. Source effects and destination effects remain separately asserted.
 
 Exhausted **open** input returns `NeedMoreInput` with no observable state effect,
 including retaining the current item and position. Only explicit cursor `finish`
@@ -77,16 +82,19 @@ Every two-chunk split (including empty leading/trailing chunks) and single-point
 chunking of representative inputs is compared against every closed-input source
 step. Cases include literal entity-like text, CRLF and consecutive/trailing CR,
 NUL, Unicode scalars, actual surrogates/noncharacters/controls, `<`, `<!`, `</`,
-and malformed/unconsumed tails at the terminal destination. Suspensions must be
-effect-free. The trace harness stops at a stub, never feeds/reconstructs/resumes
+and malformed/literal fallback and unconsumed tails at terminal destinations.
+Suspensions must be effect-free. The trace harness stops at a stub, never feeds/reconstructs/resumes
 it to test a subsequent state.
 
 `crates/html/tests/support/script_data.rs` checks existing adapter mapping,
 independent initial-state entries, Data defaults/no automatic switch after
 `<script>`, exact output and diagnostics (with deliberately wrong expectations),
 double-escaped non-scalars, literal ampersands, and terminal blocks despite exact
-prefix matches. These synthetic/local tests and the independent support inventory
-are **not** upstream conformance passes or whole-tokenizer streaming conformance.
+prefix matches at end-tag-open or escape-start. Newly executable literal fallback
+must compare complete output/errors, rejecting wrong prefixes and missing or
+duplicate diagnostics. These synthetic/local tests and the independent support
+inventory are **not** upstream conformance passes or whole-tokenizer streaming
+conformance.
 
 ## Reviewed fixture identities
 
@@ -113,7 +121,9 @@ All previous 903 protected identities and baseline files remain intact.
 In cases 66 and 1604 the JSON surrogate pair `\uDBC0\uDC00` encodes a scalar;
 `doubleEscaped` is absent. It is not two actual surrogate input points. Every
 listed nonempty case reaches the EOF branch after its output. No `<`-containing
-identity is newly comparable in this isolated PR: its destination remains a stub.
+identity was newly comparable in the original Script data PR #30: less-than-sign
+was then a stub. Subsequent less-than-sign integration adds exactly one reviewed
+identity in its [separate baseline/audit](tokenizer-script-data-less-than-sign.md#reviewed-upstream-identity).
 Upstream fixtures, existing reviewed identities, comparison rules, policy blocks,
 and pinned revisions are unchanged. See [baseline policy](../crates/html/tests/baselines/README.md).
 
@@ -125,12 +135,17 @@ four categories separately in the PR. Remaining Script data destination blocks
 are explicit, not skipped or passing cases; broader adapter/policy/state blocks
 remain unchanged. No full conformance or browser-security claim follows.
 
-This branch starts independently from main and does not import any sibling
-implementation. Script data less-than sign, end tag open, and end tag name are
-separate PRs. Later user-directed integration must review the dispatch/module
-registrations and independent support inventory, rebase and rerun all checks and
-the upstream report. Destination implementation can legitimately move the
-terminal block and requires updating the explicit destination-boundary tests and
-reviewing any newly comparable fixture identities, never bypassing terminal
-semantics or automatically blessing new results. Do not resume old blocked
-executions. No shared prerequisite was missing for this state.
+Script data merged as independently reviewed PR #30, commit
+`c9c43fd0676d5dc39035a8da9317328b6e06745b`. Less-than-sign PR #29 was then
+user-directed to rebase onto that main revision. Its integration preserves this
+algorithm and delimiter-only source boundary, executes real fallback/EOF paths,
+and moves explicit stub assertions to end-tag-open and escape-start. See the
+[current integration report](tokenizer-script-data-less-than-sign.md#upstream-report-and-validation)
+for exact conformance counts and the single newly reviewed identity.
+
+End tag open and end tag name remain separate PRs. Later user-directed integration
+must review dispatch/module registrations and independent support inventory,
+rerun all checks/upstream reporting, and deliberately update destination-boundary
+tests and individually review new passes. Never bypass terminal semantics,
+automatically bless results, or resume old blocked executions. No shared
+prerequisite was missing for this state.

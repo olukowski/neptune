@@ -5,8 +5,9 @@
 **Only Data, RCDATA, RCDATA less-than sign, RCDATA end tag open, RCDATA end tag name,
 PLAINTEXT, RAWTEXT, RAWTEXT less-than sign, RAWTEXT end tag open, RAWTEXT end tag name,
 Script data ([state-local evidence](tokenizer-script-data.md)),
-Tag open, End tag open, Tag name, Before
-attribute name, Attribute name, After attribute name, Before attribute value, Attribute value
+[Script data less-than sign](tokenizer-script-data-less-than-sign.md),
+Tag open, End tag open, Tag name, Before attribute name, Attribute name,
+After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, and Bogus comment are
 implemented. All other states, including ordinary Comment and Character
@@ -99,8 +100,8 @@ instruction states and no separate decimal-character-reference-start state.
   `Token::Comment { data }`. Isolated Bogus comment entry requires initialized
   pending-comment storage; existing data is preserved literally, not preprocessed again.
   Each creation replaces only its own pending storage; unrelated storage remains.
-  The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA
-  and RAWTEXT less-than sign on `/`.
+  The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA,
+  RAWTEXT, and Script data less-than sign on `/`.
 - Tag creation selects `current_tag: Option<TagKind>` (Start or End), independently
   of any unrelated retained pending storage. Tag name mutates only the selected
   name. Before attribute name appends only to the selected tag's attribute list.

@@ -23,6 +23,7 @@ mod rcdata_end_tag_name;
 mod rcdata_end_tag_open;
 mod rcdata_less_than_sign;
 mod script_data;
+mod script_data_less_than_sign;
 mod self_closing_start_tag;
 mod state;
 mod tag;
@@ -126,7 +127,7 @@ pub struct Context {
     /// Direct Bogus comment entry requires an initialized pending comment.
     pub pending_comment: Option<PendingComment>,
     /// Code-point scratch storage; Tag open clears it on `?`,
-    /// RCDATA and RAWTEXT less-than sign on `/`.
+    /// RCDATA, RAWTEXT, and Script data less-than sign on `/`.
     pub temporary_buffer: Vec<CodePoint>,
 }
 
@@ -171,6 +172,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::RawtextEndTagOpen => Ok(rawtext_end_tag_open::step(context)),
         State::RawtextEndTagName => Ok(rawtext_end_tag_name::step(context)),
         State::ScriptData => Ok(script_data::step(context)),
+        State::ScriptDataLessThanSign => Ok(script_data_less_than_sign::step(context)),
         State::TagOpen => Ok(tag_open::step(context)),
         State::EndTagOpen => Ok(end_tag_open::step(context)),
         State::TagName => Ok(tag_name::step(context)),
