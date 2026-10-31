@@ -229,7 +229,7 @@ fn every_ascii_append_branch_and_non_scalars_preserve_exact_current_identity_and
 }
 
 #[test]
-fn quote_and_ampersand_consume_without_appending_then_block_terminally() {
+fn quote_and_ampersand_consume_without_appending_before_executable_or_stub_destinations() {
     for (delimiter, target) in [
         ('\'', State::AfterAttributeValueQuoted),
         ('&', State::CharacterReference),
@@ -238,7 +238,11 @@ fn quote_and_ampersand_consume_without_appending_then_block_terminally() {
             for detached in [false, true] {
                 for closed in [false, true] {
                     let mut context = seeded_value(kind, detached);
-                    context.input.push([delimiter.into(), 'Z'.into()]).unwrap();
+                    let tail = if delimiter == '\'' { " >Z" } else { "Z" };
+                    context
+                        .input
+                        .push(points(&format!("{delimiter}{tail}")))
+                        .unwrap();
                     if closed {
                         context.input.finish();
                     }
@@ -254,19 +258,50 @@ fn quote_and_ampersand_consume_without_appending_then_block_terminally() {
                     }
                     assert_eq!(e.step(), Ok(Progress::Continue(target)));
                     assert_eq!(snapshot(&e), expected);
-                    assert_blocked(&mut e, target, &expected);
+                    let blocked_state = if delimiter == '\'' {
+                        expected.state = State::BeforeAttributeName;
+                        expected.current = Some((
+                            Input::CodePoint(' '.into()),
+                            Position { line: 1, column: 2 },
+                        ));
+                        assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                        assert_eq!(snapshot(&e), expected);
+                        expected.state = State::AfterAttributeName;
+                        expected.current = Some((
+                            Input::CodePoint('>'.into()),
+                            Position { line: 1, column: 3 },
+                        ));
+                        assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                        assert_eq!(snapshot(&e), expected);
+                        State::AfterAttributeName
+                    } else {
+                        target
+                    };
+                    assert_blocked(&mut e, blocked_state, &expected);
                     // Neither a stub nor repeated terminal dispatch consumes Z.
                     // Feeding/closing open input does not make the stub resumable.
                     if !closed {
                         e.context_mut().input.push(points("more")).unwrap();
                         e.context_mut().input.finish();
-                        assert_blocked(&mut e, target, &expected);
+                        assert_blocked(&mut e, blocked_state, &expected);
+                    }
+                    if delimiter == '\'' {
+                        assert_eq!(
+                            e.context_mut().input.consume(),
+                            Input::CodePoint('>'.into())
+                        );
+                        assert_blocked(&mut e, blocked_state, &expected);
                     }
                     assert_eq!(
                         e.context_mut().input.consume(),
                         Input::CodePoint('Z'.into())
                     );
-                    assert_eq!(e.step(), Err(UnimplementedState { state: target }));
+                    assert_eq!(
+                        e.step(),
+                        Err(UnimplementedState {
+                            state: blocked_state
+                        })
+                    );
                 }
             }
         }
@@ -376,9 +411,28 @@ fn normalized_positions_nul_and_preprocessing_diagnostics_are_not_duplicated() {
                 error("noncharacter-in-input-stream", 2, 3),
                 error("control-character-in-input-stream", 2, 4),
             ]);
-            let mut trace = vec![];
-            assert!(drain(&mut e, &mut trace, 20));
+            for _ in 0..7 {
+                assert_eq!(
+                    e.step(),
+                    Ok(Progress::Continue(State::AttributeValueSingleQuoted))
+                );
+            }
+            assert_eq!(
+                e.step(),
+                Ok(Progress::Continue(State::AfterAttributeValueQuoted))
+            );
             assert_eq!(snapshot(&e), expected);
+            expected.state = State::BeforeAttributeName;
+            expected.current = Some((
+                Input::CodePoint('Z'.into()),
+                Position { line: 2, column: 7 },
+            ));
+            expected
+                .errors
+                .push(error("missing-whitespace-between-attributes", 2, 7));
+            assert_eq!(e.step(), Ok(Progress::Continue(State::BeforeAttributeName)));
+            assert_eq!(snapshot(&e), expected);
+            // The destination reconsumes Z without repeating preprocessing.
             assert_eq!(
                 e.context_mut().input.consume(),
                 Input::CodePoint('Z'.into())

@@ -223,7 +223,7 @@ fn nul_and_every_literal_ascii_branch_preserve_identity_and_unrelated_storage() 
 }
 
 #[test]
-fn quote_and_ampersand_consume_without_appending_before_effect_free_terminal_stubs() {
+fn quote_and_ampersand_consume_without_appending_before_executable_or_stub_destinations() {
     for kind in [TagKind::Start, TagKind::End] {
         for duplicate in [false, true] {
             for closed in [false, true] {
@@ -234,7 +234,8 @@ fn quote_and_ampersand_consume_without_appending_before_effect_free_terminal_stu
                     ] {
                         let mut c = seeded(kind, duplicate);
                         c.return_state = old_return;
-                        c.input.push(points(&format!("{point}Z\0"))).unwrap();
+                        let tail = if point == '"' { " >Z\0" } else { "Z\0" };
+                        c.input.push(points(&format!("{point}{tail}"))).unwrap();
                         if closed {
                             c.input.finish();
                         }
@@ -250,8 +251,39 @@ fn quote_and_ampersand_consume_without_appending_before_effect_free_terminal_stu
                         }
                         assert_eq!(e.step(), Ok(Progress::Continue(target)));
                         assert_eq!(snapshot(&e), expected);
-                        let blocked = Err(UnimplementedState { state: target });
+                        let blocked_state = if point == '"' {
+                            // The quote source is already checked above. Its destination
+                            // consumes whitespace, then Before attribute name reconsumes
+                            // '>' at the still-unimplemented After attribute name.
+                            expected.state = State::BeforeAttributeName;
+                            expected.current = Some((
+                                Input::CodePoint(' '.into()),
+                                Position { line: 1, column: 2 },
+                            ));
+                            assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                            assert_eq!(snapshot(&e), expected);
+                            expected.state = State::AfterAttributeName;
+                            expected.current = Some((
+                                Input::CodePoint('>'.into()),
+                                Position { line: 1, column: 3 },
+                            ));
+                            assert_eq!(e.step(), Ok(Progress::Continue(expected.state)));
+                            assert_eq!(snapshot(&e), expected);
+                            State::AfterAttributeName
+                        } else {
+                            target
+                        };
+                        let blocked = Err(UnimplementedState {
+                            state: blocked_state,
+                        });
                         assert_terminal(&mut e, blocked);
+                        if point == '"' {
+                            assert_eq!(
+                                e.context_mut().input.consume(),
+                                Input::CodePoint('>'.into())
+                            );
+                            assert_terminal(&mut e, blocked);
+                        }
                         // Inspection can mutate context but cannot revive execution.
                         e.context_mut()
                             .input
@@ -339,7 +371,36 @@ fn open_exhaustion_is_effect_free_before_and_after_values_and_can_finish_or_take
                             State::CharacterReference
                         };
                         assert_eq!(e.step(), Ok(Progress::Continue(target)));
-                        assert_terminal(&mut e, Err(UnimplementedState { state: target }));
+                        if point == '"' {
+                            let unchanged = snapshot(&e);
+                            for _ in 0..3 {
+                                assert_eq!(e.step(), Ok(Progress::NeedMoreInput));
+                                assert_eq!(snapshot(&e), unchanged);
+                            }
+                            e.context_mut().input.finish();
+                            let mut expected = unchanged;
+                            expected.kind = None;
+                            match kind {
+                                TagKind::Start => expected.start = None,
+                                TagKind::End => expected.end = None,
+                            }
+                            let position = if prefix.is_empty() {
+                                Position { line: 1, column: 2 }
+                            } else {
+                                Position { line: 2, column: 2 }
+                            };
+                            expected.current = Some((Input::Eof, position));
+                            expected.errors.push(ParseError {
+                                code: "eof-in-tag",
+                                position,
+                            });
+                            expected.tokens.push(Token::Eof);
+                            assert_eq!(e.step(), Ok(Progress::Finished));
+                            assert_eq!(snapshot(&e), expected);
+                            assert_terminal(&mut e, Ok(Progress::Finished));
+                        } else {
+                            assert_terminal(&mut e, Err(UnimplementedState { state: target }));
+                        }
                     } else {
                         e.context_mut().input.finish();
                         assert_eq!(e.step(), Ok(Progress::Finished));
@@ -412,12 +473,18 @@ fn normalized_locations_and_non_scalars_are_preserved_with_preprocessing_errors_
                 e.context().input.position(),
                 Position { line: 2, column: 7 }
             );
-            assert_terminal(
-                &mut e,
-                Err(UnimplementedState {
-                    state: State::AfterAttributeValueQuoted,
-                }),
-            );
+            let mut expected = snapshot(&e);
+            expected.state = State::BeforeAttributeName;
+            expected.current = Some((
+                Input::CodePoint('Z'.into()),
+                Position { line: 2, column: 8 },
+            ));
+            expected
+                .errors
+                .push(error("missing-whitespace-between-attributes", 2, 8));
+            assert_eq!(e.step(), Ok(Progress::Continue(State::BeforeAttributeName)));
+            assert_eq!(snapshot(&e), expected);
+            // Recovery scheduled reconsumption; preprocessing errors remain once.
             assert_eq!(
                 e.context_mut().input.consume(),
                 Input::CodePoint('Z'.into())

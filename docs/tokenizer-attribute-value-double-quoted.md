@@ -8,13 +8,13 @@ at `404b3eb14a7a936dddefb2d78e224dbeb01d2358`,
 [opening Tokenization note](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143187-L143189).
 Sources and upstream fixtures remain pinned as recorded in [sources.toml](sources.toml).
 
-Only `attribute_value_double_quoted.rs` implements an algorithm here.
+This state's algorithm lives only in `attribute_value_double_quoted.rs`.
 The following tests are in
 `crates/html/tests/attribute_value_double_quoted_state.rs`:
 
 | Consumed input | Code branch / source effects | Focused test |
 | --- | --- | --- |
-| `"` U+0022 | `0x22`: switch to After attribute value (quoted); do not append or reconsume. | `quote_and_ampersand_consume_without_appending_before_effect_free_terminal_stubs` |
+| `"` U+0022 | `0x22`: switch to After attribute value (quoted); do not append or reconsume. | `quote_and_ampersand_consume_without_appending_before_executable_or_stub_destinations` |
 | `&` U+0026 | `0x26`: set return state to Attribute value (double-quoted), then switch to Character reference; do not append or reconsume. | Same test; absent, different, and already-equal return states |
 | NUL U+0000 | `0`: report `unexpected-null-character`; append U+FFFD to the current value. | `nul_and_every_literal_ascii_branch_preserve_identity_and_unrelated_storage` |
 | EOF | `Input::Eof`: report `eof-in-tag`; abandon only the selected tag via shared `tag::take_tag`; emit one terminal EOF. | `eof_abandons_only_selected_tag_without_emission_errors_or_last_start_tag_update` |
@@ -27,13 +27,16 @@ and detached attributes, unrelated pending tags/comment, existing output/errors,
 scratch buffer, return state, and last emitted start tag. EOF never emits the
 unfinished tag or emission-only end-tag errors, even with retained attributes
 and a preexisting self-closing flag. Existing shared emission tests independently
-cover detached duplicate exclusion; this PR adds no tag emission path.
+cover detached duplicate exclusion. This handler itself never emits a tag;
+closing quotes can now reach emission through After attribute value (quoted).
 
 Additional focused tests:
 
 - `open_exhaustion_is_effect_free_before_and_after_values_and_can_finish_or_take_a_delimiter`:
   repeated NeedMoreInput/empty chunks preserve context and current input;
-  later input or explicit finish resumes only a suspended execution.
+  later input or explicit finish resumes only a suspended execution. A closing
+  quote now reaches effect-free suspension in After attribute value (quoted),
+  then explicit EOF abandons only the selected tag with `eof-in-tag`.
 - `normalized_locations_and_non_scalars_are_preserved_with_preprocessing_errors_once`:
   CRLF-normalized positions after a supplementary scalar, literal surrogates,
   noncharacters and controls, NUL replacement, and exact diagnostic multiplicity.
@@ -50,13 +53,16 @@ Additional focused tests:
 ## Boundaries and upstream evidence
 
 Prerequisite PR #15 supplies the existing tag/attribute storage and shared
-emission/fixture support. This PR is rebased onto PR #16's merge commit
-`808f0e9b436511c06aa6df90bdc93ec4fcf71f29`, retaining its single-quoted value
-implementation. No adjacent state is implemented by this PR.
-After attribute value (quoted) and Character reference remain terminal typed
-`UnimplementedState` destinations on the next dispatch. Repeated blocked steps
-are effect-free, including after direct cursor inspection/mutation. A blocked
-Execution cannot be reconstructed/resumed.
+emission/fixture support. Both quoted value implementations are retained on
+`a1b7c86da05a18513c07ca1de349d597906a0af6` (merged PRs #16 and #17).
+After attribute value (quoted) now executes. Source snapshots still verify the
+closing quote independently; subsequent whitespace recovery reaches the After
+attribute name stub, while malformed adjacency reports missing whitespace and
+schedules reconsumption without repeating preprocessing. Combined quoted-source
+emission and EOF checks live in `after_attribute_value_quoted_state.rs`.
+Character reference remains a terminal typed `UnimplementedState` destination.
+Repeated blocked steps are effect-free, including after direct cursor
+inspection/mutation. A blocked Execution cannot be reconstructed/resumed.
 
 Before attribute value and After attribute name remain stubs, so real Data
 input cannot yet reach this state. Seeded valid contexts are isolated algorithm
@@ -70,5 +76,5 @@ Run all [contributing checks](../CONTRIBUTING.md) and the
 [upstream runner](tokenizer.md#fixture-runner). The PR report records exact
 executed/passed/failed/blocked counts separately from local tests and fixture
 inventory. Local branch/streaming tests do not establish whole-tokenizer
-conformance, reachable attribute emission, tree-builder behavior, or browser
+conformance, reachable attribute emission from Data, tree-builder behavior, or browser
 security.

@@ -25,7 +25,7 @@ checks, not upstream conformance runs.
 
 | Pinned branch | Implementation | Focused evidence (test names) |
 | --- | --- | --- |
-| Apostrophe U+0027 | `0x27`: consume, switch to After attribute value (quoted); do not append or reconsume | `quote_and_ampersand_consume_without_appending_then_block_terminally` |
+| Apostrophe U+0027 | `0x27`: consume, switch to After attribute value (quoted); do not append or reconsume | `quote_and_ampersand_consume_without_appending_before_executable_or_stub_destinations` |
 | Ampersand U+0026 | `0x26`: set return state to Attribute value (single-quoted), then switch to Character reference; do not append or reconsume | Same delimiter test; `initially_empty_value_resumes_after_suspension_and_initially_absent_return_state_is_set` covers an absent return state as well as replacement of an existing one |
 | NUL U+0000 | `0`: report `unexpected-null-character` at current position and append U+FFFD through the shared current-attribute helper | `every_ascii_append_branch_and_non_scalars_preserve_exact_current_identity_and_context`; `normalized_positions_nul_and_preprocessing_diagnostics_are_not_duplicated` |
 | EOF | `Input::Eof`: report `eof-in-tag`, abandon only the selected tag through `tag::take_tag`, emit one EOF, finish | `open_exhaustion_is_effect_free_and_only_explicit_eof_abandons_selected_tag` |
@@ -46,22 +46,28 @@ return state, and last emitted start tag. Existing non-scalar stored values are
 not preprocessed again. EOF abandons the selected tag and detached duplicate
 without emission or end-tag emission diagnostics; unrelated storage and
 last-start-tag bookkeeping remain untouched. Existing shared emission tests
-continue to cover detached-duplicate exclusion; this state adds no emission path.
+continue to cover detached-duplicate exclusion. This handler itself never emits
+a tag; closing quotes can now reach emission through After attribute value (quoted).
 
 `all_two_chunk_splits_and_single_point_chunks_match_closed_source_step_traces`
 compares each source step for every two-chunk split and single-code-point chunks,
 including empty chunks, repeated suspension, CRLF boundaries, consecutive/trailing
-CR, EOF, NUL, non-scalars, whitespace/punctuation, and both terminal destinations.
+CR, EOF, NUL, non-scalars, whitespace/punctuation, and later terminal destinations.
 
 ## Entry and conformance limitations
 
 Direct isolated entry requires a selected pending tag with a current attribute.
 These seeded tests do **not** establish a reachable end-to-end path: real Data
 entry still stops at Before attribute value, as the focused integration test
-asserts. After attribute value (quoted) and Character reference remain typed
-terminal `UnimplementedState` stubs on the next dispatch. They consume no tail,
-emit no EOF, and add no parse error. Repeated dispatch, even after feeding input,
-returns the same terminal error; blocked Execution is never reconstructed/resumed.
+asserts. After attribute value (quoted) now executes: source snapshots still
+verify the closing quote independently, then whitespace recovery reaches the
+After attribute name stub. The normalized-input test inspects its
+missing-whitespace diagnostic and reconsumption without repeating preprocessing.
+Character reference remains a typed terminal `UnimplementedState` stub: it
+consumes no tail, emits no EOF, and adds no parse error. Repeated blocked
+dispatch, even after feeding input, returns the same terminal error; blocked
+Execution is never reconstructed/resumed. Combined quoted-source emission and
+EOF checks live in `after_attribute_value_quoted_state.rs`.
 
 No upstream fixtures, pinned revisions, exclusions, or pass-baseline identities
 change. No newly passing upstream identities are expected: the runner's supported

@@ -17,6 +17,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::AttributeName,
         State::AttributeValueDoubleQuoted,
         State::AttributeValueSingleQuoted,
+        State::AfterAttributeValueQuoted,
         State::SelfClosingStartTag,
         State::BogusComment,
     ];
