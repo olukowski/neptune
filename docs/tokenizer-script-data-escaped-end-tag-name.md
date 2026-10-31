@@ -1,6 +1,31 @@
 # Script data escaped end tag name
 
-## Current integration after merged #43, #38, #39, #40, #42 and #37
+## Current predecessor integration in PR #41
+
+PR #41 rebases onto main **`56056932b73bcac03f3633937705ed1ed77221d0`**,
+including merged #44. The name algorithm and all original name-state branch
+assertions remain unchanged. Its formerly terminal isolated EscapedEndTagOpen
+predecessor check now asserts actual empty candidate creation/defaults, selected
+End storage, unchanged scratch and scheduled original-letter reconsumption,
+then every mixed-case name append, appropriate `>` emission, Data continuation
+and EOF. Full unrelated-context and diagnostic snapshots remain exact. Genuine
+Script data/Escaped entry blocks at EscapedLessThanSign are preserved: #45 is
+not imported, and no terminal run is reconstructed/resumed.
+
+The open-state suite additionally exercises appropriate/mismatching delimiters,
+attributes/duplicates/NUL/solidus recovery, name/tag EOF and all split/single-point
+traces through this name state with matching/absent/case-distinct history.
+See [current PR #41 evidence and check counts](tokenizer-script-data-escaped-end-tag-open.md).
+All 15 name tests pass alongside ten open tests; the integrated workspace has
+364 passed, 0 failed, 0 ignored. Upstream remains 1,126 executed/passed, 0 failed,
+5,927 blocked, zero new identities. Fixtures, pins and baseline union are intact.
+Only origin/main was fetched; coordinator owns exact-final-head review and merge.
+
+## Historical #44 integration after merged #43, #38, #39, #40, #42 and #37
+
+The PR #44 entry/stub and 354-test report in this section describe its historical
+merge head, not current PR #41 predecessor support. Normative branch evidence
+below remains applicable.
 
 PR #44 is rebased onto exact main **`fccf89c1e1d40d345acf16c3b7731801b245bdee`**:
 DoubleEscapeEnd (#43), DoubleEscapedLessThanSign (#38), DoubleEscapedDashDash (#39),
@@ -81,7 +106,8 @@ referenced definitions were read:
   remain in the existing cursor. NUL handling belongs to tokenizer states.
 - [Predecessor setup, lines 143872–143910](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143872-L143910):
   escaped less-than sign clears scratch on `/`; escaped end tag open creates an
-  empty end tag and reconsumes the first ASCII letter. **Both remain stubs here.**
+  empty end tag and reconsumes the first ASCII letter. On #44's standalone base
+  both were stubs; PR #41 supplies actual isolated open-state entry as above.
 - [Fallback destination, lines 143775–143802](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L143775-L143802):
   Script data escaped handles reconsumed NUL and EOF; EOF reports
   `eof-in-script-html-comment-like-text`, not `eof-in-tag`.
@@ -137,7 +163,9 @@ source-step traces, including CRLF splits, consecutive/trailing CR, mixed spelli
 matching/absent/case-distinct history, mismatches, NUL, non-scalars, attributes,
 EOF and terminal blocks. Separate real Script data and escaped-entry traces,
 including chunk splits, stop at the actual escaped-less-than-sign predecessor.
-There is no supported real path **into** this state on the current rebased base.
+There was no supported real path **into** this state on #44's rebased base.
+PR #41 now supplies real isolated EscapedEndTagOpen → Name entry; ordinary
+Script data entry still stops at EscapedLessThanSign.
 Later Character reference, Markup declaration open and escaped less-than sign
 blocks remain terminal typed `UnimplementedState`, never prefix success or EOF.
 

@@ -1075,17 +1075,81 @@ fn real_script_and_escaped_entries_stop_at_predecessor_not_the_implemented_name_
         assert_eq!(snapshot(&run), expected);
         terminal(&mut run, blocked);
     }
-    // Even isolated predecessor entry remains a typed stub; it cannot create
-    // a candidate or arrange first-letter reconsumption in this standalone PR.
+    // The newly merged predecessor now creates the candidate before the real
+    // name step. Retain unrelated storage and intentionally stale scratch to
+    // prove creation does not clear it or normalize/append the first letter.
     let mut seeded = context("stale", "scratch", Some("script"));
     seeded.input.push(points("ScRiPt>tail")).unwrap();
     seeded.input.finish();
     let mut run = Execution::new(State::ScriptDataEscapedEndTagOpen, seeded);
-    let before = snapshot(&run);
-    let blocked = Err(UnimplementedState {
-        state: State::ScriptDataEscapedEndTagOpen,
+    let mut expected = snapshot(&run);
+    expected.state = State::ScriptDataEscapedEndTagName;
+    expected.current = Some((
+        Input::CodePoint('S'.into()),
+        Position { line: 1, column: 1 },
+    ));
+    expected.selected = Some(TagKind::End);
+    expected.end = Some(PendingEndTag {
+        name: vec![],
+        self_closing: false,
+        attributes: vec![],
+        discarded_current_attribute: None,
     });
-    assert_eq!(run.step(), blocked);
-    assert_eq!(snapshot(&run), before);
-    terminal(&mut run, blocked);
+    assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&run), expected);
+    assert_eq!(
+        run.context_mut().input.reconsume(),
+        Err(CursorError::AlreadyReconsuming)
+    );
+    for (index, point) in "ScRiPt".chars().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point.into()),
+            Position {
+                line: 1,
+                column: index + 1,
+            },
+        ));
+        expected
+            .end
+            .as_mut()
+            .unwrap()
+            .name
+            .push(point.to_ascii_lowercase().into());
+        expected.buffer.push(point.into());
+        assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(&run), expected);
+    }
+    expected.state = State::Data;
+    expected.current = Some((
+        Input::CodePoint('>'.into()),
+        Position { line: 1, column: 7 },
+    ));
+    expected.tokens.push(end_tag(vec![], false));
+    expected.selected = None;
+    expected.end = None;
+    assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+    assert_eq!(snapshot(&run), expected);
+    for (index, point) in "tail".chars().enumerate() {
+        expected.current = Some((
+            Input::CodePoint(point.into()),
+            Position {
+                line: 1,
+                column: index + 8,
+            },
+        ));
+        expected.tokens.push(Token::Character(point.into()));
+        assert_eq!(run.step(), Ok(Progress::Continue(State::Data)));
+        assert_eq!(snapshot(&run), expected);
+    }
+    expected.current = Some((
+        Input::Eof,
+        Position {
+            line: 1,
+            column: 12,
+        },
+    ));
+    expected.tokens.push(Token::Eof);
+    assert_eq!(run.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&run), expected);
+    terminal(&mut run, Ok(Progress::Finished));
 }
