@@ -99,6 +99,57 @@ fn assert_terminal_stub(execution: &mut Execution, expected: &Snapshot) {
     assert_eq!(snapshot(execution), *expected);
 }
 
+// The predecessor's independently asserted source snapshot schedules this item
+// for real Comment. Check that destination separately, including EOF/take order;
+// preprocessing diagnostics and unrelated context must remain unchanged.
+fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
+    assert_eq!(expected.state, State::Comment);
+    let (input, position) = expected.current.unwrap();
+    let result = match input {
+        Input::Eof => {
+            expected.errors.push(ParseError {
+                code: "eof-in-comment",
+                position,
+            });
+            let data = expected.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            Progress::Finished
+        }
+        Input::CodePoint(point) => {
+            match point.value() {
+                0x3c => {
+                    expected.comment.as_mut().unwrap().data.push(point);
+                    expected.state = State::CommentLessThanSign;
+                }
+                0x2d => expected.state = State::CommentEndDash,
+                0 => {
+                    expected.errors.push(ParseError {
+                        code: "unexpected-null-character",
+                        position,
+                    });
+                    expected
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .push('\u{fffd}'.into());
+                }
+                _ => expected.comment.as_mut().unwrap().data.push(point),
+            }
+            Progress::Continue(expected.state)
+        }
+        Input::NeedMoreInput => panic!("a predecessor replay requires current input"),
+    };
+    assert_eq!(run.step(), Ok(result));
+    assert_eq!(snapshot(run), *expected);
+    if result == Progress::Finished {
+        assert_eq!(run.step(), Ok(result));
+        assert_eq!(snapshot(run), *expected);
+    }
+}
+
 #[test]
 fn every_ascii_branch_and_unicode_fallback_have_exact_source_effects() {
     for kind in [TagKind::Start, TagKind::End] {
@@ -154,38 +205,27 @@ fn every_ascii_branch_and_unicode_fallback_have_exact_source_effects() {
                     Err(CursorError::AlreadyReconsuming)
                 );
             }
-            // Probe before any remaining stub attempt; never reconstruct/resume
-            // blocked execution or run an implemented state with a probed cursor.
-            // Append branches consumed once; fallback scheduled literal reconsumption.
-            if !matches!(value, 0x21 | 0x3c) {
-                assert_eq!(
-                    execution.context_mut().input.reconsume(),
-                    Err(CursorError::AlreadyReconsuming)
-                );
+            if expected.state == State::Comment {
+                comment_replay(&mut execution, &mut expected);
+            }
+            // Cursor-only tail probe after the real destination, never dispatch
+            // an implemented state after manually consuming from its cursor.
+            if value != 0x21 {
                 assert_eq!(
                     execution.context_mut().input.consume(),
-                    Input::CodePoint(normalized)
+                    Input::CodePoint('z'.into())
                 );
-                assert_eq!(execution.context().input.current(), expected.current);
-                assert_eq!(execution.context().input.errors(), expected.input_errors);
+                assert_eq!(
+                    execution.context().input.position(),
+                    if normalized == '\n'.into() {
+                        Position { line: 3, column: 1 }
+                    } else {
+                        Position { line: 2, column: 3 }
+                    }
+                );
             }
-            assert_eq!(
-                execution.context_mut().input.consume(),
-                Input::CodePoint('z'.into())
-            );
-            assert_eq!(
-                execution.context().input.position(),
-                if normalized == '\n'.into() {
-                    Position { line: 3, column: 1 }
-                } else {
-                    Position { line: 2, column: 3 }
-                }
-            );
             assert_eq!(execution.context_mut().input.consume(), Input::Eof);
-            if expected.state != SOURCE {
-                let after_probe = snapshot(&execution);
-                assert_terminal_stub(&mut execution, &after_probe);
-            }
+            assert_eq!(execution.context().input.errors(), expected.input_errors);
         }
     }
 }
@@ -227,12 +267,24 @@ fn repeated_less_than_and_bang_append_in_order_without_taking_comment() {
         execution.context_mut().input.reconsume(),
         Err(CursorError::AlreadyReconsuming)
     );
-    assert_eq!(
-        execution.context_mut().input.consume(),
-        Input::CodePoint('t'.into())
-    );
+    comment_replay(&mut execution, &mut expected);
+    // The rest is literal Comment data and emits only at EOF.
+    for (point, column) in [('a', 5), ('i', 6), ('l', 7)] {
+        expected.current = Some((Input::CodePoint(point.into()), Position { line: 1, column }));
+        expected.comment.as_mut().unwrap().data.push(point.into());
+        assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
+        assert_eq!(snapshot(&execution), expected);
+    }
+    expected.current = Some((Input::Eof, Position { line: 1, column: 8 }));
+    expected.errors.push(error("eof-in-comment", 1, 8));
+    expected.tokens.extend([
+        Token::Comment {
+            data: expected.comment.take().unwrap().data,
+        },
+        Token::Eof,
+    ]);
+    assert_eq!(execution.step(), Ok(Progress::Finished));
     assert_eq!(snapshot(&execution), expected);
-    assert_terminal_stub(&mut execution, &expected);
 }
 
 #[test]
@@ -262,11 +314,8 @@ fn open_exhaustion_is_effect_free_but_explicit_eof_reconsumes_in_comment() {
         assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
         // No eof-in-comment error, comment take/emission, or EOF token at source.
         assert_eq!(snapshot(&execution), expected);
-        assert_terminal_stub(&mut execution, &expected);
-        assert_eq!(
-            execution.context_mut().input.reconsume(),
-            Err(CursorError::AlreadyReconsuming)
-        );
+        comment_replay(&mut execution, &mut expected);
+        assert_eq!(execution.context_mut().input.reconsume(), Ok(()));
         assert_eq!(execution.context_mut().input.consume(), Input::Eof);
         assert_eq!(execution.context().input.current(), expected.current);
         assert_eq!(execution.context().input.errors(), expected.input_errors);

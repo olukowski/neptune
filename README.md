@@ -34,6 +34,11 @@ The first component is a specification-first HTML tokenizer.
   maps the gateway, all destination paths and reviewed fixtures. No
   automatic mode switching, comment-token emission, or JavaScript parsing is implied; see
   [Script data integration evidence](docs/tokenizer-script-data-end-tag-name.md).
+- [Isolated ordinary-comment states](docs/tokenizer-comment.md) now execute Comment
+  and seven supporting states, including literal/fallback loops and EOF recovery.
+  Comment end and Comment less-than sign bang dash dash remain terminal stubs;
+  **normal Data comment entry still blocks at Markup declaration open**.
+  No complete comment-family or new Data-entry conformance coverage is implied.
 - Simple-tag milestone: `<p>Hello</p>` and `<DIV>world</DIV>` tokenize completely
   (standalone tokenizer only, not tree construction).
 - Pinned upstream html5lib tokenizer fixtures, retaining their original license.
