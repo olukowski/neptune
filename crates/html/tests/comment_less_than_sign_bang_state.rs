@@ -458,7 +458,23 @@ fn hyphen_followers_execute_real_predecessor_and_destinations_with_exact_effects
                     );
                 }
                 if value == 0x2d {
-                    terminal(&mut run, State::CommentLessThanSignBangDashDash);
+                    // BangDash consumed the second '-', without replay. The
+                    // next 'z' belongs to BangDashDash, then is replayed in End.
+                    expected.state = State::CommentEnd;
+                    expected.position = Position { line: 2, column: 5 };
+                    expected.current = Some((Input::CodePoint('z'.into()), expected.position));
+                    expected.errors.push(error("nested-comment", 2, 5));
+                    assert_eq!(run.step(), Ok(Progress::Continue(State::CommentEnd)));
+                    assert_eq!(snapshot(&run), expected);
+                    assert_eq!(
+                        run.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                    expected.state = State::Comment;
+                    expected.comment.as_mut().unwrap().data.extend(points("--"));
+                    assert_eq!(run.step(), Ok(Progress::Continue(State::Comment)));
+                    assert_eq!(snapshot(&run), expected);
+                    comment_replay(&mut run, &mut expected);
                 } else {
                     comment_replay(&mut run, &mut expected);
                 }

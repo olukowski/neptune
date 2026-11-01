@@ -116,8 +116,8 @@ fn assert_terminal(execution: &mut Execution, expected: &Snapshot) {
 }
 
 // Source snapshots are asserted before this helper attempts any destination.
-// Only fallback reaches the newly implemented CommentEndDash; '-' still blocks
-// at CommentLessThanSignBangDashDash without executing that sibling algorithm.
+// Fallback executes CommentEndDash. The '-' source probe is kept separate from
+// real BangDashDash/End execution (covered by the suspended/predecessor tests).
 fn execute_destination(execution: &mut Execution, mut expected: Snapshot) -> Snapshot {
     if expected.state == State::CommentEndDash {
         assert_eq!(
@@ -278,10 +278,6 @@ fn all_ascii_and_representative_non_scalars_have_exact_source_effects_and_consum
                         }
                     );
                     assert_eq!(execution.context().input.errors(), expected.input_errors);
-                    if value == 0x2d {
-                        let probed = snapshot(&execution);
-                        assert_terminal(&mut execution, &probed);
-                    }
                     // Never dispatch an implemented destination after this probe.
                 }
             }
@@ -345,7 +341,28 @@ fn suspended_entry_can_receive_a_hyphen_or_reconsumed_character_without_finishin
         let expected = snapshot(&execution);
         let mut expected = execute_destination(&mut execution, expected);
         if point == '-' {
-            assert_terminal(&mut execution, &expected);
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            execution.context_mut().input.finish();
+            expected.state = State::CommentEnd;
+            expected.current = Some((Input::Eof, Position { line: 1, column: 5 }));
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::CommentEnd)));
+            assert_eq!(snapshot(&execution), expected);
+            assert_eq!(
+                execution.context_mut().input.reconsume(),
+                Err(CursorError::AlreadyReconsuming)
+            );
+            expected.errors.push(error("eof-in-comment", 1, 5));
+            let data = expected.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(&execution), expected);
+            }
         } else {
             for _ in 0..3 {
                 assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));

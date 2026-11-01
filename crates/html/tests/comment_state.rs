@@ -568,7 +568,7 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_traces() {
     }
 }
 
-// Integration after PRs #47–55: isolated entries only; normal Data entry is still
+// Integration after PRs #47–56: isolated entries only; normal Data entry is still
 // blocked at MarkupDeclarationOpen. These expectations are literal pinned-spec
 // outcomes, not snapshots blessed from a production run.
 struct IntegratedCase {
@@ -590,7 +590,9 @@ fn integrated_entry(initial: State) -> Execution {
     // reconstructed blocked run. Withheld hyphens are NOT in pending data.
     let prefix = match initial {
         State::CommentLessThanSign => "<",
-        State::CommentLessThanSignBang | State::CommentLessThanSignBangDash => "<!",
+        State::CommentLessThanSignBang
+        | State::CommentLessThanSignBangDash
+        | State::CommentLessThanSignBangDashDash => "<!",
         _ => "",
     };
     context
@@ -877,41 +879,47 @@ fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independ
             blocked: false,
         });
     }
-    for (initial, input, appended, state, column) in [
-        (Comment, "<!-->", "<!", CommentLessThanSignBangDashDash, 4),
+    // Former nested-opener blocks now execute BangDashDash and real End.
+    // The second nested '-' is withheld; only extra '-' points append in End.
+    for (initial, input, appended, state, column, errors) in [
+        (Comment, "<!-->", "<!", Data, 6, vec![]),
         (
             Comment,
             "<<!---->",
-            "<<!",
-            CommentLessThanSignBangDashDash,
-            5,
+            "<<!--",
+            Data,
+            9,
+            vec![error("nested-comment", 1, 6)],
         ),
         (
             CommentLessThanSignBangDash,
             "-",
             "",
-            CommentLessThanSignBangDashDash,
-            1,
+            CommentEnd,
+            2,
+            vec![error("eof-in-comment", 1, 2)],
         ),
         (
             CommentEndBang,
             "<!--",
             "--!<!",
-            CommentLessThanSignBangDashDash,
-            4,
+            CommentEnd,
+            5,
+            vec![error("eof-in-comment", 1, 5)],
         ),
+        (CommentLessThanSignBangDashDash, ">", "", Data, 2, vec![]),
     ] {
         cases.push(IntegratedCase {
             initial,
             input: points(input),
             appended: points(appended),
             state,
-            current: (Input::CodePoint('-'.into()), Position { line: 1, column }),
-            errors: vec![],
+            current: (Input::Eof, Position { line: 1, column }),
+            errors,
             input_errors: vec![],
-            emitted: false,
+            emitted: true,
             characters: vec![],
-            blocked: true,
+            blocked: false,
         });
     }
     // Independently expected closing outcomes through the newly implemented End:
