@@ -12,6 +12,7 @@ After attribute name, Before attribute value, Attribute value
 After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Comment start](tokenizer-comment-start.md),
 [Comment start dash](tokenizer-comment-start-dash.md),
+[Comment end](tokenizer-comment-end.md),
 [Script data end tag open](tokenizer-script-data-end-tag-open.md),
 [Script data end tag name](tokenizer-script-data-end-tag-name.md),
 [Script data escape start](tokenizer-script-data-escape-start.md),
@@ -34,15 +35,14 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Comment end dash](tokenizer-comment-end-dash.md),
 [Comment end bang](tokenizer-comment-end-bang.md), and
 [Comment](tokenizer-comment.md) are implemented.
-All other states, including Comment end, Comment less-than sign bang dash dash,
+All other states, including Comment less-than sign bang dash dash,
 Markup declaration open and
 Character reference, remain `UnimplementedState` stubs.**
-Isolated comment entry requires initialized pending-comment context. The eight
-supported ordinary-comment states execute literal/fallback loops and EOF recovery;
-only isolated Start/StartDash/EndBang entry currently reaches closing emission to
-Data. Core Comment's `-->` still blocks at Comment end and nested-opener syntax
-at Comment less-than sign bang dash dash. Normal Data entry remains blocked at
-Markup declaration open; see [current integration evidence](tokenizer-comment.md#integration-onto-47-53).
+Isolated comment entry requires initialized pending-comment context. The nine
+supported ordinary-comment states execute literal/fallback loops, `-->` closure,
+EndBang recovery and EOF emission. Nested-opener syntax still blocks at
+Comment less-than sign bang dash dash. Normal Data entry remains blocked at
+Markup declaration open; see [current integration evidence](tokenizer-comment-end.md#integration-onto-47-54).
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
 Explicit Script data entry now reaches basic comment-like text through
@@ -547,10 +547,11 @@ storage, token types, adapter capabilities, or upstream baseline changes.
 [Comment less-than sign](tokenizer-comment-less-than-sign.md),
 [Comment less-than sign bang](tokenizer-comment-less-than-sign-bang.md),
 [Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md),
-[Comment end dash](tokenizer-comment-end-dash.md), and
-[Comment end bang](tokenizer-comment-end-bang.md)
-are now implemented separately. Comment end, Comment less-than sign bang dash dash,
-and Markup declaration open remain terminal `UnimplementedState` stubs.
+[Comment end dash](tokenizer-comment-end-dash.md),
+[Comment end bang](tokenizer-comment-end-bang.md), and
+[Comment end](tokenizer-comment-end.md)
+are now implemented separately. Comment less-than sign bang dash dash and
+Markup declaration open remain terminal `UnimplementedState` stubs.
 
 ## Before attribute name coverage
 

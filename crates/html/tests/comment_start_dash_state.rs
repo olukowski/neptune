@@ -177,7 +177,7 @@ fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
 }
 
 #[test]
-fn hyphen_consumes_without_appending_emitting_or_reconsuming_then_blocks() {
+fn hyphen_consumes_without_appending_then_real_end_restores_delimiters_and_comment_emits() {
     for kind in [TagKind::Start, TagKind::End] {
         for data in [vec![], literal_seed()] {
             let mut execution = entry(kind, data, true);
@@ -191,18 +191,26 @@ fn hyphen_consumes_without_appending_emitting_or_reconsuming_then_blocks() {
             ));
             assert_eq!(execution.step(), Ok(Progress::Continue(State::CommentEnd)));
             assert_eq!(snapshot(&execution), expected);
-            terminal(
-                &mut execution,
-                Err(UnimplementedState {
-                    state: State::CommentEnd,
-                }),
-            );
-            // Cursor inspection only, never reconstruct/resume terminal execution.
-            assert_eq!(
-                execution.context_mut().input.consume(),
-                Input::CodePoint('x'.into())
-            );
-            assert_eq!(execution.context_mut().input.consume(), Input::Eof);
+            // End consumes the NEXT 'x', restoring the two withheld hyphens
+            // before Comment handles the replay; the original source did not append.
+            expected.state = State::Comment;
+            expected.current = Some((
+                Input::CodePoint('x'.into()),
+                Position { line: 2, column: 3 },
+            ));
+            expected.comment.as_mut().unwrap().data.extend(points("--"));
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
+            assert_eq!(snapshot(&execution), expected);
+            comment_replay(&mut execution, &mut expected);
+            expected.current = Some((Input::Eof, Position { line: 2, column: 4 }));
+            expected.errors.push(error("eof-in-comment", 2, 4));
+            let data = expected.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            assert_eq!(execution.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&execution), expected);
+            terminal(&mut execution, Ok(Progress::Finished));
         }
     }
 }
@@ -456,6 +464,13 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_traces() {
         "-",
         "-->",
         "-tail",
+        "->",
+        "-!>",
+        "-\0-->",
+        "-!-->",
+        "-><!",
+        "->&",
+        "-><?",
         ">",
         ">x\r\n\0",
         ">\r\r\n",

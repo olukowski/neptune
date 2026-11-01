@@ -1,6 +1,16 @@
 # Comment start dash state
 
-## Current Comment integration (PR #54)
+## Current CommentEnd integration (PR #55)
+
+On base `08ddeae1103a97766b5055e61e70ce4907c2477a` (merged #47–54),
+CommentEnd is implemented. The second-hyphen destination now executes real End, then Comment replay or closure/EOF. Original no-append/no-reconsume source snapshots remain intact.
+See [current integration evidence](tokenizer-comment-end.md#integration-onto-47-54)
+for exact source/destination assertions, every-split cases and validation.
+Normal Data comment entry remains blocked at MarkupDeclarationOpen. Production
+sibling algorithms/shared helpers are unchanged. Earlier PR support/count reports
+below are historical; their pinned source branch evidence remains normative.
+
+## Historical Comment integration (PR #54)
 
 On base `f2ca599065ec7fa70cc437f5c2ea6b9e2ee68883` (merged #47–53) plus
 PR #54, Comment is implemented alongside the seven merged comment states.
@@ -45,7 +55,7 @@ All test names below are in `crates/html/tests/comment_start_dash_state.rs`.
 
 | Consumed input / pinned lines | Source effects | Focused test |
 | --- | --- | --- |
-| `-`, 144542–144543 | Switch to CommentEnd. Do not append the delimiter or deferred hyphen, emit, diagnose, or reconsume. | `hyphen_consumes_without_appending_emitting_or_reconsuming_then_blocks` |
+| `-`, 144542–144543 | Switch to CommentEnd. Do not append the delimiter or deferred hyphen, emit, diagnose, or reconsume. | `hyphen_consumes_without_appending_then_real_end_restores_delimiters_and_comment_emits` |
 | `>`, 144545–144548 | Report `abrupt-closing-of-empty-comment` at the consumed point; switch to Data and emit/take the current comment, without adding a hyphen. | `greater_than_emits_and_takes_exact_comment_then_real_data_continues` |
 | EOF, 144550–144552 | Report `eof-in-comment`; emit/take the comment, then one EOF. No state switch, deferred hyphen append or reconsumption. | `open_exhaustion_has_no_effects_but_explicit_eof_diagnoses_emits_and_takes` |
 | Anything else, 144554–144556 | Append exactly one U+002D; reconsume the point in Comment. The point itself is not appended/replaced/diagnosed by this source state. | `anything_else_appends_only_one_hyphen_and_reconsumes_literal_input` |

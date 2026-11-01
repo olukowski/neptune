@@ -1,5 +1,17 @@
 # Comment state
 
+## Current CommentEnd integration (PR #55)
+
+CommentEnd now closes core `-->` and reaches EndBang recovery on `--!`.
+Nine ordinary-comment states are supported from initialized isolated entry;
+BangDashDash alone remains unsupported in this family. Normal Data entry still
+blocks at MarkupDeclarationOpen. See [current integration evidence](tokenizer-comment-end.md#integration-onto-47-54)
+for the updated independent core/isolated outcome table, source snapshots,
+every-split traces, validation and unchanged upstream counts. Original source
+expectations and all production siblings/helpers are preserved. The PR #54
+integration boundaries/counts below describe its historical base, not current
+reachability; pinned algorithm branch evidence remains normative.
+
 ## Scope and pinned evidence
 
 Only `State::Comment` is implemented here, in
