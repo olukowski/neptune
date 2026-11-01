@@ -70,6 +70,21 @@ fn seeded(kind: TagKind, data: Vec<CodePoint>) -> Context {
     context
 }
 
+fn predecessor_context() -> Context {
+    let mut context = seeded(TagKind::End, literal_seed());
+    context.input = Default::default();
+    context.input.push(points("\r\n<")).unwrap();
+    assert_eq!(context.input.consume(), Input::CodePoint('\n'.into()));
+    assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
+    context
+        .pending_comment
+        .as_mut()
+        .unwrap()
+        .data
+        .push('<'.into());
+    context
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Snapshot {
     state: State,
@@ -133,7 +148,7 @@ fn preprocessing_error(value: u32) -> Option<&'static str> {
 }
 
 #[test]
-fn all_branches_preserve_comment_and_unrelated_context_before_terminal_destinations() {
+fn all_branches_preserve_source_effects_then_execute_real_destinations() {
     for value in values() {
         for kind in [TagKind::Start, TagKind::End] {
             for data in [vec![], points("<!"), literal_seed()] {
@@ -168,7 +183,25 @@ fn all_branches_preserve_comment_and_unrelated_context_before_terminal_destinati
                             Err(CursorError::AlreadyReconsuming)
                         );
                     }
-                    terminal(&mut run, target);
+                    if target == State::CommentLessThanSignBangDash {
+                        // The source consumed '-' once. Bang dash now consumes
+                        // the next 'z', then End dash reconsumes it and appends
+                        // only the withheld hyphen before the real Comment stub.
+                        expected.state = State::CommentEndDash;
+                        expected.position = Position { line: 2, column: 4 };
+                        expected.current = Some((Input::CodePoint('z'.into()), expected.position));
+                        assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+                        assert_eq!(snapshot(&run), expected);
+                        assert_eq!(
+                            run.context_mut().input.reconsume(),
+                            Err(CursorError::AlreadyReconsuming)
+                        );
+                        expected.state = State::Comment;
+                        expected.comment.as_mut().unwrap().data.push('-'.into());
+                        assert_eq!(run.step(), Ok(Progress::Continue(State::Comment)));
+                        assert_eq!(snapshot(&run), expected);
+                    }
+                    terminal(&mut run, State::Comment);
                 }
             }
         }
@@ -267,12 +300,169 @@ fn suspension_can_be_fed_then_hyphen_switches_without_appending_or_reconsuming()
         run.step(),
         Ok(Progress::Continue(State::CommentLessThanSignBangDash))
     );
-    let before = snapshot(&run);
-    assert_eq!(before.comment, Some(PendingComment { data: points("<!") }));
-    assert_eq!(run.context_mut().input.consume(), Input::NeedMoreInput);
-    assert_eq!(snapshot(&run), before);
-    // A destination stub blocks even with open exhausted input, never suspends.
-    terminal(&mut run, State::CommentLessThanSignBangDash);
+    let mut expected = snapshot(&run);
+    assert_eq!(
+        expected.comment,
+        Some(PendingComment { data: points("<!") })
+    );
+    // The implemented destination now suspends, rather than falsely blocking.
+    for _ in 0..3 {
+        assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+        assert_eq!(snapshot(&run), expected);
+    }
+    run.context_mut().input.finish();
+    expected.state = State::CommentEndDash;
+    expected.position = Position { line: 2, column: 4 };
+    expected.current = Some((Input::Eof, expected.position));
+    assert_eq!(run.step(), Ok(Progress::Continue(State::CommentEndDash)));
+    assert_eq!(snapshot(&run), expected);
+    assert_eq!(
+        run.context_mut().input.reconsume(),
+        Err(CursorError::AlreadyReconsuming)
+    );
+    // Only End dash reports EOF and takes/emits the comment. The consumed '-'
+    // is not appended on this EOF path; the existing token prefix stays intact.
+    expected.errors.push(error("eof-in-comment", 2, 4));
+    let data = expected.comment.take().unwrap().data;
+    expected
+        .tokens
+        .extend([Token::Comment { data }, Token::Eof]);
+    for _ in 0..3 {
+        assert_eq!(run.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&run), expected);
+    }
+}
+
+#[test]
+fn hyphen_followers_execute_real_predecessor_and_destinations_with_exact_effects() {
+    for value in values() {
+        for predecessor in [false, true] {
+            for finished in [false, true] {
+                let mut context = if predecessor {
+                    predecessor_context()
+                } else {
+                    seeded(TagKind::End, literal_seed())
+                };
+                if predecessor {
+                    context.input.push(points("!")).unwrap();
+                }
+                context
+                    .input
+                    .push(['-'.into(), point(value), 'z'.into()])
+                    .unwrap();
+                if finished {
+                    context.input.finish();
+                }
+                let mut run = Execution::new(
+                    if predecessor {
+                        State::CommentLessThanSign
+                    } else {
+                        State::CommentLessThanSignBang
+                    },
+                    context,
+                );
+                let mut expected = snapshot(&run);
+                if predecessor {
+                    expected.state = State::CommentLessThanSignBang;
+                    expected.position = Position { line: 2, column: 2 };
+                    expected.current = Some((Input::CodePoint('!'.into()), expected.position));
+                    expected.comment.as_mut().unwrap().data.push('!'.into());
+                    assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+                    assert_eq!(snapshot(&run), expected);
+                }
+                // Independently assert our source before attempting Bang dash.
+                expected.state = State::CommentLessThanSignBangDash;
+                expected.position = Position { line: 2, column: 3 };
+                expected.current = Some((Input::CodePoint('-'.into()), expected.position));
+                assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&run), expected);
+
+                let normalized = if value == 0x0d { 0x0a } else { value };
+                expected.position = Position { line: 2, column: 4 };
+                expected.current = Some((Input::CodePoint(point(normalized)), expected.position));
+                if let Some(code) = preprocessing_error(value) {
+                    expected.input_errors.push(error(code, 2, 4));
+                }
+                expected.state = if value == 0x2d {
+                    State::CommentLessThanSignBangDashDash
+                } else {
+                    State::CommentEndDash
+                };
+                assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(snapshot(&run), expected);
+                if value != 0x2d {
+                    assert_eq!(
+                        run.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                    expected.state = State::Comment;
+                    expected.comment.as_mut().unwrap().data.push('-'.into());
+                    assert_eq!(run.step(), Ok(Progress::Continue(State::Comment)));
+                    // Same current point/position and preprocessing errors on
+                    // this second reconsumption; no NUL replacement yet.
+                    assert_eq!(snapshot(&run), expected);
+                    assert_eq!(
+                        run.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                }
+                // Only genuine remaining stubs are attempted, with unconsumed
+                // tail and all independent source/destination effects intact.
+                terminal(&mut run, expected.state);
+            }
+        }
+    }
+}
+
+#[test]
+fn predecessor_bang_hyphen_eof_takes_comment_only_in_end_dash() {
+    for finished in [false, true] {
+        let mut context = predecessor_context();
+        context.input.push(points("!-")).unwrap();
+        if finished {
+            context.input.finish();
+        }
+        let mut run = Execution::new(State::CommentLessThanSign, context);
+        let mut expected = snapshot(&run);
+        for (character, column, target) in [
+            ('!', 2, State::CommentLessThanSignBang),
+            ('-', 3, State::CommentLessThanSignBangDash),
+        ] {
+            expected.state = target;
+            expected.position = Position { line: 2, column };
+            expected.current = Some((Input::CodePoint(character.into()), expected.position));
+            if character == '!' {
+                expected.comment.as_mut().unwrap().data.push('!'.into());
+            }
+            assert_eq!(run.step(), Ok(Progress::Continue(target)));
+            assert_eq!(snapshot(&run), expected);
+        }
+        if !finished {
+            for _ in 0..3 {
+                assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+                assert_eq!(snapshot(&run), expected);
+            }
+            run.context_mut().input.finish();
+        }
+        expected.state = State::CommentEndDash;
+        expected.position = Position { line: 2, column: 4 };
+        expected.current = Some((Input::Eof, expected.position));
+        assert_eq!(run.step(), Ok(Progress::Continue(State::CommentEndDash)));
+        assert_eq!(snapshot(&run), expected);
+        assert_eq!(
+            run.context_mut().input.reconsume(),
+            Err(CursorError::AlreadyReconsuming)
+        );
+        expected.errors.push(error("eof-in-comment", 2, 4));
+        let data = expected.comment.take().unwrap().data;
+        expected
+            .tokens
+            .extend([Token::Comment { data }, Token::Eof]);
+        for _ in 0..3 {
+            assert_eq!(run.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&run), expected);
+        }
+    }
 }
 
 #[test]
@@ -319,15 +509,28 @@ fn drain(run: &mut Execution, trace: &mut Trace) -> bool {
             terminal(run, blocked.state);
             return true;
         }
+        if result == Ok(Progress::Finished) {
+            let after = snapshot(run);
+            for _ in 0..3 {
+                assert_eq!(run.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(run), after);
+            }
+            return true;
+        }
         assert!(matches!(result, Ok(Progress::Continue(_))));
     }
 }
 
-fn trace(chunks: &[&[CodePoint]], closed: bool) -> Trace {
-    let mut run = Execution::new(
-        State::CommentLessThanSignBang,
-        seeded(TagKind::End, literal_seed()),
-    );
+fn trace(chunks: &[&[CodePoint]], closed: bool, predecessor: bool) -> Trace {
+    let (state, context) = if predecessor {
+        (State::CommentLessThanSign, predecessor_context())
+    } else {
+        (
+            State::CommentLessThanSignBang,
+            seeded(TagKind::End, literal_seed()),
+        )
+    };
+    let mut run = Execution::new(state, context);
     let mut trace = vec![];
     for chunk in chunks {
         run.context_mut().input.push(chunk.iter().copied()).unwrap();
@@ -347,6 +550,14 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_step_trace(
         "-",
         "-->",
         "-tail\0",
+        "-\0tail",
+        "-\r\nX",
+        "-\r\r\n",
+        "-\u{b}",
+        "-\u{fdd0}",
+        "-É😀",
+        "--",
+        "---tail",
         "x",
         "!",
         "<",
@@ -368,19 +579,27 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_step_trace(
         '\n'.into(),
         point(0x10ffff),
     ]);
+    inputs.push(vec!['-'.into(), point(0xdfff), '\r'.into(), '\n'.into()]);
     for input in inputs {
-        let expected = trace(&[&input], true);
-        for split in 0..=input.len() {
+        for predecessor in [false, true] {
+            let input = if predecessor {
+                [points("<<!"), input.clone()].concat()
+            } else {
+                input.clone()
+            };
+            let expected = trace(&[&input], true, predecessor);
+            for split in 0..=input.len() {
+                assert_eq!(
+                    trace(&[&input[..split], &[], &input[split..]], false, predecessor),
+                    expected,
+                    "split {split}, predecessor={predecessor}: {input:?}"
+                );
+            }
             assert_eq!(
-                trace(&[&input[..split], &[], &input[split..]], false),
+                trace(&input.chunks(1).collect::<Vec<_>>(), false, predecessor),
                 expected,
-                "split {split}: {input:?}"
+                "single code points, predecessor={predecessor}: {input:?}"
             );
         }
-        assert_eq!(
-            trace(&input.chunks(1).collect::<Vec<_>>(), false),
-            expected,
-            "single code points: {input:?}"
-        );
     }
 }

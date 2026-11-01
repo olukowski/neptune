@@ -12,7 +12,7 @@ no sibling algorithm or another engine supplies this implementation.
 Implementation: `crates/html/src/tokenizer/comment_less_than_sign.rs`.
 Focused tests: `crates/html/tests/comment_less_than_sign_state.rs`.
 `tokenizer/comment.rs` remains exclusively shared helper support from prerequisite
-PR #46 (`47c53e8dcf3e69d920c4be290036ffb70af72cc9`), which is this branch's base.
+PR #46 (`47c53e8dcf3e69d920c4be290036ffb70af72cc9`), the original prerequisite base.
 There are no new dependencies, storage, token variants, or adapter capabilities.
 
 Direct isolated entry supplies an initialized `PendingComment`. Normal predecessor
@@ -45,24 +45,30 @@ at initial consumption (line 2, column 2), and remain unchanged on cursor
 reconsumption. NUL is neither appended nor diagnosed by this source. CR normalizes
 to LF before fallback; existing pending CR remains literal. Append branches leave
 the following character unconsumed; fallback reconsumes the exact point or EOF at
-its original position. Cursor-only inspection after terminal-block checks is not
-execution resumption; no blocked execution is reconstructed or resumed.
+its original position. Cursor probes precede the remaining unsupported destination
+attempts; no blocked execution is reconstructed or resumed.
 
 `every_two_chunk_split_and_single_point_chunks_preserve_source_step_traces`
 compares every two-chunk split (including empty chunks) and single-code-point
 chunks with closed-input traces for empty input, repeated `<`, bang, malformed
 suffixes, NUL, CR/CRLF/consecutive/trailing CR, Unicode, lone surrogates,
-noncharacters and controls. These are traces **up to the first terminal stub**;
-no later chunk is fed after a block and no downstream CRLF/comment processing is
-claimed. Repeated suspension and terminal errors are effect-free.
+noncharacters and controls. With PR #53 integration, these traces execute Bang,
+Bang dash and End dash where reachable, including `!-` EOF emission and `!-`
+fallback with NUL/CRLF/control/noncharacter input. They stop at the first genuine
+terminal stub or EOF; no later chunk is fed after termination. Repeated suspension,
+completion and terminal errors are effect-free.
 
 ## Destinations and upstream limitations
 
-At this base, `Comment` and `CommentLessThanSignBang` are terminal
-`UnimplementedState` destinations. Source mutations/reconsumption remain
-inspectable before their dispatch attempts; a block emits neither comment nor
-EOF and is not a recoverable HTML parse error. Neighbor merges can legitimately
-change these integration expectations and require explicit review and full checks.
+On the original PR #47 base, both destinations were stubs. After PR #53 rebases
+onto `76f91837fc17eb6de8ec313a1c5dcac906203b41`, `CommentLessThanSignBang`
+executes: source append/no-take assertions remain independent, then `!tail`
+consumes and reconsumes `t` in the still-unsupported `Comment`. The real hyphen
+path executes Bang dash and End dash; End dash alone appends the withheld hyphen
+on fallback or reports `eof-in-comment`, takes/emits the comment and emits EOF.
+`Comment` and `CommentLessThanSignBangDashDash` remain genuine terminal stubs.
+See [the integrated state-local evidence](tokenizer-comment-less-than-sign-bang.md#integration-on-main).
+No sibling algorithm or gateway is changed.
 
 Normal Data entry on `<!--x-->` still blocks at `MarkupDeclarationOpen` before
 comment creation. The focused Data regression checks this exact boundary. This

@@ -35,15 +35,17 @@ hyphens, and EOF neither takes/emits the pending comment nor reports
 `eof-in-comment`. Input preprocessing may normalize CR or report a diagnostic
 before this source step; stored comment data is never preprocessed again.
 
-Both destinations remain explicit terminal `UnimplementedState` stubs on this
-PR's prerequisite base. Tests inspect source effects before attempting them.
-No blocked execution is reconstructed or resumed. Normal Data `<!--` entry
-still blocks at Markup declaration open: this PR adds no Data-entry coverage.
+Both destinations were terminal stubs on the original prerequisite base. After
+integration onto main through PR #52, Comment remains a stub but Bang dash and
+its End dash fallback execute (see below). Tests inspect source effects before
+attempting destinations. No blocked execution is reconstructed or resumed.
+Normal Data `<!--` entry still blocks at Markup declaration open: this PR adds
+no Data-entry coverage.
 
 ## Focused verification
 
 `crates/html/tests/comment_less_than_sign_bang_state.rs` contains local helpers
-and six focused tests:
+and eight focused tests:
 
 - Every ASCII point, Unicode dash lookalikes, scalar/non-scalar points, controls,
   noncharacters and NUL; exact output, diagnostic codes/multiplicity, normalized
@@ -56,16 +58,49 @@ and six focused tests:
   reconsumed fallback and unchanged tail; reconsumption does not duplicate
   preprocessing diagnostics. A separate probe checks conceptual EOF.
 - Repeated effect-free exhaustion, explicit EOF, feeding after suspension, and
-  effect-free repeated terminal blocks, including open exhausted destinations.
+  effect-free repeated completion/terminal blocks. Implemented Bang dash suspends
+  on open exhaustion; only an actual remaining stub blocks without input.
 - Every two-chunk split (including empty chunks) and single-code-point chunks of
-  representative inputs match closed-input source-step traces. These stop at
-  the first destination stub; unconsumed tails are not claimed as processed.
+  representative inputs match closed-input source-step traces, including real
+  Less-than sign entry, hyphen chains, Bang dash/End dash fallback and EOF. They
+  stop at the first genuine stub or completion; no tail after a block is processed.
 - Real Data source steps preserve the Markup declaration open terminal block.
 
 The independent support inventory initializes consumed `<!` and pending-comment
 data for isolated entry. Inventory and focused tests are not upstream conformance.
 Existing shared-comment tests continue to prove actual emission/take semantics;
 this state specifically proves that no take occurs.
+
+## Integration on main
+
+Rebased onto `76f91837fc17eb6de8ec313a1c5dcac906203b41`. The production algorithm
+is byte-for-byte unchanged from initially reviewed `a009d68`. Merged algorithms,
+shared helpers, storage and adapter capabilities remain untouched. Changes to
+integration expectations are derived from the same pinned source: [Less-than sign,
+Bang dash and End dash, lines 144590–144678](https://github.com/whatwg/html/blob/404b3eb14a7a936dddefb2d78e224dbeb01d2358/source#L144590-L144678).
+
+- Less-than sign consumes/appends `!`, then this source consumes the next point,
+  not that `!` again. Its source assertions remain intact in the predecessor suite.
+- This source's `-` now reaches real Bang dash. A second `-` consumes once and
+  still blocks at Comment less-than sign bang dash dash with no speculative effects.
+- Bang dash fallback reconsumes in real End dash, which appends only the withheld
+  `-` and reconsumes the same point in the still-unsupported Comment state. All
+  ASCII and representative malformed/non-scalar followers are checked after each
+  source step, with exact diagnostics and positions; preprocessing occurs once.
+  In particular, neither NUL replacement nor a Comment parse error is simulated.
+- A single `-` followed by EOF now completes through End dash. Bang dash schedules
+  EOF reconsumption without emission/error; only End dash reports `eof-in-comment`,
+  takes/emits the unchanged seeded comment, then emits EOF after prior tokens.
+  The consumed hyphen is not appended on this EOF branch. Both already-closed
+  input and repeated open suspension followed by explicit finish are covered.
+- Every two-chunk split and single-point chunks cover both isolated entry and
+  real Less-than sign entry with repeated `<`, `!`, hyphen chains, malformed input,
+  CRLF boundaries, controls and non-scalars. Traces include actual destination
+  effects, not reconstructed execution or matching prefixes before a stub.
+
+The opening support list in `tokenizer.md` and the independent inventory contain
+all implemented states exactly once; module/dispatch/inventory changes preserve
+all merged entries and add only this state's registration and entry context.
 
 All prior protected upstream identities are retained; no new passing identity is
 introduced because this state is not reachable from upstream initial states
