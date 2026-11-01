@@ -10,6 +10,7 @@ Tag open, End tag open, Tag name, Before attribute name, Attribute name,
 After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, Bogus comment,
+[Comment start](tokenizer-comment-start.md),
 [Script data end tag open](tokenizer-script-data-end-tag-open.md),
 [Script data end tag name](tokenizer-script-data-end-tag-name.md),
 [Script data escape start](tokenizer-script-data-escape-start.md),
@@ -25,8 +26,9 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data double escaped dash](tokenizer-script-data-double-escaped-dash.md),
 [Script data double escaped dash dash](tokenizer-script-data-double-escaped-dash-dash.md),
 [Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md),
-[Script data double escape end](tokenizer-script-data-double-escape-end.md), and
-[Comment less-than sign](tokenizer-comment-less-than-sign.md) are implemented.
+[Script data double escape end](tokenizer-script-data-double-escape-end.md),
+[Comment less-than sign](tokenizer-comment-less-than-sign.md), and
+[Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md) are implemented.
 All other states, including ordinary Comment and
 Character reference, remain `UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
@@ -526,9 +528,12 @@ order, and preservation of unrelated tag/attribute storage, diagnostics, scratch
 return state, last-start-tag bookkeeping, and scheduled reconsumption. Existing
 Bogus comment and End tag open suites retain the state-level EOF, malformed-input,
 NUL, streaming, and terminal-stub checks. This support extraction adds no states,
-storage, token types, adapter capabilities, or upstream baseline changes. Ordinary
-comment states other than [Comment less-than sign](tokenizer-comment-less-than-sign.md)
-and Markup declaration open remain terminal `UnimplementedState` stubs.
+storage, token types, adapter capabilities, or upstream baseline changes.
+[Comment start](tokenizer-comment-start.md),
+[Comment less-than sign](tokenizer-comment-less-than-sign.md), and
+[Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md)
+are now implemented separately. Other ordinary comment states and Markup
+declaration open remain terminal `UnimplementedState` stubs.
 
 ## Before attribute name coverage
 
