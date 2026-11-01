@@ -49,6 +49,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::SelfClosingStartTag,
         State::BogusComment,
         State::CommentLessThanSign,
+        State::CommentLessThanSignBangDash,
     ];
     assert_eq!(State::ALL.len(), 84);
     for &state in State::ALL {
@@ -119,6 +120,8 @@ fn explicit_support_inventory_matches_dispatch() {
                     // the predecessor clears it on '/', with no tag requirement.
                     context.temporary_buffer = vec!['s'.into(), 'c'.into(), 'r'.into()];
                 }
+                // CommentLessThanSignBangDash also requires initialized comment
+                // context on isolated entry, even though it does not mutate it.
                 context.pending_comment = Some(PendingComment::default());
                 if state == State::CommentLessThanSign {
                     // The predecessor has already appended its consumed '<'.
