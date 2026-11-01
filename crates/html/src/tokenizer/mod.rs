@@ -13,6 +13,7 @@ mod bogus_comment;
 mod comment;
 mod comment_less_than_sign;
 mod comment_less_than_sign_bang_dash;
+mod comment_start;
 mod data;
 mod end_tag_open;
 mod input;
@@ -234,6 +235,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::BogusComment => Ok(bogus_comment::step(context)),
         State::CommentLessThanSign => Ok(comment_less_than_sign::step(context)),
         State::CommentLessThanSignBangDash => Ok(comment_less_than_sign_bang_dash::step(context)),
+        State::CommentStart => Ok(comment_start::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }
