@@ -147,6 +147,57 @@ fn preprocessing_error(value: u32) -> Option<&'static str> {
     }
 }
 
+// The predecessor's independently asserted source snapshot schedules this item
+// for real Comment. Check that destination separately, including EOF/take order;
+// preprocessing diagnostics and unrelated context must remain unchanged.
+fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
+    assert_eq!(expected.state, State::Comment);
+    let (input, position) = expected.current.unwrap();
+    let result = match input {
+        Input::Eof => {
+            expected.errors.push(ParseError {
+                code: "eof-in-comment",
+                position,
+            });
+            let data = expected.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            Progress::Finished
+        }
+        Input::CodePoint(point) => {
+            match point.value() {
+                0x3c => {
+                    expected.comment.as_mut().unwrap().data.push(point);
+                    expected.state = State::CommentLessThanSign;
+                }
+                0x2d => expected.state = State::CommentEndDash,
+                0 => {
+                    expected.errors.push(ParseError {
+                        code: "unexpected-null-character",
+                        position,
+                    });
+                    expected
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .push('\u{fffd}'.into());
+                }
+                _ => expected.comment.as_mut().unwrap().data.push(point),
+            }
+            Progress::Continue(expected.state)
+        }
+        Input::NeedMoreInput => panic!("a predecessor replay requires current input"),
+    };
+    assert_eq!(run.step(), Ok(result));
+    assert_eq!(snapshot(run), *expected);
+    if result == Progress::Finished {
+        assert_eq!(run.step(), Ok(result));
+        assert_eq!(snapshot(run), *expected);
+    }
+}
+
 #[test]
 fn all_branches_preserve_source_effects_then_execute_real_destinations() {
     for value in values() {
@@ -186,7 +237,7 @@ fn all_branches_preserve_source_effects_then_execute_real_destinations() {
                     if target == State::CommentLessThanSignBangDash {
                         // The source consumed '-' once. Bang dash now consumes
                         // the next 'z', then End dash reconsumes it and appends
-                        // only the withheld hyphen before the real Comment stub.
+                        // only the withheld hyphen before real Comment.
                         expected.state = State::CommentEndDash;
                         expected.position = Position { line: 2, column: 4 };
                         expected.current = Some((Input::CodePoint('z'.into()), expected.position));
@@ -201,7 +252,7 @@ fn all_branches_preserve_source_effects_then_execute_real_destinations() {
                         assert_eq!(run.step(), Ok(Progress::Continue(State::Comment)));
                         assert_eq!(snapshot(&run), expected);
                     }
-                    terminal(&mut run, State::Comment);
+                    comment_replay(&mut run, &mut expected);
                 }
             }
         }
@@ -274,7 +325,7 @@ fn open_exhaustion_is_effect_free_but_explicit_eof_is_reconsumed_not_emitted_or_
             run.context_mut().input.reconsume(),
             Err(CursorError::AlreadyReconsuming)
         );
-        terminal(&mut run, State::Comment);
+        comment_replay(&mut run, &mut expected);
     }
     // Independently inspect scheduled conceptual EOF before a destination attempt.
     let mut context = seeded(TagKind::Start, points("<!"));
@@ -406,9 +457,11 @@ fn hyphen_followers_execute_real_predecessor_and_destinations_with_exact_effects
                         Err(CursorError::AlreadyReconsuming)
                     );
                 }
-                // Only genuine remaining stubs are attempted, with unconsumed
-                // tail and all independent source/destination effects intact.
-                terminal(&mut run, expected.state);
+                if value == 0x2d {
+                    terminal(&mut run, State::CommentLessThanSignBangDashDash);
+                } else {
+                    comment_replay(&mut run, &mut expected);
+                }
             }
         }
     }

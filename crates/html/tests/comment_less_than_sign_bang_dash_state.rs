@@ -91,7 +91,7 @@ fn snapshot(execution: &Execution) -> Snapshot {
     }
 }
 
-// Cursor history only, not execution of the unimplemented predecessor. The
+// Cursor history only, not simulated predecessor execution. The
 // caller supplies initialized comment data; this state must not recreate it.
 fn entry(mut context: Context, newline_prefix: bool) -> Execution {
     if newline_prefix {
@@ -145,11 +145,63 @@ fn execute_destination(execution: &mut Execution, mut expected: Snapshot) -> Sna
                 expected.comment.as_mut().unwrap().data.push('-'.into());
                 assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
                 assert_eq!(snapshot(execution), expected);
+                comment_replay(execution, &mut expected);
             }
             Input::NeedMoreInput => panic!("source must have consumed a point or EOF"),
         }
     }
     expected
+}
+
+// The predecessor's independently asserted source snapshot schedules this item
+// for real Comment. Check that destination separately, including EOF/take order;
+// preprocessing diagnostics and unrelated context must remain unchanged.
+fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
+    assert_eq!(expected.state, State::Comment);
+    let (input, position) = expected.current.unwrap();
+    let result = match input {
+        Input::Eof => {
+            expected.errors.push(ParseError {
+                code: "eof-in-comment",
+                position,
+            });
+            let data = expected.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            Progress::Finished
+        }
+        Input::CodePoint(point) => {
+            match point.value() {
+                0x3c => {
+                    expected.comment.as_mut().unwrap().data.push(point);
+                    expected.state = State::CommentLessThanSign;
+                }
+                0x2d => expected.state = State::CommentEndDash,
+                0 => {
+                    expected.errors.push(ParseError {
+                        code: "unexpected-null-character",
+                        position,
+                    });
+                    expected
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .push('\u{fffd}'.into());
+                }
+                _ => expected.comment.as_mut().unwrap().data.push(point),
+            }
+            Progress::Continue(expected.state)
+        }
+        Input::NeedMoreInput => panic!("a predecessor replay requires current input"),
+    };
+    assert_eq!(run.step(), Ok(result));
+    assert_eq!(snapshot(run), *expected);
+    if result == Progress::Finished {
+        assert_eq!(run.step(), Ok(result));
+        assert_eq!(snapshot(run), *expected);
+    }
 }
 
 #[test]
@@ -203,20 +255,10 @@ fn all_ascii_and_representative_non_scalars_have_exact_source_effects_and_consum
                     // Neither branch emits, mutates, takes, normalizes or replaces
                     // existing comment data, including literal NUL/CR/non-scalars.
                     let expected = execute_destination(&mut execution, expected);
-                    // Probe before the remaining unsupported destination attempt;
-                    // never execute an implemented state with this probed cursor.
-                    if value != 0x2d {
-                        assert_eq!(
-                            execution.context_mut().input.reconsume(),
-                            Err(CursorError::AlreadyReconsuming)
-                        );
-                        assert_eq!(
-                            execution.context_mut().input.consume(),
-                            Input::CodePoint(normalized)
-                        );
-                        assert_eq!(execution.context().input.current(), expected.current);
-                        assert_eq!(execution.context().input.errors(), expected.input_errors);
-                    }
+                    // Probe only after source/destination snapshots. Never execute
+                    // an implemented state with this probed cursor.
+                    assert_eq!(execution.context().input.current(), expected.current);
+                    assert_eq!(execution.context().input.errors(), expected.input_errors);
                     assert_eq!(
                         execution.context_mut().input.consume(),
                         Input::CodePoint('z'.into())
@@ -236,8 +278,11 @@ fn all_ascii_and_representative_non_scalars_have_exact_source_effects_and_consum
                         }
                     );
                     assert_eq!(execution.context().input.errors(), expected.input_errors);
-                    let probed = snapshot(&execution);
-                    assert_terminal(&mut execution, &probed);
+                    if value == 0x2d {
+                        let probed = snapshot(&execution);
+                        assert_terminal(&mut execution, &probed);
+                    }
+                    // Never dispatch an implemented destination after this probe.
                 }
             }
         }
@@ -298,38 +343,53 @@ fn suspended_entry_can_receive_a_hyphen_or_reconsumed_character_without_finishin
         };
         assert_eq!(execution.step(), Ok(Progress::Continue(target)));
         let expected = snapshot(&execution);
-        execute_destination(&mut execution, expected);
-        if point != '-' {
-            assert_eq!(
-                execution.context_mut().input.consume(),
-                Input::CodePoint(if point == '\r' {
-                    '\n'.into()
+        let mut expected = execute_destination(&mut execution, expected);
+        if point == '-' {
+            assert_terminal(&mut execution, &expected);
+        } else {
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                assert_eq!(snapshot(&execution), expected);
+            }
+            execution.context_mut().input.finish();
+            expected.current = Some((
+                Input::Eof,
+                if point == '\r' {
+                    Position { line: 2, column: 1 }
                 } else {
-                    point.into()
-                })
-            );
+                    Position { line: 1, column: 5 }
+                },
+            ));
+            comment_replay(&mut execution, &mut expected);
         }
-        let current = execution.context().input.current();
-        assert_eq!(
-            execution.context_mut().input.consume(),
-            Input::NeedMoreInput
-        );
-        assert_eq!(execution.context().input.current(), current);
-        let probed = snapshot(&execution);
-        assert_terminal(&mut execution, &probed);
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct Trace {
-    source: Snapshot,
-    destination: Snapshot,
-    remaining: Vec<(Input, Position)>,
-    input_errors: Vec<ParseError>,
+type Trace = Vec<(Result<Progress, UnimplementedState>, Snapshot)>;
+
+fn drain(execution: &mut Execution, trace: &mut Trace) -> bool {
+    loop {
+        let before = snapshot(execution);
+        let result = execution.step();
+        if result == Ok(Progress::NeedMoreInput) {
+            assert_eq!(snapshot(execution), before);
+            assert_eq!(execution.step(), result);
+            assert_eq!(snapshot(execution), before);
+            return false;
+        }
+        trace.push((result, snapshot(execution)));
+        if !matches!(result, Ok(Progress::Continue(_))) {
+            let terminal = snapshot(execution);
+            assert_eq!(execution.step(), result);
+            assert_eq!(snapshot(execution), terminal);
+            return true;
+        }
+    }
 }
 
 fn trace(chunks: &[&[CodePoint]], closed: bool, newline_prefix: bool) -> Trace {
     let mut execution = entry(seeded(), newline_prefix);
+    let mut trace = vec![];
     if closed {
         for chunk in chunks {
             execution
@@ -346,52 +406,15 @@ fn trace(chunks: &[&[CodePoint]], closed: bool, newline_prefix: bool) -> Trace {
                 .input
                 .push(chunk.iter().copied())
                 .unwrap();
-            if execution.state() == SOURCE {
-                let before = snapshot(&execution);
-                match execution.step().unwrap() {
-                    Progress::NeedMoreInput => {
-                        assert_eq!(snapshot(&execution), before);
-                        assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
-                        assert_eq!(snapshot(&execution), before);
-                    }
-                    Progress::Continue(_) => {}
-                    Progress::Finished => panic!("this state never finishes"),
-                }
+            // Stop permanently at a genuine stub, with no feeding or replay.
+            if drain(&mut execution, &mut trace) {
+                return trace;
             }
         }
         execution.context_mut().input.finish();
     }
-    if execution.state() == SOURCE {
-        assert!(matches!(execution.step(), Ok(Progress::Continue(_))));
-    }
-    let source = snapshot(&execution);
-    let expected_destination = snapshot(&execution);
-    let destination = execute_destination(&mut execution, expected_destination);
-    // Probe only after source and actual supported-destination effects have been
-    // inspected, before attempting a remaining stub. Fallback reconsumes the
-    // same point again in Comment; EOF has already finished and taken the comment.
-    let mut remaining = Vec::new();
-    loop {
-        let input = execution.context_mut().input.consume();
-        assert_ne!(input, Input::NeedMoreInput);
-        remaining.push((input, execution.context().input.position()));
-        if input == Input::Eof {
-            break;
-        }
-    }
-    let probed = snapshot(&execution);
-    if destination.state == State::CommentEndDash {
-        assert_eq!(execution.step(), Ok(Progress::Finished));
-        assert_eq!(snapshot(&execution), probed);
-    } else {
-        assert_terminal(&mut execution, &probed);
-    }
-    Trace {
-        source,
-        destination,
-        remaining,
-        input_errors: execution.context().input.errors().to_vec(),
-    }
+    assert!(drain(&mut execution, &mut trace));
+    trace
 }
 
 #[test]

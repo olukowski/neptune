@@ -158,10 +158,20 @@ fn every_ascii_branch_and_literal_non_scalar_preservation() {
                 // Exact source effects, before any destination attempt.
                 assert_eq!(snapshot(&execution), expected, "{value:x}");
                 if target != State::Comment {
-                    let blocked = Err(UnimplementedState { state: target });
-                    assert_eq!(execution.step(), blocked);
+                    // Real destinations consume the NEXT x. End dash appends
+                    // its withheld '-', less-than appends nothing; both replay x.
+                    expected.state = State::Comment;
+                    expected.current = Some((
+                        Input::CodePoint('x'.into()),
+                        Position { line: 1, column: 2 },
+                    ));
+                    if target == State::CommentEndDash {
+                        expected.comment.as_mut().unwrap().data.push('-'.into());
+                    }
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
                     assert_eq!(snapshot(&execution), expected);
-                    assert_eq!(execution.step(), blocked);
+                    expected.comment.as_mut().unwrap().data.push('x'.into());
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
                     assert_eq!(snapshot(&execution), expected);
                 } else {
                     // No branch schedules outgoing reconsumption: the next point is x.
@@ -363,7 +373,7 @@ fn incoming_reconsumption_including_eof_preserves_positions_and_once_only_prepro
 }
 
 #[test]
-fn transitions_block_even_on_open_exhaustion_and_data_entry_still_blocks_earlier() {
+fn real_destinations_suspend_then_handle_eof_and_data_entry_still_blocks_earlier() {
     for (input, target, suffix) in [
         ("<", State::CommentLessThanSign, "<"),
         ("-", State::CommentEndDash, ""),
@@ -376,11 +386,29 @@ fn transitions_block_even_on_open_exhaustion_and_data_entry_still_blocks_earlier
             execution.context().pending_comment.as_ref().unwrap().data,
             expected_data
         );
-        let source = snapshot(&execution);
-        assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-        assert_eq!(snapshot(&execution), source);
-        assert_eq!(execution.step(), Err(UnimplementedState { state: target }));
-        assert_eq!(snapshot(&execution), source);
+        let mut expected = snapshot(&execution);
+        for _ in 0..3 {
+            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        execution.context_mut().input.finish();
+        expected.current = Some((Input::Eof, Position { line: 1, column: 2 }));
+        if target == State::CommentLessThanSign {
+            expected.state = State::Comment;
+            assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
+            assert_eq!(snapshot(&execution), expected);
+        }
+        expected.errors.push(error("eof-in-comment", 1, 2));
+        expected.tokens.extend([
+            Token::Comment {
+                data: expected.comment.take().unwrap().data,
+            },
+            Token::Eof,
+        ]);
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&execution), expected);
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&execution), expected);
     }
     // Independent cursor probes immediately after the source step establish that
     // neither delimiter was scheduled for reconsumption and the tail was untouched.
@@ -538,4 +566,449 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_traces() {
             "single-point {input:?}"
         );
     }
+}
+
+// Integration after PRs #47–53: isolated entries only; normal Data entry is still
+// blocked at MarkupDeclarationOpen. These expectations are literal pinned-spec
+// outcomes, not snapshots blessed from a production run.
+struct IntegratedCase {
+    initial: State,
+    input: Vec<CodePoint>,
+    appended: Vec<CodePoint>,
+    state: State,
+    current: (Input, Position),
+    errors: Vec<ParseError>,
+    input_errors: Vec<ParseError>,
+    emitted: bool,
+    characters: Vec<CodePoint>,
+    blocked: bool,
+}
+
+fn integrated_entry(initial: State) -> Execution {
+    let mut context = seeded();
+    // Context supplied by the already consumed predecessor, not an executed or
+    // reconstructed blocked run. Withheld hyphens are NOT in pending data.
+    let prefix = match initial {
+        State::CommentLessThanSign => "<",
+        State::CommentLessThanSignBang | State::CommentLessThanSignBangDash => "<!",
+        _ => "",
+    };
+    context
+        .pending_comment
+        .as_mut()
+        .unwrap()
+        .data
+        .extend(points(prefix));
+    Execution::new(initial, context)
+}
+
+fn assert_integrated_outcome(execution: &Execution, case: &IntegratedCase) {
+    let mut expected = snapshot(&integrated_entry(case.initial));
+    expected.state = case.state;
+    expected.current = Some(case.current);
+    expected.errors.extend(case.errors.clone());
+    expected.input_errors = case.input_errors.clone();
+    if case.state == State::CharacterReference {
+        expected.return_state = Some(State::Data);
+    }
+    expected
+        .comment
+        .as_mut()
+        .unwrap()
+        .data
+        .extend(case.appended.clone());
+    if case.emitted {
+        expected.tokens.push(Token::Comment {
+            data: expected.comment.take().unwrap().data,
+        });
+        expected
+            .tokens
+            .extend(case.characters.iter().copied().map(Token::Character));
+    }
+    if !case.blocked {
+        expected.tokens.push(Token::Eof);
+    }
+    assert_eq!(snapshot(execution), expected);
+}
+
+fn integrated_run(case: &IntegratedCase, chunks: Vec<&[CodePoint]>, closed: bool) -> Trace {
+    let mut execution = integrated_entry(case.initial);
+    let mut trace = vec![];
+    if closed {
+        execution
+            .context_mut()
+            .input
+            .push(case.input.iter().copied())
+            .unwrap();
+        execution.context_mut().input.finish();
+    } else {
+        for chunk in chunks {
+            execution
+                .context_mut()
+                .input
+                .push(chunk.iter().copied())
+                .unwrap();
+            if drain(&mut execution, &mut trace, case.input.len() * 5 + 10) {
+                assert_integrated_outcome(&execution, case);
+                assert_eq!(
+                    trace.last().unwrap().0,
+                    Err(UnimplementedState { state: case.state })
+                );
+                assert!(case.blocked);
+                return trace; // No feeding, reconstruction or resumption at a stub.
+            }
+        }
+        execution.context_mut().input.finish();
+    }
+    assert!(drain(&mut execution, &mut trace, case.input.len() * 5 + 10));
+    assert_integrated_outcome(&execution, case);
+    assert_eq!(
+        trace.last().unwrap().0,
+        if case.blocked {
+            Err(UnimplementedState { state: case.state })
+        } else {
+            Ok(Progress::Finished)
+        }
+    );
+    trace
+}
+
+#[test]
+fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independent_outcomes_at_every_split()
+ {
+    use State::*;
+    let mut cases = vec![];
+    // (entry, raw input, appended data, EOF state, EOF line/column, earlier errors)
+    for (initial, input, appended, state, line, column, mut errors) in [
+        (Comment, "", "", Comment, 1, 1, vec![]),
+        (Comment, "a>&!", "a>&!", Comment, 1, 5, vec![]),
+        (Comment, "<x", "<x", Comment, 1, 3, vec![]),
+        (Comment, "<<!x", "<<!x", Comment, 1, 5, vec![]),
+        (Comment, "<!-x", "<!-x", Comment, 1, 5, vec![]),
+        (Comment, "<!-x-", "<!-x", CommentEndDash, 1, 6, vec![]),
+        (Comment, "a-b", "a-b", Comment, 1, 4, vec![]),
+        (Comment, "a-", "a", CommentEndDash, 1, 3, vec![]),
+        (Comment, "<!-", "<!", CommentEndDash, 1, 4, vec![]),
+        (
+            Comment,
+            "x<\0-\0",
+            "x<�-�",
+            Comment,
+            1,
+            6,
+            vec![
+                error("unexpected-null-character", 1, 3),
+                error("unexpected-null-character", 1, 5),
+            ],
+        ),
+        (Comment, "\r\n<\r\n-\r", "\n<\n-\n", Comment, 4, 1, vec![]),
+        (CommentStart, "abc", "abc", Comment, 1, 4, vec![]),
+        (CommentStart, "-x", "-x", Comment, 1, 3, vec![]),
+        (CommentStart, "", "", Comment, 1, 1, vec![]),
+        (
+            CommentStartDash,
+            "\0",
+            "-�",
+            Comment,
+            1,
+            2,
+            vec![error("unexpected-null-character", 1, 1)],
+        ),
+        (CommentLessThanSign, "", "", Comment, 1, 1, vec![]),
+        (CommentLessThanSign, "x", "x", Comment, 1, 2, vec![]),
+        (CommentLessThanSignBang, "", "", Comment, 1, 1, vec![]),
+        (CommentLessThanSignBang, "x", "x", Comment, 1, 2, vec![]),
+        (
+            CommentLessThanSignBangDash,
+            "",
+            "",
+            CommentEndDash,
+            1,
+            1,
+            vec![],
+        ),
+        (
+            CommentLessThanSignBangDash,
+            "x",
+            "-x",
+            Comment,
+            1,
+            2,
+            vec![],
+        ),
+        (CommentEndDash, ">", "->", Comment, 1, 2, vec![]),
+        (CommentEndBang, "-x", "--!-x", Comment, 1, 3, vec![]),
+        (CommentEndBang, "-", "--!", CommentEndDash, 1, 2, vec![]),
+        (
+            CommentEndBang,
+            "\0",
+            "--!�",
+            Comment,
+            1,
+            2,
+            vec![error("unexpected-null-character", 1, 1)],
+        ),
+    ] {
+        errors.push(error("eof-in-comment", line, column));
+        cases.push(IntegratedCase {
+            initial,
+            input: points(input),
+            appended: points(appended),
+            state,
+            current: (Input::Eof, Position { line, column }),
+            errors,
+            input_errors: vec![],
+            emitted: true,
+            characters: vec![],
+            blocked: false,
+        });
+    }
+    // Only isolated Start/StartDash/EndBang can close here. Core Comment's normal
+    // '-->' path still blocks at CommentEnd; no unsupported gateway is simulated.
+    for (initial, input, characters, line, column, errors) in [
+        (
+            CommentStart,
+            ">",
+            "",
+            1,
+            2,
+            vec![error("abrupt-closing-of-empty-comment", 1, 1)],
+        ),
+        (
+            CommentStart,
+            "->z\0",
+            "z\0",
+            1,
+            5,
+            vec![
+                error("abrupt-closing-of-empty-comment", 1, 2),
+                error("unexpected-null-character", 1, 4),
+            ],
+        ),
+        (
+            CommentStartDash,
+            ">z\0",
+            "z\0",
+            1,
+            4,
+            vec![
+                error("abrupt-closing-of-empty-comment", 1, 1),
+                error("unexpected-null-character", 1, 3),
+            ],
+        ),
+        (
+            CommentEndBang,
+            ">z\0",
+            "z\0",
+            1,
+            4,
+            vec![
+                error("incorrectly-closed-comment", 1, 1),
+                error("unexpected-null-character", 1, 3),
+            ],
+        ),
+        (
+            CommentEndBang,
+            ">\r\n",
+            "\n",
+            2,
+            1,
+            vec![error("incorrectly-closed-comment", 1, 1)],
+        ),
+    ] {
+        cases.push(IntegratedCase {
+            initial,
+            input: points(input),
+            appended: vec![],
+            state: Data,
+            current: (Input::Eof, Position { line, column }),
+            errors,
+            input_errors: vec![],
+            emitted: true,
+            characters: points(characters),
+            blocked: false,
+        });
+    }
+    for (initial, input, appended, state, column) in [
+        (Comment, "-->", "", CommentEnd, 2),
+        (Comment, "a--\0", "a", CommentEnd, 3),
+        (Comment, "<!-->", "<!", CommentLessThanSignBangDashDash, 4),
+        (
+            Comment,
+            "<<!---->",
+            "<<!",
+            CommentLessThanSignBangDashDash,
+            5,
+        ),
+        (CommentStart, "-->", "", CommentEnd, 2),
+        (CommentStartDash, "-x", "", CommentEnd, 1),
+        (
+            CommentLessThanSignBangDash,
+            "-",
+            "",
+            CommentLessThanSignBangDashDash,
+            1,
+        ),
+        (CommentEndBang, "-->", "--!", CommentEnd, 2),
+        (
+            CommentEndBang,
+            "<!--",
+            "--!<!",
+            CommentLessThanSignBangDashDash,
+            4,
+        ),
+    ] {
+        cases.push(IntegratedCase {
+            initial,
+            input: points(input),
+            appended: points(appended),
+            state,
+            current: (Input::CodePoint('-'.into()), Position { line: 1, column }),
+            errors: vec![],
+            input_errors: vec![],
+            emitted: false,
+            characters: vec![],
+            blocked: true,
+        });
+    }
+    // A matching emitted comment prefix never hides a later genuine block.
+    for (initial, input, state, current, code, characters) in [
+        (
+            CommentEndBang,
+            ">&",
+            CharacterReference,
+            '&',
+            "incorrectly-closed-comment",
+            "",
+        ),
+        (
+            CommentStart,
+            "> <!",
+            MarkupDeclarationOpen,
+            '!',
+            "abrupt-closing-of-empty-comment",
+            " ",
+        ),
+    ] {
+        cases.push(IntegratedCase {
+            initial,
+            input: points(input),
+            appended: vec![],
+            state,
+            current: (
+                Input::CodePoint(current.into()),
+                Position {
+                    line: 1,
+                    column: input.len(),
+                },
+            ),
+            errors: vec![error(code, 1, 1)],
+            input_errors: vec![],
+            emitted: true,
+            characters: points(characters),
+            blocked: true,
+        });
+    }
+    let surrogate = CodePoint::new(0xd800).unwrap();
+    let noncharacter = CodePoint::new(0xfdd0).unwrap();
+    cases.push(IntegratedCase {
+        initial: Comment,
+        input: vec![
+            'a'.into(),
+            '<'.into(),
+            surrogate,
+            '-'.into(),
+            noncharacter,
+            '\u{b}'.into(),
+            '\0'.into(),
+            '>'.into(),
+            '\r'.into(),
+            '\n'.into(),
+        ],
+        appended: vec![
+            'a'.into(),
+            '<'.into(),
+            surrogate,
+            '-'.into(),
+            noncharacter,
+            '\u{b}'.into(),
+            '�'.into(),
+            '>'.into(),
+            '\n'.into(),
+        ],
+        state: Comment,
+        current: (Input::Eof, Position { line: 2, column: 1 }),
+        errors: vec![
+            error("unexpected-null-character", 1, 7),
+            error("eof-in-comment", 2, 1),
+        ],
+        input_errors: vec![
+            error("surrogate-in-input-stream", 1, 3),
+            error("noncharacter-in-input-stream", 1, 5),
+            error("control-character-in-input-stream", 1, 6),
+        ],
+        emitted: true,
+        characters: vec![],
+        blocked: false,
+    });
+    for case in cases {
+        let expected = integrated_run(&case, vec![], true);
+        for split in 0..=case.input.len() {
+            assert_eq!(
+                integrated_run(
+                    &case,
+                    vec![&case.input[..split], &[], &case.input[split..]],
+                    false
+                ),
+                expected,
+                "{:?} {:?} split {split}",
+                case.initial,
+                case.input
+            );
+        }
+        assert_eq!(
+            integrated_run(&case, case.input.chunks(1).collect(), false),
+            expected
+        );
+    }
+}
+
+#[test]
+fn integrated_bang_dash_fallback_and_end_dash_eof_have_independent_source_step_snapshots() {
+    let mut execution = integrated_entry(State::Comment);
+    execution.context_mut().input.push(points("<!-x-")).unwrap();
+    execution.context_mut().input.finish();
+    let mut expected = snapshot(&execution);
+    for (state, point, column, appended) in [
+        (State::CommentLessThanSign, '<', 1, "<"),
+        (State::CommentLessThanSignBang, '!', 2, "!"),
+        (State::CommentLessThanSignBangDash, '-', 3, ""),
+        (State::CommentEndDash, 'x', 4, ""),
+        (State::Comment, 'x', 4, "-"),
+        (State::Comment, 'x', 4, "x"),
+        (State::CommentEndDash, '-', 5, ""),
+    ] {
+        expected.state = state;
+        expected.current = Some((Input::CodePoint(point.into()), Position { line: 1, column }));
+        expected
+            .comment
+            .as_mut()
+            .unwrap()
+            .data
+            .extend(points(appended));
+        assert_eq!(execution.step(), Ok(Progress::Continue(state)));
+        assert_eq!(snapshot(&execution), expected);
+    }
+    expected.current = Some((Input::Eof, Position { line: 1, column: 6 }));
+    expected.errors.push(error("eof-in-comment", 1, 6));
+    let mut data = seeded().pending_comment.unwrap().data;
+    data.extend(points("<!-x")); // The trailing withheld '-' is not appended at EOF.
+    assert_eq!(expected.comment.take().unwrap().data, data);
+    expected
+        .tokens
+        .extend([Token::Comment { data }, Token::Eof]);
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
+    assert_eq!(execution.step(), Ok(Progress::Finished));
+    assert_eq!(snapshot(&execution), expected);
 }

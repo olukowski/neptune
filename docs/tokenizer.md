@@ -37,6 +37,12 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 All other states, including Comment end, Comment less-than sign bang dash dash,
 Markup declaration open and
 Character reference, remain `UnimplementedState` stubs.**
+Isolated comment entry requires initialized pending-comment context. The eight
+supported ordinary-comment states execute literal/fallback loops and EOF recovery;
+only isolated Start/StartDash/EndBang entry currently reaches closing emission to
+Data. Core Comment's `-->` still blocks at Comment end and nested-opener syntax
+at Comment less-than sign bang dash dash. Normal Data entry remains blocked at
+Markup declaration open; see [current integration evidence](tokenizer-comment.md#integration-onto-47-53).
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
 Explicit Script data entry now reaches basic comment-like text through
@@ -138,8 +144,8 @@ instruction states and no separate decimal-character-reference-start state.
   Their explicit `self_closing: bool` defaults to false and
   attribute lists start empty, as required at creation. Comments store code-point data;
   Bogus comment and Comment append to it and take the pending comment on emission as
-  `Token::Comment { data }`. Isolated Bogus comment or Comment entry requires initialized
-  pending-comment storage; existing data is preserved literally, not preprocessed again.
+  `Token::Comment { data }`. Isolated entry to any supported comment state requires
+  initialized pending-comment storage; existing data is preserved literally, not preprocessed again.
   Each creation replaces only its own pending storage; unrelated storage remains.
   The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA,
   RAWTEXT, Script data less-than sign, and Script data double escaped less-than
@@ -543,8 +549,8 @@ storage, token types, adapter capabilities, or upstream baseline changes.
 [Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md),
 [Comment end dash](tokenizer-comment-end-dash.md), and
 [Comment end bang](tokenizer-comment-end-bang.md)
-are now implemented separately. Other ordinary comment states and Markup
-declaration open remain terminal `UnimplementedState` stubs.
+are now implemented separately. Comment end, Comment less-than sign bang dash dash,
+and Markup declaration open remain terminal `UnimplementedState` stubs.
 
 ## Before attribute name coverage
 

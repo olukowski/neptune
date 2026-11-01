@@ -95,6 +95,57 @@ fn snapshot(run: &Execution) -> Snapshot {
     }
 }
 
+// The predecessor's independently asserted source snapshot schedules this item
+// for real Comment. Check that destination separately, including EOF/take order;
+// preprocessing diagnostics and unrelated context must remain unchanged.
+fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
+    assert_eq!(expected.state, State::Comment);
+    let (input, position) = expected.current.unwrap();
+    let result = match input {
+        Input::Eof => {
+            expected.errors.push(ParseError {
+                code: "eof-in-comment",
+                position,
+            });
+            let data = expected.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            Progress::Finished
+        }
+        Input::CodePoint(point) => {
+            match point.value() {
+                0x3c => {
+                    expected.comment.as_mut().unwrap().data.push(point);
+                    expected.state = State::CommentLessThanSign;
+                }
+                0x2d => expected.state = State::CommentEndDash,
+                0 => {
+                    expected.errors.push(ParseError {
+                        code: "unexpected-null-character",
+                        position,
+                    });
+                    expected
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .push('\u{fffd}'.into());
+                }
+                _ => expected.comment.as_mut().unwrap().data.push(point),
+            }
+            Progress::Continue(expected.state)
+        }
+        Input::NeedMoreInput => panic!("a predecessor replay requires current input"),
+    };
+    assert_eq!(run.step(), Ok(result));
+    assert_eq!(snapshot(run), *expected);
+    if result == Progress::Finished {
+        assert_eq!(run.step(), Ok(result));
+        assert_eq!(snapshot(run), *expected);
+    }
+}
+
 #[test]
 fn every_ascii_branch_and_non_scalars_have_exact_source_effects() {
     for value in (0..=0x7f).chain([
@@ -173,7 +224,7 @@ fn every_ascii_branch_and_non_scalars_have_exact_source_effects() {
 }
 
 #[test]
-fn unsupported_destinations_are_terminal_after_inspectable_source_effects() {
+fn comment_fallback_executes_after_inspectable_source_effects() {
     for (text, target) in [
         ("\0tail", State::Comment),
         ("!tail", State::Comment),
@@ -183,7 +234,7 @@ fn unsupported_destinations_are_terminal_after_inspectable_source_effects() {
         run.context_mut().input.push(points(text)).unwrap();
         run.context_mut().input.finish();
         assert_eq!(run.step(), Ok(Progress::Continue(target)));
-        let source = snapshot(&run);
+        let mut source = snapshot(&run);
         assert!(
             source
                 .comment
@@ -193,12 +244,7 @@ fn unsupported_destinations_are_terminal_after_inspectable_source_effects() {
                 .ends_with(&points("--!"))
         );
         assert_eq!(source.errors, [error("prior", 1, 1)]);
-        let blocked = Err(UnimplementedState { state: target });
-        for _ in 0..3 {
-            assert_eq!(run.step(), blocked);
-            assert_eq!(snapshot(&run), source);
-        }
-        // No reconstruction or resumption; this execution remains blocked.
+        comment_replay(&mut run, &mut source);
     }
 }
 
@@ -302,12 +348,16 @@ fn hyphen_destination_executes_exact_end_dash_branches_before_remaining_stubs() 
                     assert_eq!(run.context().input.errors(), expected.input_errors);
                     continue;
                 }
-                let blocked = Err(UnimplementedState {
-                    state: expected.state,
-                });
-                for _ in 0..3 {
-                    assert_eq!(run.step(), blocked);
-                    assert_eq!(snapshot(&run), expected);
+                if value == 0x2d {
+                    let blocked = Err(UnimplementedState {
+                        state: State::CommentEnd,
+                    });
+                    for _ in 0..3 {
+                        assert_eq!(run.step(), blocked);
+                        assert_eq!(snapshot(&run), expected);
+                    }
+                } else {
+                    comment_replay(&mut run, &mut expected);
                 }
             }
         }

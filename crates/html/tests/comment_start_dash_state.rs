@@ -125,6 +125,57 @@ fn terminal(execution: &mut Execution, result: Result<Progress, UnimplementedSta
     }
 }
 
+// The predecessor's independently asserted source snapshot schedules this item
+// for real Comment. Check that destination separately, including EOF/take order;
+// preprocessing diagnostics and unrelated context must remain unchanged.
+fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
+    assert_eq!(expected.state, State::Comment);
+    let (input, position) = expected.current.unwrap();
+    let result = match input {
+        Input::Eof => {
+            expected.errors.push(ParseError {
+                code: "eof-in-comment",
+                position,
+            });
+            let data = expected.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            Progress::Finished
+        }
+        Input::CodePoint(point) => {
+            match point.value() {
+                0x3c => {
+                    expected.comment.as_mut().unwrap().data.push(point);
+                    expected.state = State::CommentLessThanSign;
+                }
+                0x2d => expected.state = State::CommentEndDash,
+                0 => {
+                    expected.errors.push(ParseError {
+                        code: "unexpected-null-character",
+                        position,
+                    });
+                    expected
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .push('\u{fffd}'.into());
+                }
+                _ => expected.comment.as_mut().unwrap().data.push(point),
+            }
+            Progress::Continue(expected.state)
+        }
+        Input::NeedMoreInput => panic!("a predecessor replay requires current input"),
+    };
+    assert_eq!(run.step(), Ok(result));
+    assert_eq!(snapshot(run), *expected);
+    if result == Progress::Finished {
+        assert_eq!(run.step(), Ok(result));
+        assert_eq!(snapshot(run), *expected);
+    }
+}
+
 #[test]
 fn hyphen_consumes_without_appending_emitting_or_reconsuming_then_blocks() {
     for kind in [TagKind::Start, TagKind::End] {
@@ -190,15 +241,10 @@ fn anything_else_appends_only_one_hyphen_and_reconsumes_literal_input() {
             "{value:x}"
         );
         assert_eq!(snapshot(&execution), expected, "{value:x}");
-        terminal(
-            &mut execution,
-            Err(UnimplementedState {
-                state: State::Comment,
-            }),
-        );
-        // Inspect cursor only: no destination algorithm or blocked resumption.
+        comment_replay(&mut execution, &mut expected);
+        // Probe only after the independently checked real Comment step. No
+        // destination is dispatched with this probed cursor.
         let cursor = &mut execution.context_mut().input;
-        assert_eq!(cursor.consume(), Input::CodePoint(normalized));
         assert_eq!(cursor.current(), expected.current);
         assert_eq!(cursor.errors(), expected.input_errors);
         assert_eq!(cursor.consume(), Input::CodePoint('x'.into()));

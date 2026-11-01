@@ -105,7 +105,7 @@ fn snapshot(execution: &Execution) -> Snapshot {
     }
 }
 
-// Cursor history only, not a simulation of an unimplemented predecessor.
+// Cursor history only, not simulated predecessor execution.
 fn entry(mut context: Context, history: bool) -> Execution {
     if history {
         context.input.push(points("\r\nX")).unwrap();
@@ -124,8 +124,59 @@ fn input_error(value: u32) -> Option<&'static str> {
     }
 }
 
+// The predecessor's independently asserted source snapshot schedules this item
+// for real Comment. Check that destination separately, including EOF/take order;
+// preprocessing diagnostics and unrelated context must remain unchanged.
+fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
+    assert_eq!(expected.state, State::Comment);
+    let (input, position) = expected.current.unwrap();
+    let result = match input {
+        Input::Eof => {
+            expected.errors.push(ParseError {
+                code: "eof-in-comment",
+                position,
+            });
+            let data = expected.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            Progress::Finished
+        }
+        Input::CodePoint(point) => {
+            match point.value() {
+                0x3c => {
+                    expected.comment.as_mut().unwrap().data.push(point);
+                    expected.state = State::CommentLessThanSign;
+                }
+                0x2d => expected.state = State::CommentEndDash,
+                0 => {
+                    expected.errors.push(ParseError {
+                        code: "unexpected-null-character",
+                        position,
+                    });
+                    expected
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .push('\u{fffd}'.into());
+                }
+                _ => expected.comment.as_mut().unwrap().data.push(point),
+            }
+            Progress::Continue(expected.state)
+        }
+        Input::NeedMoreInput => panic!("a predecessor replay requires current input"),
+    };
+    assert_eq!(run.step(), Ok(result));
+    assert_eq!(snapshot(run), *expected);
+    if result == Progress::Finished {
+        assert_eq!(run.step(), Ok(result));
+        assert_eq!(snapshot(run), *expected);
+    }
+}
+
 #[test]
-fn every_ascii_and_representative_non_scalar_branch_has_exact_source_effects_then_terminal_block() {
+fn every_ascii_and_non_scalar_branch_preserves_source_then_executes_real_comment_or_blocks_end() {
     for value in (0..=0x7f).chain([
         0x80, 0x9f, 0xa0, 0xc9, 0x3a9, 0xfeff, 0x1f600, 0xd800, 0xdfff, 0xfdd0, 0xffff, 0x10ffff,
     ]) {
@@ -167,19 +218,22 @@ fn every_ascii_and_representative_non_scalar_branch_has_exact_source_effects_the
                 assert_eq!(snapshot(&execution), expected, "U+{value:04X}");
                 // In particular: '>', '<', '&', '!', NUL and non-scalars do not
                 // get appended, replaced, diagnosed by this state, or emitted.
-                let blocked = Err(UnimplementedState {
-                    state: expected.state,
-                });
-                for _ in 0..3 {
-                    assert_eq!(execution.step(), blocked);
-                    assert_eq!(snapshot(&execution), expected);
-                }
-                // Feeding or closing a blocked execution never resumes it.
-                if !finished {
-                    execution.context_mut().input.push(points("more")).unwrap();
-                    execution.context_mut().input.finish();
-                    assert_eq!(execution.step(), blocked);
-                    assert_eq!(snapshot(&execution), expected);
+                if value == 0x2d {
+                    let blocked = Err(UnimplementedState {
+                        state: State::CommentEnd,
+                    });
+                    for _ in 0..3 {
+                        assert_eq!(execution.step(), blocked);
+                        assert_eq!(snapshot(&execution), expected);
+                    }
+                    if !finished {
+                        execution.context_mut().input.push(points("more")).unwrap();
+                        execution.context_mut().input.finish();
+                        assert_eq!(execution.step(), blocked);
+                        assert_eq!(snapshot(&execution), expected);
+                    }
+                } else {
+                    comment_replay(&mut execution, &mut expected);
                 }
             }
         }

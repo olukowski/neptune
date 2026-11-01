@@ -55,7 +55,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::CommentEndDash, // Isolated entry supplies initialized pending-comment data.
         State::CommentEndBang,
         State::CommentStartDash, // Isolated entry supplies pending_comment below.
-        State::Comment, // Isolated entry uses the initialized pending comment below.
+        State::Comment,          // Isolated entry uses the initialized pending comment below.
     ];
     assert_eq!(State::ALL.len(), 84);
     for &state in State::ALL {
@@ -135,8 +135,8 @@ fn explicit_support_inventory_matches_dispatch() {
                 // CommentLessThanSignBangDash also requires initialized comment
                 // context on isolated entry, even though it does not mutate it.
                 // Isolated CommentEndBang entry likewise requires initialized data.
-                // BogusComment and CommentStartDash isolated entry require a
-                // current comment, including for their explicit EOF emission.
+                // BogusComment, Comment, and CommentStartDash isolated entry require
+                // a current comment, including for their explicit EOF emission.
                 context.pending_comment = Some(PendingComment::default());
                 if state == State::CommentLessThanSign {
                     // The predecessor has already appended its consumed '<'.

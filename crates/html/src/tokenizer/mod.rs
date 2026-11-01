@@ -149,7 +149,7 @@ pub struct Context {
     /// Created, not emitted, by an implemented end-tag-open ASCII-alpha branch.
     pub pending_end_tag: Option<PendingEndTag>,
     /// Created by End tag open's recovery; taken on comment emission.
-    /// Direct Bogus comment or Comment entry requires an initialized pending comment.
+    /// Direct entry to any supported comment state requires initialized comment data.
     pub pending_comment: Option<PendingComment>,
     /// Code-point scratch storage; Tag open clears it on `?`,
     /// RCDATA, RAWTEXT, Script data less-than sign, and

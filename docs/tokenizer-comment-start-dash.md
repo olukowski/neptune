@@ -1,5 +1,21 @@
 # Comment start dash state
 
+## Current Comment integration (PR #54)
+
+On base `f2ca599065ec7fa70cc437f5c2ea6b9e2ee68883` (merged #47–53) plus
+PR #54, Comment is implemented alongside the seven merged comment states.
+CommentStartDash's fallback now executes real Comment after the independently
+asserted one-hyphen append/reconsumption. CommentEnd remains a genuine terminal
+stub after a second hyphen. Abrupt-close Data continuation is unchanged.
+
+All affected state suites execute actual destinations and every-split streaming
+paths; [core Comment integration evidence](tokenizer-comment.md#integration-onto-47-53)
+records independently expected loops, closures, diagnostics, positions and genuine
+remaining blocks. No production sibling algorithm or shared helper changes.
+Normal Data entry still blocks at MarkupDeclarationOpen. No new upstream pass
+identities or full-conformance claim. **The PR-local support boundaries/counts
+below are historical; pinned branch evidence remains normative.**
+
 ## Pinned source and scope
 
 Normative source: WHATWG HTML at

@@ -1,5 +1,22 @@
 # Comment less-than sign bang dash state
 
+## Current Comment integration (PR #54)
+
+On base `f2ca599065ec7fa70cc437f5c2ea6b9e2ee68883` (merged #47–53) plus
+PR #54, Comment is implemented alongside the seven merged comment states.
+BangDash fallback now executes real EndDash and then real Comment for non-EOF
+input; EndDash alone handles reconsumed EOF. Original source snapshots remain
+separate from both destination steps. BangDashDash remains a genuine terminal
+stub. Chunk traces now run the supported loop, not a cursor-probed Comment stub.
+
+All affected state suites execute actual destinations and every-split streaming
+paths; [core Comment integration evidence](tokenizer-comment.md#integration-onto-47-53)
+records independently expected loops, closures, diagnostics, positions and genuine
+remaining blocks. No production sibling algorithm or shared helper changes.
+Normal Data entry still blocks at MarkupDeclarationOpen. No new upstream pass
+identities or full-conformance claim. **The PR-local support boundaries/counts
+below are historical; pinned branch evidence remains normative.**
+
 ## Pinned normative evidence
 
 Implementation: `crates/html/src/tokenizer/comment_less_than_sign_bang_dash.rs`.

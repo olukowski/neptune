@@ -123,6 +123,58 @@ fn terminal(run: &mut Execution, result: Result<Progress, UnimplementedState>) {
     }
 }
 
+// The predecessor's independently asserted source snapshot schedules this item
+// for real Comment. Check that destination separately, including EOF/take order;
+// preprocessing diagnostics and unrelated context must remain unchanged.
+fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
+    assert_eq!(expected.state, State::Comment);
+    let (input, position) = expected.current.unwrap();
+    let result = match input {
+        Input::Eof => {
+            expected.errors.push(ParseError {
+                code: "eof-in-comment",
+                position,
+            });
+            let data = expected.storage.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            Progress::Finished
+        }
+        Input::CodePoint(point) => {
+            match point.value() {
+                0x3c => {
+                    expected.storage.comment.as_mut().unwrap().data.push(point);
+                    expected.state = State::CommentLessThanSign;
+                }
+                0x2d => expected.state = State::CommentEndDash,
+                0 => {
+                    expected.errors.push(ParseError {
+                        code: "unexpected-null-character",
+                        position,
+                    });
+                    expected
+                        .storage
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .push('\u{fffd}'.into());
+                }
+                _ => expected.storage.comment.as_mut().unwrap().data.push(point),
+            }
+            Progress::Continue(expected.state)
+        }
+        Input::NeedMoreInput => panic!("a predecessor replay requires current input"),
+    };
+    assert_eq!(run.step(), Ok(result));
+    assert_eq!(snapshot(run), *expected);
+    if result == Progress::Finished {
+        assert_eq!(run.step(), Ok(result));
+        assert_eq!(snapshot(run), *expected);
+    }
+}
+
 #[test]
 fn all_ascii_and_representative_non_scalars_have_exact_source_effects() {
     for value in (0..=0x7f).chain([
@@ -199,20 +251,9 @@ fn all_ascii_and_representative_non_scalars_have_exact_source_effects() {
                         run.context_mut().input.reconsume(),
                         Err(CursorError::AlreadyReconsuming)
                     );
-                    let blocked = Err(UnimplementedState {
-                        state: State::Comment,
-                    });
-                    assert_eq!(run.step(), blocked);
-                    assert_eq!(snapshot(&run), expected);
-                    terminal(&mut run, blocked);
+                    comment_replay(&mut run, &mut expected);
                 } else if value != 0x3e {
-                    // Only genuinely unsupported destinations are terminal.
-                    let blocked = Err(UnimplementedState {
-                        state: expected.state,
-                    });
-                    assert_eq!(run.step(), blocked);
-                    assert_eq!(snapshot(&run), expected);
-                    terminal(&mut run, blocked);
+                    comment_replay(&mut run, &mut expected);
                 } else {
                     expected.current = Some((
                         Input::CodePoint('z'.into()),
@@ -379,19 +420,19 @@ fn hyphen_entry_executes_all_real_start_dash_branches_after_exact_source_effects
                                 Err(CursorError::AlreadyReconsuming)
                             );
                         }
-                        let blocked = Err(UnimplementedState {
-                            state: expected.state,
-                        });
-                        assert_eq!(run.step(), blocked);
-                        assert_eq!(snapshot(&run), expected);
-                        terminal(&mut run, blocked);
-                        // Cursor-only probes; never reconstruct/resume this block.
-                        if value != 0x2d {
-                            let current = expected.current.unwrap();
-                            assert_eq!(run.context_mut().input.consume(), current.0);
-                            assert_eq!(run.context().input.current(), Some(current));
-                            assert_eq!(run.context().input.errors(), expected.input_errors);
+                        if value == 0x2d {
+                            let blocked = Err(UnimplementedState {
+                                state: State::CommentEnd,
+                            });
+                            assert_eq!(run.step(), blocked);
+                            assert_eq!(snapshot(&run), expected);
+                            terminal(&mut run, blocked);
+                        } else {
+                            comment_replay(&mut run, &mut expected);
                         }
+                        // Cursor-only tail probe; never dispatch after this probe.
+                        assert_eq!(run.context().input.current(), expected.current);
+                        assert_eq!(run.context().input.errors(), expected.input_errors);
                         assert_eq!(
                             run.context_mut().input.consume(),
                             Input::CodePoint('z'.into())
@@ -450,12 +491,8 @@ fn open_exhaustion_suspends_but_explicit_eof_reconsumes_without_emission_or_erro
                 run.context_mut().input.reconsume(),
                 Err(CursorError::AlreadyReconsuming)
             );
-            let blocked = Err(UnimplementedState {
-                state: State::Comment,
-            });
-            assert_eq!(run.step(), blocked);
-            assert_eq!(snapshot(&run), expected);
-            terminal(&mut run, blocked);
+            comment_replay(&mut run, &mut expected);
+            terminal(&mut run, Ok(Progress::Finished));
         }
     }
 }
