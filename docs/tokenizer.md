@@ -11,6 +11,7 @@ After attribute name, Before attribute value, Attribute value
 (double-quoted), Attribute value (single-quoted), Attribute value (unquoted),
 After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Comment start](tokenizer-comment-start.md),
+[Comment start dash](tokenizer-comment-start-dash.md),
 [Script data end tag open](tokenizer-script-data-end-tag-open.md),
 [Script data end tag name](tokenizer-script-data-end-tag-name.md),
 [Script data escape start](tokenizer-script-data-escape-start.md),
@@ -532,8 +533,11 @@ Bogus comment and End tag open suites retain the state-level EOF, malformed-inpu
 NUL, streaming, and terminal-stub checks. This support extraction adds no states,
 storage, token types, adapter capabilities, or upstream baseline changes.
 [Comment start](tokenizer-comment-start.md),
-[Comment less-than sign](tokenizer-comment-less-than-sign.md), and
-[Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md)
+[Comment start dash](tokenizer-comment-start-dash.md),
+[Comment less-than sign](tokenizer-comment-less-than-sign.md),
+[Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md),
+[Comment end dash](tokenizer-comment-end-dash.md), and
+[Comment end bang](tokenizer-comment-end-bang.md)
 are now implemented separately. Other ordinary comment states and Markup
 declaration open remain terminal `UnimplementedState` stubs.
 

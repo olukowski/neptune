@@ -11,8 +11,9 @@ The prerequisite shared comment helpers are present in base
 After independent review with no findings, this PR was rebased onto
 `6d99604d8e374bb15bc9b7ad4b6cd3f6166b4ed4` (including PRs #47 and #48).
 Additive module/dispatch/inventory/docs conflicts were resolved preserving both
-merged states. CommentStart's reviewed algorithm and tests are unchanged;
-its Comment and CommentStartDash destinations still block as before.
+merged states. At that reviewed head, CommentStart's algorithm and tests were
+unchanged and its Comment and CommentStartDash destinations still blocked.
+Subsequent CommentStartDash integration is documented below.
 
 Algorithm: `crates/html/src/tokenizer/comment_start.rs`.
 Focused evidence: `crates/html/tests/comment_start_state.rs`.
@@ -31,9 +32,10 @@ inventory already supplies this context, including for EOF.
 | Anything else, including conceptual EOF | Reconsume in Comment; do not append, replace NUL, emit, take the comment, or report a state error. | Exhaustive ASCII and representative Unicode/non-scalars; explicit EOF/open-exhaustion distinction; reconsumption flag and cursor-only probes. |
 | Open input exhausted | Suspend without changing current item, pending data, tokens, or diagnostics. Not EOF. | Repeated suspension at fresh and positioned isolated entry; every streaming drain. |
 
-Source effects are checked before any destination attempt. Comment and Comment
-start dash remain terminal `UnimplementedState` destinations in this PR. In
-particular, EOF reconsumes into the Comment stub: this PR neither emits EOF nor
+Source effects are checked before any destination attempt. Comment remains a
+terminal `UnimplementedState` destination. Comment start dash now executes after
+the source's hyphen branch (see integration below). In particular, direct EOF
+in CommentStart still reconsumes into the Comment stub: it neither emits EOF nor
 reports `eof-in-comment` on that path. A block is not a recoverable HTML error or
 a supported pause. Tests never reconstruct or resume blocked execution.
 Cursor-only consumption probes stop before attempting a destination; they are
@@ -41,7 +43,7 @@ not substitutes for destination algorithms.
 
 ## Coverage and limitations
 
-The six focused tests cover all ASCII points, ASCII boundary lookalikes,
+The original six focused tests cover all ASCII points, ASCII boundary lookalikes,
 non-ASCII letters and supplementary scalars, actual lone surrogates, noncharacters,
 controls, NUL and CR/CRLF normalization. Source snapshots assert exact tokens,
 state/preprocessing diagnostics and normalized positions, pending-comment take
@@ -63,7 +65,7 @@ declaration open before ordinary comment creation or emission. There is **no new
 Data-entry comment coverage**, automatic tree-builder behavior, full tokenizer
 conformance, or browser-security claim.
 
-## Validation report
+## Original validation report
 
 All CONTRIBUTING checks passed: formatting, warning-denied Clippy, locked
 workspace tests (397 test functions passed, zero failed), and warning-denied
@@ -80,3 +82,36 @@ as an initial state, and ordinary Data comment entry remains blocked. Inventory
 and the six local tests are not additional upstream conformance cases. These
 counts describe this PR after rebasing onto the base above, not later sibling
 integration.
+
+## CommentStartDash integration (#52)
+
+Rebased CommentStartDash onto `fb249f0e4273ed1626ce2f28ddc9f9cd8218dc78`
+(including #47–51). CommentStart's algorithm and all independently expected
+source effects remain unchanged. Its exhaustive source test now executes
+CommentStartDash after `-`: the next `z` is consumed, one hyphen appended, and
+`z` reconsumed into the genuine Comment stub, with unchanged unrelated context.
+
+The additional
+`hyphen_entry_executes_all_real_start_dash_branches_after_exact_source_effects`
+test asserts CommentStart's source snapshot first, then all four actual
+CommentStartDash branches, using empty/seeded data and open/closed input:
+
+- A second hyphen consumes without append and blocks at CommentEnd.
+- `>` reports abrupt closing at line 2, column 6, takes/emits the exact
+  comment (no deferred hyphen), and runs Data through literal tail, CRLF,
+  NUL/error and EOF, preserving token order and unrelated context.
+- Open exhaustion after the first hyphen repeatedly suspends unchanged. Only
+  explicit EOF reports `eof-in-comment` at line 2, column 6 and takes/emits
+  comment then EOF, remaining in CommentStartDash. This differs from direct
+  CommentStart EOF, whose source-only assertions are retained.
+- Fallback (ordinary input, NUL, CR, surrogate, noncharacter and control)
+  appends only one hyphen, preserves preprocessing diagnostics exactly once,
+  and reconsumes in the genuine Comment stub. Cursor-only probes check
+  normalized positions and the untouched tail, never resuming a block.
+
+Predecessor chunk traces now also include `->`, `->` plus Data/error/blocking
+tails, hyphen-prefixed fallback/CRLF/NUL/non-scalars, and trailing/consecutive CR,
+at every two-chunk split and as single-code-point chunks. No block is
+reconstructed or resumed. Normal Data entry still blocks at MarkupDeclarationOpen.
+The original validation counts above are historical; current integration checks
+and conformance counts are reported with #52.

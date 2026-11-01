@@ -177,8 +177,36 @@ fn all_ascii_and_representative_non_scalars_have_exact_source_effects() {
                         Err(CursorError::AlreadyReconsuming)
                     );
                 }
-                if value != 0x3e {
-                    // Destination stubs are terminal, even with open exhausted input.
+                if value == 0x2d {
+                    // CommentStart's source effects above are unchanged. The
+                    // real CommentStartDash now consumes the next 'z', appends
+                    // only the deferred hyphen, and reconsumes in Comment.
+                    expected.state = State::Comment;
+                    expected.current = Some((
+                        Input::CodePoint('z'.into()),
+                        Position { line: 2, column: 6 },
+                    ));
+                    expected
+                        .storage
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .push('-'.into());
+                    assert_eq!(run.step(), Ok(Progress::Continue(State::Comment)));
+                    assert_eq!(snapshot(&run), expected);
+                    assert_eq!(
+                        run.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                    let blocked = Err(UnimplementedState {
+                        state: State::Comment,
+                    });
+                    assert_eq!(run.step(), blocked);
+                    assert_eq!(snapshot(&run), expected);
+                    terminal(&mut run, blocked);
+                } else if value != 0x3e {
+                    // Only genuinely unsupported destinations are terminal.
                     let blocked = Err(UnimplementedState {
                         state: expected.state,
                     });
@@ -205,6 +233,178 @@ fn all_ascii_and_representative_non_scalars_have_exact_source_effects() {
                     assert_eq!(run.step(), Ok(Progress::Finished));
                     assert_eq!(snapshot(&run), expected);
                     terminal(&mut run, Ok(Progress::Finished));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn hyphen_entry_executes_all_real_start_dash_branches_after_exact_source_effects() {
+    for seeded in [false, true] {
+        for finished in [false, true] {
+            // These are destination inputs after CommentStart consumes '-'.
+            for next in [
+                None,
+                Some(0x2d),
+                Some(0x3e),
+                Some(0x78),
+                Some(0),
+                Some(0x0d),
+                Some(0xd800),
+                Some(0xfdd0),
+                Some(0x0b),
+            ] {
+                let context = if seeded {
+                    seeded_context()
+                } else {
+                    Context {
+                        pending_comment: Some(PendingComment::default()),
+                        ..Default::default()
+                    }
+                };
+                let mut run = entry(context);
+                let mut input = points("-");
+                if let Some(value) = next {
+                    input.push(CodePoint::new(value).unwrap());
+                    input.extend(points("z\r\n\0"));
+                }
+                run.context_mut().input.push(input).unwrap();
+                if finished {
+                    run.context_mut().input.finish();
+                }
+                let mut expected = snapshot(&run);
+                expected.state = State::CommentStartDash;
+                expected.current = Some((
+                    Input::CodePoint('-'.into()),
+                    Position { line: 2, column: 5 },
+                ));
+                assert_eq!(run.step(), Ok(Progress::Continue(State::CommentStartDash)));
+                assert_eq!(snapshot(&run), expected); // No append/error/output/take yet.
+
+                if next.is_none() && !finished {
+                    for _ in 0..3 {
+                        run.context_mut().input.push([]).unwrap();
+                        assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+                        assert_eq!(snapshot(&run), expected);
+                    }
+                    run.context_mut().input.finish();
+                }
+                let position = Position { line: 2, column: 6 };
+                expected.current = Some((
+                    match next {
+                        None => Input::Eof,
+                        Some(0x0d) => Input::CodePoint('\n'.into()),
+                        Some(value) => Input::CodePoint(CodePoint::new(value).unwrap()),
+                    },
+                    position,
+                ));
+                match next {
+                    None => {
+                        expected.errors.push(error("eof-in-comment", 2, 6));
+                        let comment = expected.storage.comment.take().unwrap();
+                        expected
+                            .tokens
+                            .extend([Token::Comment { data: comment.data }, Token::Eof]);
+                        // EOF does not switch back to Data or append the hyphen.
+                        assert_eq!(run.step(), Ok(Progress::Finished));
+                        assert_eq!(snapshot(&run), expected);
+                        terminal(&mut run, Ok(Progress::Finished));
+                    }
+                    Some(0x3e) => {
+                        expected.state = State::Data;
+                        expected
+                            .errors
+                            .push(error("abrupt-closing-of-empty-comment", 2, 6));
+                        let comment = expected.storage.comment.take().unwrap();
+                        expected.tokens.push(Token::Comment { data: comment.data });
+                        assert_eq!(run.step(), Ok(Progress::Continue(State::Data)));
+                        assert_eq!(snapshot(&run), expected);
+                        for (point, line, column) in [('z', 2, 7), ('\n', 2, 8), ('\0', 3, 1)] {
+                            expected.current =
+                                Some((Input::CodePoint(point.into()), Position { line, column }));
+                            expected.tokens.push(Token::Character(point.into()));
+                            if point == '\0' {
+                                expected.errors.push(error(
+                                    "unexpected-null-character",
+                                    line,
+                                    column,
+                                ));
+                            }
+                            assert_eq!(run.step(), Ok(Progress::Continue(State::Data)));
+                            assert_eq!(snapshot(&run), expected);
+                        }
+                        if !finished {
+                            for _ in 0..3 {
+                                assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+                                assert_eq!(snapshot(&run), expected);
+                            }
+                            run.context_mut().input.finish();
+                        }
+                        expected.current = Some((Input::Eof, Position { line: 3, column: 2 }));
+                        expected.tokens.push(Token::Eof);
+                        assert_eq!(run.step(), Ok(Progress::Finished));
+                        assert_eq!(snapshot(&run), expected);
+                        terminal(&mut run, Ok(Progress::Finished));
+                    }
+                    Some(value) => {
+                        expected.state = if value == 0x2d {
+                            State::CommentEnd
+                        } else {
+                            State::Comment
+                        };
+                        if value != 0x2d {
+                            expected
+                                .storage
+                                .comment
+                                .as_mut()
+                                .unwrap()
+                                .data
+                                .push('-'.into());
+                        }
+                        let preprocessing = match value {
+                            0xd800 => Some("surrogate-in-input-stream"),
+                            0xfdd0 => Some("noncharacter-in-input-stream"),
+                            0x0b => Some("control-character-in-input-stream"),
+                            _ => None,
+                        };
+                        if let Some(code) = preprocessing {
+                            expected.input_errors.push(error(code, 2, 6));
+                        }
+                        assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+                        assert_eq!(snapshot(&run), expected);
+                        if value != 0x2d {
+                            assert_eq!(
+                                run.context_mut().input.reconsume(),
+                                Err(CursorError::AlreadyReconsuming)
+                            );
+                        }
+                        let blocked = Err(UnimplementedState {
+                            state: expected.state,
+                        });
+                        assert_eq!(run.step(), blocked);
+                        assert_eq!(snapshot(&run), expected);
+                        terminal(&mut run, blocked);
+                        // Cursor-only probes; never reconstruct/resume this block.
+                        if value != 0x2d {
+                            let current = expected.current.unwrap();
+                            assert_eq!(run.context_mut().input.consume(), current.0);
+                            assert_eq!(run.context().input.current(), Some(current));
+                            assert_eq!(run.context().input.errors(), expected.input_errors);
+                        }
+                        assert_eq!(
+                            run.context_mut().input.consume(),
+                            Input::CodePoint('z'.into())
+                        );
+                        assert_eq!(
+                            run.context().input.position(),
+                            if value == 0x0d {
+                                Position { line: 3, column: 1 }
+                            } else {
+                                Position { line: 2, column: 7 }
+                            }
+                        );
+                    }
                 }
             }
         }
@@ -422,6 +622,18 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_steps() {
         "",
         "-",
         "--tail",
+        "->",
+        "->x\r\n\0É😀\r",
+        "->\r\r\n",
+        "->\0&tail",
+        "-><!tail",
+        "-x",
+        "-\0",
+        "-\r\nX",
+        "-\r\r\n",
+        "-\r",
+        "-É😀",
+        "-\u{b}\u{fdd0}",
         ">",
         ">z",
         ">\r\n\0É😀\r",
@@ -443,6 +655,21 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_steps() {
     for value in [0xd800, 0xdfff, 0x10ffff] {
         let point = CodePoint::new(value).unwrap();
         inputs.push(vec![point, '\r'.into(), '\n'.into(), '\0'.into()]);
+        inputs.push(vec![
+            '-'.into(),
+            point,
+            '\r'.into(),
+            '\n'.into(),
+            '\0'.into(),
+        ]);
+        inputs.push(vec![
+            '-'.into(),
+            '>'.into(),
+            point,
+            '\r'.into(),
+            '\n'.into(),
+            '\0'.into(),
+        ]);
         inputs.push(vec![
             '>'.into(),
             point,
