@@ -115,6 +115,43 @@ fn assert_terminal(execution: &mut Execution, expected: &Snapshot) {
     }
 }
 
+// Source snapshots are asserted before this helper attempts any destination.
+// Only fallback reaches the newly implemented CommentEndDash; '-' still blocks
+// at CommentLessThanSignBangDashDash without executing that sibling algorithm.
+fn execute_destination(execution: &mut Execution, mut expected: Snapshot) -> Snapshot {
+    if expected.state == State::CommentEndDash {
+        assert_eq!(
+            execution.context_mut().input.reconsume(),
+            Err(CursorError::AlreadyReconsuming)
+        );
+        match expected.current.unwrap().0 {
+            Input::Eof => {
+                expected.errors.push(ParseError {
+                    code: "eof-in-comment",
+                    position: expected.current.unwrap().1,
+                });
+                let data = expected.comment.take().unwrap().data;
+                expected
+                    .tokens
+                    .extend([Token::Comment { data }, Token::Eof]);
+                for _ in 0..3 {
+                    assert_eq!(execution.step(), Ok(Progress::Finished));
+                    assert_eq!(snapshot(execution), expected);
+                }
+            }
+            Input::CodePoint(point) => {
+                assert_ne!(point, '-'.into());
+                expected.state = State::Comment;
+                expected.comment.as_mut().unwrap().data.push('-'.into());
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
+                assert_eq!(snapshot(execution), expected);
+            }
+            Input::NeedMoreInput => panic!("source must have consumed a point or EOF"),
+        }
+    }
+    expected
+}
+
 #[test]
 fn all_ascii_and_representative_non_scalars_have_exact_source_effects_and_consumption() {
     for value in (0..=0x7f).chain([
@@ -165,8 +202,9 @@ fn all_ascii_and_representative_non_scalars_have_exact_source_effects_and_consum
                     assert_eq!(snapshot(&execution), expected);
                     // Neither branch emits, mutates, takes, normalizes or replaces
                     // existing comment data, including literal NUL/CR/non-scalars.
-                    assert_terminal(&mut execution, &expected);
-                    // Inspect the cursor only; never reconstruct/resume execution.
+                    let expected = execute_destination(&mut execution, expected);
+                    // Probe before the remaining unsupported destination attempt;
+                    // never execute an implemented state with this probed cursor.
                     if value != 0x2d {
                         assert_eq!(
                             execution.context_mut().input.reconsume(),
@@ -198,6 +236,8 @@ fn all_ascii_and_representative_non_scalars_have_exact_source_effects_and_consum
                         }
                     );
                     assert_eq!(execution.context().input.errors(), expected.input_errors);
+                    let probed = snapshot(&execution);
+                    assert_terminal(&mut execution, &probed);
                 }
             }
         }
@@ -230,18 +270,16 @@ fn open_exhaustion_preserves_current_and_comment_until_explicit_eof_reconsumptio
         );
         assert_eq!(snapshot(&execution), expected);
         // No eof-in-comment, Comment or EOF token belongs to this source step.
-        assert_terminal(&mut execution, &expected);
-        assert_eq!(
-            execution.context_mut().input.reconsume(),
-            Err(CursorError::AlreadyReconsuming)
-        );
-        assert_eq!(execution.context_mut().input.consume(), Input::Eof);
+        // The source's scheduled EOF is consumed by real CommentEndDash, not
+        // diagnosed or emitted by CommentLessThanSignBangDash itself.
+        let expected = execute_destination(&mut execution, expected);
         assert_eq!(execution.context().input.current(), expected.current);
         assert_eq!(
             execution.context_mut().input.push(points("late")),
             Err(CursorError::InputAlreadyFinished)
         );
-        assert_terminal(&mut execution, &expected);
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&execution), expected);
     }
 }
 
@@ -260,7 +298,7 @@ fn suspended_entry_can_receive_a_hyphen_or_reconsumed_character_without_finishin
         };
         assert_eq!(execution.step(), Ok(Progress::Continue(target)));
         let expected = snapshot(&execution);
-        assert_terminal(&mut execution, &expected);
+        execute_destination(&mut execution, expected);
         if point != '-' {
             assert_eq!(
                 execution.context_mut().input.consume(),
@@ -277,12 +315,15 @@ fn suspended_entry_can_receive_a_hyphen_or_reconsumed_character_without_finishin
             Input::NeedMoreInput
         );
         assert_eq!(execution.context().input.current(), current);
+        let probed = snapshot(&execution);
+        assert_terminal(&mut execution, &probed);
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct Trace {
     source: Snapshot,
+    destination: Snapshot,
     remaining: Vec<(Input, Position)>,
     input_errors: Vec<ParseError>,
 }
@@ -324,9 +365,11 @@ fn trace(chunks: &[&[CodePoint]], closed: bool, newline_prefix: bool) -> Trace {
         assert!(matches!(execution.step(), Ok(Progress::Continue(_))));
     }
     let source = snapshot(&execution);
-    assert_terminal(&mut execution, &source);
-    // Only inspect the cursor after the terminal block. This is not destination
-    // execution: retained reconsumption and the entire untouched tail are traced.
+    let expected_destination = snapshot(&execution);
+    let destination = execute_destination(&mut execution, expected_destination);
+    // Probe only after source and actual supported-destination effects have been
+    // inspected, before attempting a remaining stub. Fallback reconsumes the
+    // same point again in Comment; EOF has already finished and taken the comment.
     let mut remaining = Vec::new();
     loop {
         let input = execution.context_mut().input.consume();
@@ -336,8 +379,16 @@ fn trace(chunks: &[&[CodePoint]], closed: bool, newline_prefix: bool) -> Trace {
             break;
         }
     }
+    let probed = snapshot(&execution);
+    if destination.state == State::CommentEndDash {
+        assert_eq!(execution.step(), Ok(Progress::Finished));
+        assert_eq!(snapshot(&execution), probed);
+    } else {
+        assert_terminal(&mut execution, &probed);
+    }
     Trace {
         source,
+        destination,
         remaining,
         input_errors: execution.context().input.errors().to_vec(),
     }

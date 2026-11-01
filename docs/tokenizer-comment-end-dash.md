@@ -10,8 +10,11 @@ EOF definition are at lines 142560–142607; current/next input, reconsumption,
 comment data and token creation/emission are at lines 143149–143188.
 The source pin and upstream fixtures are unchanged.
 
-Prerequisite PR #46 is present: this branch starts at its merged commit
-`47c53e8dcf3e69d920c4be290036ffb70af72cc9`. The implementation lives in
+Prerequisite PR #46 is present at merged commit
+`47c53e8dcf3e69d920c4be290036ffb70af72cc9`. After independent review of the
+original head `55a7b1df965ebbf882bd6790de339dfc8f15ef39`, this branch was rebased
+onto `3f1ea04c8c5204d049cf50fb18981dac0f5fa844` (merged #47/#48/#49).
+The implementation lives in
 `crates/html/src/tokenizer/comment_end_dash.rs` and reuses private
 `comment::data_mut` and `comment::emit`, existing `PendingComment` and
 `Token::Comment`. The shared helper `comment.rs` is unchanged; it is not the
@@ -41,7 +44,7 @@ separate comment boundaries. Positions count normalized code points, not UTF-8
 bytes or UTF-16 units. CR becomes LF; suppression of an LF following a consumed
 CR is also exercised across the entry/chunk boundary.
 
-Both destinations are still unsupported at this PR's base. Tests inspect source
+Both destinations remain unsupported on the rebased base. Tests inspect source
 effects **before** attempting Comment/CommentEnd, then assert exact terminal
 `UnimplementedState` with no subsequent effects. Separate cursor probes prove
 consumption/reconsumption before destination dispatch and end without dispatching
@@ -54,11 +57,31 @@ A source step immediately leaves this state; traces stop honestly at a destinati
 stub, rather than inventing later comment processing. Caller-scheduled input and
 conceptual EOF reconsumption are covered without simulating a predecessor state.
 
+## Rebased predecessor integration
+
+Merged #48's CommentLessThanSignBangDash fallback now reaches this state.
+Its state-local tests retain their original source snapshots (no append,
+diagnostic, emission or comment take in that predecessor), then execute the real
+CommentEndDash destination. Non-EOF fallback appends only `-` and schedules the
+same point in still-unsupported Comment, with no duplicate input errors. EOF is
+reconsumed at its original normalized position, diagnoses `eof-in-comment`, takes
+and emits the unchanged comment, emits EOF and finishes exactly once. The
+predecessor's hyphen branch still blocks at CommentLessThanSignBangDashDash.
+
+The exhaustive ASCII/non-scalar, resumed-feed, EOF and all-chunk-split suites in
+`comment_less_than_sign_bang_dash_state.rs` now check these actual destinations,
+with source/destination effects independently inspectable and cursor probes before
+remaining stub attempts. Its state-local documentation records the new boundary.
+The reviewed CommentEndDash algorithm and its six original tests are unchanged;
+no additional production algorithm or gateway is added by the rebase fixes.
+
 ## Validation and conformance boundary
 
 All CONTRIBUTING checks pass: pinned submodule initialization, rustfmt check,
 Clippy (all targets, warnings denied), locked workspace tests, and rustdoc
-(warnings denied). The six focused tests pass.
+(warnings denied). The rebased workspace has 403 passing tests, zero failures
+and zero ignored tests, including the six unchanged focused tests and five
+updated predecessor/integration tests.
 
 The separately run `pinned_upstream_runner -- --nocapture` reports, identically
 before and after this change:
