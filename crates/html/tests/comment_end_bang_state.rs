@@ -175,7 +175,6 @@ fn every_ascii_branch_and_non_scalars_have_exact_source_effects() {
 #[test]
 fn unsupported_destinations_are_terminal_after_inspectable_source_effects() {
     for (text, target) in [
-        ("-tail", State::CommentEndDash),
         ("\0tail", State::Comment),
         ("!tail", State::Comment),
         ("<tail", State::Comment),
@@ -200,6 +199,162 @@ fn unsupported_destinations_are_terminal_after_inspectable_source_effects() {
             assert_eq!(snapshot(&run), source);
         }
         // No reconstruction or resumption; this execution remains blocked.
+    }
+}
+
+#[test]
+fn hyphen_destination_executes_exact_end_dash_branches_before_remaining_stubs() {
+    for value in (0..=0x7f).chain([
+        0x80, 0x9f, 0xa0, 0xc0, 0xe9, 0x301, 0xd800, 0xdfff, 0xfdd0, 0xfeff, 0xfffd, 0x1f600,
+        0x1fffe, 0x10ffff,
+    ]) {
+        for kind in [None, Some(TagKind::Start), Some(TagKind::End)] {
+            for (finished, cursor_probe) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
+                let point = CodePoint::new(value).unwrap();
+                let normalized = if value == 0x0d { '\n'.into() } else { point };
+                let mut context = context(kind);
+                // Cursor history, not simulated execution of an unsupported state.
+                context.input.push(points("\r\nX")).unwrap();
+                assert_eq!(context.input.consume(), Input::CodePoint('\n'.into()));
+                assert_eq!(context.input.consume(), Input::CodePoint('X'.into()));
+                context.input.push(['-'.into(), point, 'z'.into()]).unwrap();
+                if finished {
+                    context.input.finish();
+                }
+                let mut run = Execution::new(State::CommentEndBang, context);
+                let mut expected = snapshot(&run);
+                expected.state = State::CommentEndDash;
+                expected.current = Some((
+                    Input::CodePoint('-'.into()),
+                    Position { line: 2, column: 2 },
+                ));
+                expected
+                    .comment
+                    .as_mut()
+                    .unwrap()
+                    .data
+                    .extend(points("--!"));
+                assert_eq!(run.step(), Ok(Progress::Continue(State::CommentEndDash)));
+                assert_eq!(snapshot(&run), expected); // Original reviewed source effects.
+
+                // Execute the real destination: '-' is consumed into CommentEnd;
+                // other points append only the withheld '-' and replay in Comment.
+                expected.state = if value == 0x2d {
+                    State::CommentEnd
+                } else {
+                    State::Comment
+                };
+                expected.current = Some((
+                    Input::CodePoint(normalized),
+                    Position { line: 2, column: 3 },
+                ));
+                if value != 0x2d {
+                    expected.comment.as_mut().unwrap().data.push('-'.into());
+                }
+                let preprocessing = match value {
+                    0xd800..=0xdfff => Some("surrogate-in-input-stream"),
+                    0xfdd0 | 0x1fffe | 0x10ffff => Some("noncharacter-in-input-stream"),
+                    0x01..=0x08 | 0x0b | 0x0e..=0x1f | 0x7f..=0x9f => {
+                        Some("control-character-in-input-stream")
+                    }
+                    _ => None,
+                };
+                if let Some(code) = preprocessing {
+                    expected.input_errors.push(error(code, 2, 3));
+                }
+                assert_eq!(run.step(), Ok(Progress::Continue(expected.state)));
+                assert_eq!(
+                    snapshot(&run),
+                    expected,
+                    "U+{value:04X}, {kind:?}, finished={finished}"
+                );
+                if value != 0x2d {
+                    // This failed scheduling request does not mutate the cursor.
+                    assert_eq!(
+                        run.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                }
+                if cursor_probe {
+                    // Separate probe-only execution: never dispatch after manually
+                    // consuming its replay/tail, and never reconstruct a blocked run.
+                    if value != 0x2d {
+                        assert_eq!(
+                            run.context_mut().input.consume(),
+                            Input::CodePoint(normalized)
+                        );
+                        assert_eq!(snapshot(&run), expected);
+                    }
+                    assert_eq!(
+                        run.context_mut().input.consume(),
+                        Input::CodePoint('z'.into())
+                    );
+                    assert_eq!(
+                        run.context().input.position(),
+                        if matches!(value, 0x0a | 0x0d) {
+                            Position { line: 3, column: 1 }
+                        } else {
+                            Position { line: 2, column: 4 }
+                        }
+                    );
+                    assert_eq!(run.context().input.errors(), expected.input_errors);
+                    continue;
+                }
+                let blocked = Err(UnimplementedState {
+                    state: expected.state,
+                });
+                for _ in 0..3 {
+                    assert_eq!(run.step(), blocked);
+                    assert_eq!(snapshot(&run), expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn hyphen_destination_suspends_then_eof_emits_appended_comment_in_order_once() {
+    for kind in [None, Some(TagKind::Start), Some(TagKind::End)] {
+        let mut context = context(kind);
+        context.input.push(points("\r\n-")).unwrap();
+        assert_eq!(context.input.consume(), Input::CodePoint('\n'.into()));
+        let mut run = Execution::new(State::CommentEndBang, context);
+        let mut expected = snapshot(&run);
+        expected.state = State::CommentEndDash;
+        expected.current = Some((
+            Input::CodePoint('-'.into()),
+            Position { line: 2, column: 1 },
+        ));
+        expected
+            .comment
+            .as_mut()
+            .unwrap()
+            .data
+            .extend(points("--!"));
+        assert_eq!(run.step(), Ok(Progress::Continue(State::CommentEndDash)));
+        assert_eq!(snapshot(&run), expected);
+        for _ in 0..3 {
+            run.context_mut().input.push([]).unwrap();
+            assert_eq!(run.step(), Ok(Progress::NeedMoreInput));
+            assert_eq!(snapshot(&run), expected); // No appended extra '-' or EOF.
+        }
+        run.context_mut().input.finish();
+        expected.current = Some((Input::Eof, Position { line: 2, column: 2 }));
+        let data = expected.comment.take().unwrap().data;
+        expected
+            .tokens
+            .extend([Token::Comment { data }, Token::Eof]);
+        expected.errors.push(error("eof-in-comment", 2, 2));
+        for _ in 0..3 {
+            assert_eq!(run.step(), Ok(Progress::Finished));
+            assert_eq!(snapshot(&run), expected);
+        }
+        // Neither CommentEndBang nor the real EOF destination reconsumes EOF.
+        assert_eq!(run.context_mut().input.reconsume(), Ok(()));
+        assert_eq!(run.context_mut().input.consume(), Input::Eof);
+        assert_eq!(snapshot(&run), expected);
     }
 }
 
@@ -404,6 +559,12 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_traces() {
     for input in [
         points(""),
         points("-tail"),
+        points("-"),
+        points("--tail"),
+        points("->tail"),
+        points("-\0tail"),
+        points("-\r\ntail"),
+        vec!['-'.into(), CodePoint::new(0xd800).unwrap(), 'x'.into()],
         points("!tail"),
         points("\0tail"),
         points("\r\ntail"),
