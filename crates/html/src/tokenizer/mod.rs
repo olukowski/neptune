@@ -10,6 +10,7 @@ mod attribute_value_unquoted;
 mod before_attribute_name;
 mod before_attribute_value;
 mod bogus_comment;
+mod comment;
 mod data;
 mod end_tag_open;
 mod input;
