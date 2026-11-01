@@ -31,9 +31,11 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Comment less-than sign](tokenizer-comment-less-than-sign.md),
 [Comment less-than sign bang](tokenizer-comment-less-than-sign-bang.md),
 [Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md),
-[Comment end dash](tokenizer-comment-end-dash.md), and
-[Comment end bang](tokenizer-comment-end-bang.md) are implemented.
-All other states, including ordinary Comment and
+[Comment end dash](tokenizer-comment-end-dash.md),
+[Comment end bang](tokenizer-comment-end-bang.md), and
+[Comment](tokenizer-comment.md) are implemented.
+All other states, including Comment end, Comment less-than sign bang dash dash,
+Markup declaration open and
 Character reference, remain `UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
 
@@ -135,8 +137,8 @@ instruction states and no separate decimal-character-reference-start state.
   tag drops it along with that tag, preserving unrelated storage.
   Their explicit `self_closing: bool` defaults to false and
   attribute lists start empty, as required at creation. Comments store code-point data;
-  Bogus comment appends to it and takes the pending comment on emission as
-  `Token::Comment { data }`. Isolated Bogus comment entry requires initialized
+  Bogus comment and Comment append to it and take the pending comment on emission as
+  `Token::Comment { data }`. Isolated Bogus comment or Comment entry requires initialized
   pending-comment storage; existing data is preserved literally, not preprocessed again.
   Each creation replaces only its own pending storage; unrelated storage remains.
   The code-point `temporary_buffer` is cleared by Tag open on `?` and by RCDATA,
@@ -535,7 +537,9 @@ NUL, streaming, and terminal-stub checks. This support extraction adds no states
 storage, token types, adapter capabilities, or upstream baseline changes.
 [Comment start](tokenizer-comment-start.md),
 [Comment start dash](tokenizer-comment-start-dash.md),
+[Comment](tokenizer-comment.md),
 [Comment less-than sign](tokenizer-comment-less-than-sign.md),
+[Comment less-than sign bang](tokenizer-comment-less-than-sign-bang.md),
 [Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md),
 [Comment end dash](tokenizer-comment-end-dash.md), and
 [Comment end bang](tokenizer-comment-end-bang.md)
@@ -577,8 +581,8 @@ These local source-step checks are not full tokenizer streaming conformance.
 Before attribute name creates pending attribute storage, not emitted tokens.
 After attribute name permits boolean-attribute emission; Before attribute value
 connects all three value states and After attribute value (quoted) from Data.
-Ordinary comments, markup declarations, processing instructions, and character
-references remain stubs.
+Normal Data comment entry at Markup declaration open, processing instructions,
+and character references remain stubs.
 
 ## Attribute name coverage
 

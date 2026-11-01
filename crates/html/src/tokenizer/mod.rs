@@ -18,6 +18,7 @@ mod comment_less_than_sign_bang;
 mod comment_less_than_sign_bang_dash;
 mod comment_start;
 mod comment_start_dash;
+mod comment_state;
 mod data;
 mod end_tag_open;
 mod input;
@@ -147,8 +148,8 @@ pub struct Context {
     pub pending_start_tag: Option<PendingStartTag>,
     /// Created, not emitted, by an implemented end-tag-open ASCII-alpha branch.
     pub pending_end_tag: Option<PendingEndTag>,
-    /// Created by End tag open's recovery; taken on Bogus comment emission.
-    /// Direct Bogus comment entry requires an initialized pending comment.
+    /// Created by End tag open's recovery; taken on comment emission.
+    /// Direct Bogus comment or Comment entry requires an initialized pending comment.
     pub pending_comment: Option<PendingComment>,
     /// Code-point scratch storage; Tag open clears it on `?`,
     /// RCDATA, RAWTEXT, Script data less-than sign, and
@@ -244,6 +245,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::CommentEndDash => Ok(comment_end_dash::step(context)),
         State::CommentEndBang => Ok(comment_end_bang::step(context)),
         State::CommentStartDash => Ok(comment_start_dash::step(context)),
+        State::Comment => Ok(comment_state::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }

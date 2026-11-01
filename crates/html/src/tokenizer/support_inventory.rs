@@ -55,6 +55,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::CommentEndDash, // Isolated entry supplies initialized pending-comment data.
         State::CommentEndBang,
         State::CommentStartDash, // Isolated entry supplies pending_comment below.
+        State::Comment, // Isolated entry uses the initialized pending comment below.
     ];
     assert_eq!(State::ALL.len(), 84);
     for &state in State::ALL {
