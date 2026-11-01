@@ -38,19 +38,27 @@ Streaming tests compare closed input against every two-chunk split (including
 empty chunks) and single-code-point chunks, with and without preceding CRLF
 history. Representative inputs include both branches, EOF, CRLF and consecutive
 CR, NUL, malformed comment-like text, non-scalars and untouched suffixes. Only
-one assigned-state source step executes: after its terminal destination block,
-tests inspect the cursor's reconsumption and remaining tail, not a simulated or
-reconstructed destination. This is local source/cursor chunk evidence, not
+one assigned-state source step executes, whose snapshot remains separate from
+actual supported-destination effects. Fallback now executes CommentEndDash:
+non-EOF appends exactly one hyphen and reconsumes the same point in Comment;
+EOF reports `eof-in-comment`, takes/emits the comment, then emits EOF and finishes.
+Chunk traces compare both snapshots and cursor reconsumption/remaining tails.
+Cursor probes precede remaining stub attempts, and no implemented state executes
+with a probed cursor. This is local source/cursor chunk evidence, not
 whole-tokenizer conformance.
 
 ## Scope and integration boundary
 
-Only CommentLessThanSignBangDash is registered by this change. Both destinations
-remain explicit terminal `UnimplementedState` errors on this prerequisite base.
-Tests inspect source effects before the first destination attempt and repeated
-terminal errors afterward. No blocked execution is resumed or reconstructed.
-Later sibling merges may legitimately move that integration boundary; their
-actual destination effects must be reviewed when rebasing, not silently hidden.
+The original state PR registered only CommentLessThanSignBangDash, with both
+destinations blocked on its prerequisite base. After CommentEndDash integration
+(PR #50), tests retain all source-effect snapshots before executing that real
+destination. Exact destination snapshots check the original point/position,
+preprocessing-error multiplicity, hyphen-only append, unchanged unrelated context,
+and EOF diagnostic/token ordering/take semantics with terminal repeat safety.
+Only CommentLessThanSignBangDashDash (hyphen branch) and Comment (non-EOF
+fallback after CommentEndDash) remain terminal `UnimplementedState` boundaries.
+No blocked execution is resumed or reconstructed. Later sibling merges may
+legitimately move those boundaries and require review, not hidden mismatches.
 
 Direct entry uses initialized pending-comment context, including in the independent
 support inventory. This change implements no siblings or Markup declaration open.

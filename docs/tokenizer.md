@@ -27,8 +27,9 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data double escaped dash dash](tokenizer-script-data-double-escaped-dash-dash.md),
 [Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md),
 [Script data double escape end](tokenizer-script-data-double-escape-end.md),
-[Comment less-than sign](tokenizer-comment-less-than-sign.md), and
-[Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md) are implemented.
+[Comment less-than sign](tokenizer-comment-less-than-sign.md),
+[Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md), and
+[Comment end dash](tokenizer-comment-end-dash.md) are implemented.
 All other states, including ordinary Comment and
 Character reference, remain `UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.

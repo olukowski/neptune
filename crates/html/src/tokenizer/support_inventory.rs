@@ -51,6 +51,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::CommentLessThanSign,
         State::CommentLessThanSignBangDash,
         State::CommentStart, // Direct entry uses initialized pending_comment below.
+        State::CommentEndDash, // Isolated entry supplies initialized pending-comment data.
     ];
     assert_eq!(State::ALL.len(), 84);
     for &state in State::ALL {

@@ -11,6 +11,7 @@ mod before_attribute_name;
 mod before_attribute_value;
 mod bogus_comment;
 mod comment;
+mod comment_end_dash;
 mod comment_less_than_sign;
 mod comment_less_than_sign_bang_dash;
 mod comment_start;
@@ -236,6 +237,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::CommentLessThanSign => Ok(comment_less_than_sign::step(context)),
         State::CommentLessThanSignBangDash => Ok(comment_less_than_sign_bang_dash::step(context)),
         State::CommentStart => Ok(comment_start::step(context)),
+        State::CommentEndDash => Ok(comment_end_dash::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }
