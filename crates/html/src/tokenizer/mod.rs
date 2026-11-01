@@ -16,6 +16,7 @@ mod comment_end_dash;
 mod comment_less_than_sign;
 mod comment_less_than_sign_bang_dash;
 mod comment_start;
+mod comment_start_dash;
 mod data;
 mod end_tag_open;
 mod input;
@@ -240,6 +241,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::CommentStart => Ok(comment_start::step(context)),
         State::CommentEndDash => Ok(comment_end_dash::step(context)),
         State::CommentEndBang => Ok(comment_end_bang::step(context)),
+        State::CommentStartDash => Ok(comment_start_dash::step(context)),
         _ => Err(UnimplementedState { state }),
     }
 }
