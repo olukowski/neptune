@@ -59,6 +59,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::CommentEnd,       // Isolated entry requires the current pending comment.
         State::CommentLessThanSignBangDashDash,
     ];
+    assert_eq!(IMPLEMENTED.len(), 51);
     assert_eq!(State::ALL.len(), 84);
     for &state in State::ALL {
         for finished in [false, true] {

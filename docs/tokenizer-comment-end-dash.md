@@ -1,6 +1,19 @@
 # Comment end dash state
 
-## Current CommentEnd integration (PR #55)
+## Current complete ordinary-comment family (PR #56)
+
+All ten ordinary-comment states are implemented and reachable from explicit
+CommentStart entry with initialized pending-comment context. Nested openers now
+execute BangDashDash → real CommentEnd, including exact nested-comment diagnostics,
+delimiter restoration/withholding, closure, EndBang loops and EOF take/emission.
+See [final integration evidence](tokenizer-comment-less-than-sign-bang-dash-dash.md#final-integration-onto-47-55)
+for independent outcomes across all ten entries, source snapshots and every-split
+streaming checks. Normal Data `<!--` entry still blocks at MarkupDeclarationOpen.
+No sibling production algorithm/shared helper, fixture, pin or pass baseline changed.
+Earlier PR-local support/count reports below are historical, not current
+reachability; their pinned algorithm-branch evidence remains normative.
+
+## Historical CommentEnd integration (PR #55)
 
 On base `08ddeae1103a97766b5055e61e70ce4907c2477a` (merged #47–54),
 CommentEnd is implemented. The second-hyphen destination now executes real End, including delimiter restoration, closure, EndBang loops and EOF; source no-append snapshots remain intact.

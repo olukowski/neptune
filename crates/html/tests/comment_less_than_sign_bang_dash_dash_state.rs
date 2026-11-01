@@ -1,8 +1,8 @@
 //! State-local source-step checks, not upstream conformance executions.
 //! Pinned HTML 404b3eb14a7a936dddefb2d78e224dbeb01d2358, source
 //! 144642–144657, #comment-less-than-sign-bang-dash-dash-state.
-//! Direct entry supplies initialized pending-comment data. No sibling is simulated
-//! or executed and no blocked execution is reconstructed/resumed.
+//! Direct entry supplies initialized pending-comment data. Source expectations are
+//! inspected before real destinations; no blocked execution is reconstructed/resumed.
 
 use neptune_html::tokenizer::{
     Attribute, CodePoint, Context, CursorError, Execution, Input, ParseError, PendingComment,
@@ -259,8 +259,99 @@ fn suspended_entry_accepts_real_input_without_inventing_predecessor_data() {
     }
 }
 
+// Independent pinned CommentEnd expectations, after the source has been checked.
+fn real_end(execution: &mut Execution, expected: &mut Snapshot) {
+    assert_eq!(
+        execution.context_mut().input.reconsume(),
+        Err(CursorError::AlreadyReconsuming)
+    );
+    let (input, position) = expected.current.unwrap();
+    let mut replay_comment = false;
+    let result = match input {
+        Input::Eof => {
+            expected.errors.push(ParseError {
+                code: "eof-in-comment",
+                position,
+            });
+            let data = expected.storage.comment.take().unwrap().data;
+            expected
+                .tokens
+                .extend([Token::Comment { data }, Token::Eof]);
+            Progress::Finished
+        }
+        Input::CodePoint(point) => {
+            match point.value() {
+                0x3e => {
+                    expected.state = State::Data;
+                    let data = expected.storage.comment.take().unwrap().data;
+                    expected.tokens.push(Token::Comment { data });
+                }
+                0x21 => expected.state = State::CommentEndBang,
+                0x2d => expected
+                    .storage
+                    .comment
+                    .as_mut()
+                    .unwrap()
+                    .data
+                    .push('-'.into()),
+                _ => {
+                    expected.state = State::Comment;
+                    expected
+                        .storage
+                        .comment
+                        .as_mut()
+                        .unwrap()
+                        .data
+                        .extend(points("--"));
+                    replay_comment = true;
+                }
+            }
+            Progress::Continue(expected.state)
+        }
+        Input::NeedMoreInput => panic!("source consumed no item"),
+    };
+    assert_eq!(execution.step(), Ok(result));
+    assert_eq!(snapshot(execution), *expected);
+    if replay_comment {
+        assert_eq!(
+            execution.context_mut().input.reconsume(),
+            Err(CursorError::AlreadyReconsuming)
+        );
+        let Input::CodePoint(point) = input else {
+            unreachable!()
+        };
+        let appended = if point.value() == 0 {
+            expected.errors.push(ParseError {
+                code: "unexpected-null-character",
+                position,
+            });
+            '\u{fffd}'.into()
+        } else {
+            point
+        };
+        expected
+            .storage
+            .comment
+            .as_mut()
+            .unwrap()
+            .data
+            .push(appended);
+        if point == '<'.into() {
+            expected.state = State::CommentLessThanSign;
+        }
+        assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
+        assert_eq!(snapshot(execution), *expected);
+    }
+    if result == Progress::Finished {
+        for _ in 0..3 {
+            assert_eq!(execution.step(), Ok(result));
+            assert_eq!(snapshot(execution), *expected);
+        }
+    }
+}
+
 #[test]
-fn source_effects_precede_effect_free_terminal_destination_block_even_for_eof() {
+fn source_effects_precede_real_end_reconsumption_emission_or_delimiter_restoration() {
     for input in [
         vec![],
         points(">tail"),
@@ -295,23 +386,14 @@ fn source_effects_precede_effect_free_terminal_destination_block_even_for_eof() 
             }
             assert_eq!(execution.step(), Ok(Progress::Continue(State::CommentEnd)));
             assert_eq!(snapshot(&execution), expected);
-            for _ in 0..3 {
-                assert_eq!(
-                    execution.step(),
-                    Err(UnimplementedState {
-                        state: State::CommentEnd
-                    })
-                );
-                assert_eq!(snapshot(&execution), expected);
-            }
-            // Never reconstruct/resume this blocked execution or probe its cursor.
+            real_end(&mut execution, &mut expected);
         }
     }
 }
 
-// Collect only actual source steps. A destination stub ends this trace immediately;
-// remaining chunks/tails are not fed after a block. A preceding raw CR deliberately
-// leaves LF suppression pending, so a chunk containing only LF must suspend.
+// Source-local trace through the independently expected immediate destination,
+// not the rest of the suffix. Full-family streaming is tested separately below.
+// A preceding raw CR leaves LF suppression pending across feed boundaries.
 fn trace(chunks: &[&[CodePoint]], closed: bool) -> Vec<Snapshot> {
     let mut context = seeded(literal_data(), Some(TagKind::Start));
     context.input.push(points("\r")).unwrap();
@@ -329,14 +411,9 @@ fn trace(chunks: &[&[CodePoint]], closed: bool) -> Vec<Snapshot> {
                 false
             }
             Progress::Continue(State::CommentEnd) => {
-                let after = snapshot(execution);
-                assert_eq!(
-                    execution.step(),
-                    Err(UnimplementedState {
-                        state: State::CommentEnd
-                    })
-                );
-                assert_eq!(snapshot(execution), after);
+                let mut after = snapshot(execution);
+                result.push(snapshot(execution));
+                real_end(execution, &mut after);
                 result.push(after);
                 true
             }
