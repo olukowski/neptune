@@ -568,7 +568,7 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_traces() {
     }
 }
 
-// Integration after PRs #47–53: isolated entries only; normal Data entry is still
+// Integration after PRs #47–55: isolated entries only; normal Data entry is still
 // blocked at MarkupDeclarationOpen. These expectations are literal pinned-spec
 // outcomes, not snapshots blessed from a production run.
 struct IntegratedCase {
@@ -610,6 +610,9 @@ fn assert_integrated_outcome(execution: &Execution, case: &IntegratedCase) {
     expected.input_errors = case.input_errors.clone();
     if case.state == State::CharacterReference {
         expected.return_state = Some(State::Data);
+    }
+    if case.state == State::ProcessingInstructionOpen {
+        expected.buffer.clear();
     }
     expected
         .comment
@@ -688,6 +691,51 @@ fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independ
         (Comment, "<!-x-", "<!-x", CommentEndDash, 1, 6, vec![]),
         (Comment, "a-b", "a-b", Comment, 1, 4, vec![]),
         (Comment, "a-", "a", CommentEndDash, 1, 3, vec![]),
+        (Comment, "--", "", CommentEnd, 1, 3, vec![]),
+        (Comment, "---", "-", CommentEnd, 1, 4, vec![]),
+        (Comment, "--!", "", CommentEndBang, 1, 4, vec![]),
+        (Comment, "--!-", "--!", CommentEndDash, 1, 5, vec![]),
+        (Comment, "--!--", "--!", CommentEnd, 1, 6, vec![]),
+        (Comment, "--!--x", "--!--x", Comment, 1, 7, vec![]),
+        (Comment, "--!!", "--!!", Comment, 1, 5, vec![]),
+        (
+            Comment,
+            "--!-x--!-",
+            "--!-x--!",
+            CommentEndDash,
+            1,
+            10,
+            vec![],
+        ),
+        (
+            Comment,
+            "a--\0",
+            "a--�",
+            Comment,
+            1,
+            5,
+            vec![error("unexpected-null-character", 1, 4)],
+        ),
+        (
+            Comment,
+            "--!\0",
+            "--!�",
+            Comment,
+            1,
+            5,
+            vec![error("unexpected-null-character", 1, 4)],
+        ),
+        (
+            Comment,
+            "--\r\n\0",
+            "--\n�",
+            Comment,
+            2,
+            2,
+            vec![error("unexpected-null-character", 2, 1)],
+        ),
+        (CommentStartDash, "-x", "--x", Comment, 1, 3, vec![]),
+        (CommentEnd, "!->", "--!->", Comment, 1, 4, vec![]),
         (Comment, "<!-", "<!", CommentEndDash, 1, 4, vec![]),
         (
             Comment,
@@ -763,8 +811,8 @@ fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independ
             blocked: false,
         });
     }
-    // Only isolated Start/StartDash/EndBang can close here. Core Comment's normal
-    // '-->' path still blocks at CommentEnd; no unsupported gateway is simulated.
+    // Start/StartDash abrupt close and EndBang incorrect close retain their
+    // original diagnostics. Core closure via End is independently covered below.
     for (initial, input, characters, line, column, errors) in [
         (
             CommentStart,
@@ -830,8 +878,6 @@ fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independ
         });
     }
     for (initial, input, appended, state, column) in [
-        (Comment, "-->", "", CommentEnd, 2),
-        (Comment, "a--\0", "a", CommentEnd, 3),
         (Comment, "<!-->", "<!", CommentLessThanSignBangDashDash, 4),
         (
             Comment,
@@ -840,8 +886,6 @@ fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independ
             CommentLessThanSignBangDashDash,
             5,
         ),
-        (CommentStart, "-->", "", CommentEnd, 2),
-        (CommentStartDash, "-x", "", CommentEnd, 1),
         (
             CommentLessThanSignBangDash,
             "-",
@@ -849,7 +893,6 @@ fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independ
             CommentLessThanSignBangDashDash,
             1,
         ),
-        (CommentEndBang, "-->", "--!", CommentEnd, 2),
         (
             CommentEndBang,
             "<!--",
@@ -868,6 +911,102 @@ fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independ
             input_errors: vec![],
             emitted: false,
             characters: vec![],
+            blocked: true,
+        });
+    }
+    // Independently expected closing outcomes through the newly implemented End:
+    // withheld delimiters are excluded unless restored by fallback/bang loops.
+    for (initial, input, appended, characters, column, errors) in [
+        (Comment, "-->", "", "", 4, vec![]),
+        (CommentStart, "-->", "", "", 4, vec![]),
+        (CommentStartDash, "->", "", "", 3, vec![]),
+        (CommentEndDash, "->", "", "", 3, vec![]),
+        (CommentEnd, ">", "", "", 2, vec![]),
+        (CommentEndBang, "-->", "--!", "", 4, vec![]),
+        (CommentLessThanSign, "x-->", "x", "", 5, vec![]),
+        (CommentLessThanSignBang, "x-->", "x", "", 5, vec![]),
+        (CommentLessThanSignBangDash, "x-->", "-x", "", 5, vec![]),
+        (Comment, "--->", "-", "", 5, vec![]),
+        (Comment, "--!-->", "--!", "", 7, vec![]),
+        (Comment, "--!-x-->", "--!-x", "", 9, vec![]),
+        (Comment, "--!x-->", "--!x", "", 8, vec![]),
+        (CommentEnd, "!->-->", "--!->", "", 7, vec![]),
+        (
+            Comment,
+            "--!>",
+            "",
+            "",
+            5,
+            vec![error("incorrectly-closed-comment", 1, 4)],
+        ),
+        (
+            CommentStart,
+            "--!>",
+            "",
+            "",
+            5,
+            vec![error("incorrectly-closed-comment", 1, 4)],
+        ),
+        (
+            Comment,
+            "--!--!>",
+            "--!",
+            "",
+            8,
+            vec![error("incorrectly-closed-comment", 1, 7)],
+        ),
+        (
+            Comment,
+            "text-->z\0",
+            "text",
+            "z\0",
+            10,
+            vec![error("unexpected-null-character", 1, 9)],
+        ),
+    ] {
+        cases.push(IntegratedCase {
+            initial,
+            input: points(input),
+            appended: points(appended),
+            state: Data,
+            current: (Input::Eof, Position { line: 1, column }),
+            errors,
+            input_errors: vec![],
+            emitted: true,
+            characters: points(characters),
+            blocked: false,
+        });
+    }
+    for (input, state, current, column, appended, characters, errors) in [
+        ("x-->&", CharacterReference, '&', 5, "x", "", vec![]),
+        ("x--><!", MarkupDeclarationOpen, '!', 6, "x", "", vec![]),
+        ("x--><?", ProcessingInstructionOpen, '?', 6, "x", "", vec![]),
+        (
+            "--!> \0<!",
+            MarkupDeclarationOpen,
+            '!',
+            8,
+            "",
+            " \0",
+            vec![
+                error("incorrectly-closed-comment", 1, 4),
+                error("unexpected-null-character", 1, 6),
+            ],
+        ),
+    ] {
+        cases.push(IntegratedCase {
+            initial: Comment,
+            input: points(input),
+            appended: points(appended),
+            state,
+            current: (
+                Input::CodePoint(current.into()),
+                Position { line: 1, column },
+            ),
+            errors,
+            input_errors: vec![],
+            emitted: true,
+            characters: points(characters),
             blocked: true,
         });
     }
@@ -911,6 +1050,29 @@ fn integrated_literal_loops_fallbacks_closures_and_genuine_blocks_match_independ
     }
     let surrogate = CodePoint::new(0xd800).unwrap();
     let noncharacter = CodePoint::new(0xfdd0).unwrap();
+    let mut end_bang_input = points("--\0--!");
+    end_bang_input.push(surrogate);
+    end_bang_input.extend(points("\r\n--!>\u{b}"));
+    let mut end_bang_data = points("--�--!");
+    end_bang_data.extend([surrogate, '\n'.into()]);
+    cases.push(IntegratedCase {
+        initial: Comment,
+        input: end_bang_input,
+        appended: end_bang_data,
+        state: Data,
+        current: (Input::Eof, Position { line: 2, column: 6 }),
+        errors: vec![
+            error("unexpected-null-character", 1, 3),
+            error("incorrectly-closed-comment", 2, 4),
+        ],
+        input_errors: vec![
+            error("surrogate-in-input-stream", 1, 7),
+            error("control-character-in-input-stream", 2, 5),
+        ],
+        emitted: true,
+        characters: points("\u{b}"),
+        blocked: false,
+    });
     cases.push(IntegratedCase {
         initial: Comment,
         input: vec![

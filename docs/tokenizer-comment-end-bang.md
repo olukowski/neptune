@@ -1,6 +1,16 @@
 # Comment end bang state
 
-## Current Comment integration (PR #54)
+## Current CommentEnd integration (PR #55)
+
+On base `08ddeae1103a97766b5055e61e70ce4907c2477a` (merged #47–54),
+CommentEnd is implemented. EndBang is now reachable from core Comment through End. Its '-' loop reaches real EndDash/End; malformed closure, fallback and EOF keep their original source effects.
+See [current integration evidence](tokenizer-comment-end.md#integration-onto-47-54)
+for exact source/destination assertions, every-split cases and validation.
+Normal Data comment entry remains blocked at MarkupDeclarationOpen. Production
+sibling algorithms/shared helpers are unchanged. Earlier PR support/count reports
+below are historical; their pinned source branch evidence remains normative.
+
+## Historical Comment integration (PR #54)
 
 On base `f2ca599065ec7fa70cc437f5c2ea6b9e2ee68883` (merged #47–53) plus
 PR #54, Comment is implemented alongside the seven merged comment states.

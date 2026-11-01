@@ -421,12 +421,23 @@ fn hyphen_entry_executes_all_real_start_dash_branches_after_exact_source_effects
                             );
                         }
                         if value == 0x2d {
-                            let blocked = Err(UnimplementedState {
-                                state: State::CommentEnd,
-                            });
-                            assert_eq!(run.step(), blocked);
+                            // Newly implemented End consumes the next 'z',
+                            // restores "--" (not 'z'), then replays in Comment.
+                            expected.state = State::Comment;
+                            expected.current = Some((
+                                Input::CodePoint('z'.into()),
+                                Position { line: 2, column: 7 },
+                            ));
+                            expected
+                                .storage
+                                .comment
+                                .as_mut()
+                                .unwrap()
+                                .data
+                                .extend(points("--"));
+                            assert_eq!(run.step(), Ok(Progress::Continue(State::Comment)));
                             assert_eq!(snapshot(&run), expected);
-                            terminal(&mut run, blocked);
+                            comment_replay(&mut run, &mut expected);
                         } else {
                             comment_replay(&mut run, &mut expected);
                         }
@@ -435,12 +446,18 @@ fn hyphen_entry_executes_all_real_start_dash_branches_after_exact_source_effects
                         assert_eq!(run.context().input.errors(), expected.input_errors);
                         assert_eq!(
                             run.context_mut().input.consume(),
-                            Input::CodePoint('z'.into())
+                            Input::CodePoint(if value == 0x2d {
+                                '\n'.into()
+                            } else {
+                                'z'.into()
+                            })
                         );
                         assert_eq!(
                             run.context().input.position(),
                             if value == 0x0d {
                                 Position { line: 3, column: 1 }
+                            } else if value == 0x2d {
+                                Position { line: 2, column: 8 }
                             } else {
                                 Position { line: 2, column: 7 }
                             }
@@ -659,6 +676,14 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_steps() {
         "",
         "-",
         "--tail",
+        "-->",
+        "---",
+        "--!>",
+        "--\0-->",
+        "--!-->",
+        "--><!",
+        "-->&",
+        "--><?",
         "->",
         "->x\r\n\0É😀\r",
         "->\r\r\n",

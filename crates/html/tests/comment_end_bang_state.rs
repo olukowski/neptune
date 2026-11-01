@@ -249,7 +249,7 @@ fn comment_fallback_executes_after_inspectable_source_effects() {
 }
 
 #[test]
-fn hyphen_destination_executes_exact_end_dash_branches_before_remaining_stubs() {
+fn hyphen_destination_executes_exact_end_dash_and_end_fallback_branches() {
     for value in (0..=0x7f).chain([
         0x80, 0x9f, 0xa0, 0xc0, 0xe9, 0x301, 0xd800, 0xdfff, 0xfdd0, 0xfeff, 0xfffd, 0x1f600,
         0x1fffe, 0x10ffff,
@@ -349,13 +349,20 @@ fn hyphen_destination_executes_exact_end_dash_branches_before_remaining_stubs() 
                     continue;
                 }
                 if value == 0x2d {
-                    let blocked = Err(UnimplementedState {
-                        state: State::CommentEnd,
-                    });
-                    for _ in 0..3 {
-                        assert_eq!(run.step(), blocked);
-                        assert_eq!(snapshot(&run), expected);
-                    }
+                    // CommentEnd consumes the NEXT 'z', not the withheld '-'.
+                    expected.state = State::Comment;
+                    expected.current = Some((
+                        Input::CodePoint('z'.into()),
+                        Position { line: 2, column: 4 },
+                    ));
+                    expected.comment.as_mut().unwrap().data.extend(points("--"));
+                    assert_eq!(run.step(), Ok(Progress::Continue(State::Comment)));
+                    assert_eq!(snapshot(&run), expected);
+                    assert_eq!(
+                        run.context_mut().input.reconsume(),
+                        Err(CursorError::AlreadyReconsuming)
+                    );
+                    comment_replay(&mut run, &mut expected);
                 } else {
                     comment_replay(&mut run, &mut expected);
                 }
@@ -611,6 +618,13 @@ fn every_two_chunk_split_and_single_point_chunks_match_closed_source_traces() {
         points("-tail"),
         points("-"),
         points("--tail"),
+        points("-->"),
+        points("--!>"),
+        points("--\0-->"),
+        points("--!-->"),
+        points("--><!"),
+        points("-->&"),
+        points("--><?"),
         points("->tail"),
         points("-\0tail"),
         points("-\r\ntail"),

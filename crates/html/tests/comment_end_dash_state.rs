@@ -176,7 +176,7 @@ fn comment_replay(run: &mut Execution, expected: &mut Snapshot) {
 }
 
 #[test]
-fn every_ascii_and_non_scalar_branch_preserves_source_then_executes_real_comment_or_blocks_end() {
+fn every_ascii_and_non_scalar_branch_preserves_source_then_executes_real_comment_or_end() {
     for value in (0..=0x7f).chain([
         0x80, 0x9f, 0xa0, 0xc9, 0x3a9, 0xfeff, 0x1f600, 0xd800, 0xdfff, 0xfdd0, 0xffff, 0x10ffff,
     ]) {
@@ -219,17 +219,33 @@ fn every_ascii_and_non_scalar_branch_preserves_source_then_executes_real_comment
                 // In particular: '>', '<', '&', '!', NUL and non-scalars do not
                 // get appended, replaced, diagnosed by this state, or emitted.
                 if value == 0x2d {
-                    let blocked = Err(UnimplementedState {
-                        state: State::CommentEnd,
-                    });
-                    for _ in 0..3 {
-                        assert_eq!(execution.step(), blocked);
-                        assert_eq!(snapshot(&execution), expected);
+                    // EndDash withheld both consumed hyphens. Real CommentEnd
+                    // consumes the NEXT 'z', restores exactly "--", then Comment
+                    // appends the reconsumed 'z' without another preprocessing pass.
+                    expected.state = State::Comment;
+                    expected.current = Some((
+                        Input::CodePoint('z'.into()),
+                        Position { line: 2, column: 3 },
+                    ));
+                    expected.comment.as_mut().unwrap().data.extend(points("--"));
+                    assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
+                    assert_eq!(snapshot(&execution), expected);
+                    comment_replay(&mut execution, &mut expected);
+                    for _ in 0..2 {
+                        if !finished {
+                            assert_eq!(execution.step(), Ok(Progress::NeedMoreInput));
+                            assert_eq!(snapshot(&execution), expected);
+                        }
                     }
-                    if !finished {
-                        execution.context_mut().input.push(points("more")).unwrap();
-                        execution.context_mut().input.finish();
-                        assert_eq!(execution.step(), blocked);
+                    execution.context_mut().input.finish();
+                    expected.current = Some((Input::Eof, Position { line: 2, column: 4 }));
+                    expected.errors.push(error("eof-in-comment", 2, 4));
+                    let data = expected.comment.take().unwrap().data;
+                    expected
+                        .tokens
+                        .extend([Token::Comment { data }, Token::Eof]);
+                    for _ in 0..2 {
+                        assert_eq!(execution.step(), Ok(Progress::Finished));
                         assert_eq!(snapshot(&execution), expected);
                     }
                 } else {
@@ -456,6 +472,13 @@ fn every_two_chunk_split_and_single_code_point_chunks_match_closed_source_step_t
         points(""),
         points("-"),
         points("-tail"),
+        points("->"),
+        points("-!>"),
+        points("-\0-->"),
+        points("-!-->"),
+        points("-><!"),
+        points("->&"),
+        points("-><?"),
         points("--!>"),
         points("x"),
         points("!>"),
