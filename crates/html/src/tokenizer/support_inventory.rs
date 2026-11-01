@@ -49,6 +49,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::SelfClosingStartTag,
         State::BogusComment,
         State::CommentLessThanSign,
+        State::CommentLessThanSignBang,
         State::CommentLessThanSignBangDash,
         State::CommentStart, // Direct entry uses initialized pending_comment below.
         State::CommentEndDash, // Isolated entry supplies initialized pending-comment data.
@@ -75,6 +76,12 @@ fn explicit_support_inventory_matches_dispatch() {
                 // Direct entry follows the predecessor's consumed '<'.
                 context.input.push(['<'.into()]).unwrap();
                 assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
+            }
+            if state == State::CommentLessThanSignBang {
+                // Predecessors consumed '<!' before this state's next input.
+                context.input.push(['<'.into(), '!'.into()]).unwrap();
+                assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
+                assert_eq!(context.input.consume(), Input::CodePoint('!'.into()));
             }
             if finished {
                 context.input.finish();
@@ -134,6 +141,12 @@ fn explicit_support_inventory_matches_dispatch() {
                     // The predecessor has already appended its consumed '<'.
                     context.pending_comment = Some(PendingComment {
                         data: vec!['<'.into()],
+                    });
+                }
+                if state == State::CommentLessThanSignBang {
+                    // Predecessors consumed and appended '<!' to the comment.
+                    context.pending_comment = Some(PendingComment {
+                        data: vec!['<'.into(), '!'.into()],
                     });
                 }
                 let mut execution = Execution::new(state, context);

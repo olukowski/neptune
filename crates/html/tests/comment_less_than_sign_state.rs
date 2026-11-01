@@ -138,11 +138,24 @@ fn every_ascii_branch_and_unicode_fallback_have_exact_source_effects() {
             }
             assert_eq!(execution.step(), Ok(Progress::Continue(expected.state)));
             assert_eq!(snapshot(&execution), expected, "U+{value:04X}");
-            if expected.state != SOURCE {
-                // Inspect source data/errors before the unsupported destination.
-                assert_terminal_stub(&mut execution, &expected);
+            if expected.state == State::CommentLessThanSignBang {
+                // Source append/no-take was asserted above. Execute the newly
+                // available Bang: it consumes the NEXT 'z' and reconsumes it
+                // in Comment without data/error/output effects of its own.
+                expected.state = State::Comment;
+                expected.current = Some((
+                    Input::CodePoint('z'.into()),
+                    Position { line: 2, column: 3 },
+                ));
+                assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
+                assert_eq!(snapshot(&execution), expected);
+                assert_eq!(
+                    execution.context_mut().input.reconsume(),
+                    Err(CursorError::AlreadyReconsuming)
+                );
             }
-            // Inspect the cursor only; never reconstruct/resume a blocked execution.
+            // Probe before any remaining stub attempt; never reconstruct/resume
+            // blocked execution or run an implemented state with a probed cursor.
             // Append branches consumed once; fallback scheduled literal reconsumption.
             if !matches!(value, 0x21 | 0x3c) {
                 assert_eq!(
@@ -169,6 +182,10 @@ fn every_ascii_branch_and_unicode_fallback_have_exact_source_effects() {
                 }
             );
             assert_eq!(execution.context_mut().input.consume(), Input::Eof);
+            if expected.state != SOURCE {
+                let after_probe = snapshot(&execution);
+                assert_terminal_stub(&mut execution, &after_probe);
+            }
         }
     }
 }
@@ -199,11 +216,23 @@ fn repeated_less_than_and_bang_append_in_order_without_taking_comment() {
         assert_eq!(snapshot(&execution), expected);
     }
     assert_eq!(expected.comment.as_ref().unwrap().data, points("<<<!"));
-    assert_terminal_stub(&mut execution, &expected);
+    expected.state = State::Comment;
+    expected.current = Some((
+        Input::CodePoint('t'.into()),
+        Position { line: 1, column: 4 },
+    ));
+    assert_eq!(execution.step(), Ok(Progress::Continue(State::Comment)));
+    assert_eq!(snapshot(&execution), expected);
+    assert_eq!(
+        execution.context_mut().input.reconsume(),
+        Err(CursorError::AlreadyReconsuming)
+    );
     assert_eq!(
         execution.context_mut().input.consume(),
         Input::CodePoint('t'.into())
     );
+    assert_eq!(snapshot(&execution), expected);
+    assert_terminal_stub(&mut execution, &expected);
 }
 
 #[test]
@@ -262,6 +291,13 @@ fn drain(execution: &mut Execution, trace: &mut Trace) -> bool {
             assert_terminal_stub(execution, &after);
             return true;
         }
+        if result == Ok(Progress::Finished) {
+            for _ in 0..3 {
+                assert_eq!(execution.step(), Ok(Progress::Finished));
+                assert_eq!(snapshot(execution), after);
+            }
+            return true;
+        }
         assert!(matches!(result, Ok(Progress::Continue(_))));
     }
 }
@@ -301,6 +337,13 @@ fn every_two_chunk_split_and_single_point_chunks_preserve_source_step_traces() {
         points("<<<<"),
         points("!tail"),
         points("<<!tail"),
+        points("!"),
+        points("!-"),
+        points("!--"),
+        points("<<!-\0tail"),
+        points("<<!-\r\nX"),
+        points("<<!-\u{b}"),
+        points("<<!-\u{fdd0}"),
         points("<<x>"),
         points("<<\0tail"),
         points("<<\r\n!"),
