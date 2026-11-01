@@ -24,8 +24,9 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data double escaped](tokenizer-script-data-double-escaped.md),
 [Script data double escaped dash](tokenizer-script-data-double-escaped-dash.md),
 [Script data double escaped dash dash](tokenizer-script-data-double-escaped-dash-dash.md),
-[Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md), and
-[Script data double escape end](tokenizer-script-data-double-escape-end.md) are implemented.
+[Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md),
+[Script data double escape end](tokenizer-script-data-double-escape-end.md), and
+[Comment less-than sign](tokenizer-comment-less-than-sign.md) are implemented.
 All other states, including ordinary Comment and
 Character reference, remain `UnimplementedState` stubs.**
 This is a partial tokenizer, not a stable parsing API or a usable browser. No full tokenizer-conformance or browser-security claim is made.
@@ -526,8 +527,8 @@ return state, last-start-tag bookkeeping, and scheduled reconsumption. Existing
 Bogus comment and End tag open suites retain the state-level EOF, malformed-input,
 NUL, streaming, and terminal-stub checks. This support extraction adds no states,
 storage, token types, adapter capabilities, or upstream baseline changes. Ordinary
-comment states and Markup declaration open remain terminal `UnimplementedState`
-stubs.
+comment states other than [Comment less-than sign](tokenizer-comment-less-than-sign.md)
+and Markup declaration open remain terminal `UnimplementedState` stubs.
 
 ## Before attribute name coverage
 

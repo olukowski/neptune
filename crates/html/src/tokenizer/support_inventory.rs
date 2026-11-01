@@ -48,6 +48,7 @@ fn explicit_support_inventory_matches_dispatch() {
         State::AfterAttributeValueQuoted,
         State::SelfClosingStartTag,
         State::BogusComment,
+        State::CommentLessThanSign,
     ];
     assert_eq!(State::ALL.len(), 84);
     for &state in State::ALL {
@@ -62,6 +63,11 @@ fn explicit_support_inventory_matches_dispatch() {
             }
             if state == State::ScriptDataEscapedLessThanSign {
                 // Direct entry follows consumption of the escaped '<'.
+                context.input.push(['<'.into()]).unwrap();
+                assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
+            }
+            if state == State::CommentLessThanSign {
+                // Direct entry follows the predecessor's consumed '<'.
                 context.input.push(['<'.into()]).unwrap();
                 assert_eq!(context.input.consume(), Input::CodePoint('<'.into()));
             }
@@ -114,6 +120,12 @@ fn explicit_support_inventory_matches_dispatch() {
                     context.temporary_buffer = vec!['s'.into(), 'c'.into(), 'r'.into()];
                 }
                 context.pending_comment = Some(PendingComment::default());
+                if state == State::CommentLessThanSign {
+                    // The predecessor has already appended its consumed '<'.
+                    context.pending_comment = Some(PendingComment {
+                        data: vec!['<'.into()],
+                    });
+                }
                 let mut execution = Execution::new(state, context);
                 let result = execution.step();
                 assert!(result.is_ok(), "{state:?}");
