@@ -17,6 +17,7 @@ mod comment_end_dash;
 mod comment_less_than_sign;
 mod comment_less_than_sign_bang;
 mod comment_less_than_sign_bang_dash;
+mod comment_less_than_sign_bang_dash_dash;
 mod comment_start;
 mod comment_start_dash;
 mod comment_state;
@@ -248,6 +249,9 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::CommentEndBang => Ok(comment_end_bang::step(context)),
         State::CommentStartDash => Ok(comment_start_dash::step(context)),
         State::Comment => Ok(comment_state::step(context)),
+        State::CommentLessThanSignBangDashDash => {
+            Ok(comment_less_than_sign_bang_dash_dash::step(context))
+        }
         _ => Err(UnimplementedState { state }),
     }
 }
