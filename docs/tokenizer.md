@@ -498,7 +498,10 @@ Every branch consumes once and none reconsumes. `<` and `&` are literal comment
 data, not transitions or character references. Existing pending-comment data is
 retained; unrelated context (including current-tag storage and last emitted start
 tag) is untouched. Emission takes only the pending comment, using the existing
-output-vector convention and a state-local helper, not a new general emission API.
+output-vector convention and the shared `comment::emit` helper, not a new general
+emission API. `comment::data_mut` exposes only the existing pending data. Both
+helpers require initialized pending-comment storage; neither creates it,
+preprocesses data, consumes input, diagnoses errors, changes states, or emits EOF.
 Open exhaustion suspends without emitting a comment or EOF; explicit EOF is required.
 
 Focused tests in `crates/html/tests/bogus_comment_state.rs` cover all branches,
@@ -515,6 +518,16 @@ whole-tokenizer conformance. Local adapter tests compare comment data/kind/order
 empty-token boundaries, and double-escaped non-scalar data, deliberately mismatch
 outputs, reject malformed shapes, and retain downstream stub blocks after a
 matching comment prefix. Only upstream runs contribute to the conformance report.
+
+The comment support module's unit regressions check literal data mutation and
+empty/seeded token emission, take semantics, separate comment boundaries, token
+order, and preservation of unrelated tag/attribute storage, diagnostics, scratch,
+return state, last-start-tag bookkeeping, and scheduled reconsumption. Existing
+Bogus comment and End tag open suites retain the state-level EOF, malformed-input,
+NUL, streaming, and terminal-stub checks. This support extraction adds no states,
+storage, token types, adapter capabilities, or upstream baseline changes. Ordinary
+comment states and Markup declaration open remain terminal `UnimplementedState`
+stubs.
 
 ## Before attribute name coverage
 
