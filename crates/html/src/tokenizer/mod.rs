@@ -11,6 +11,7 @@ mod before_attribute_name;
 mod before_attribute_value;
 mod bogus_comment;
 mod comment;
+mod comment_end;
 mod comment_end_bang;
 mod comment_end_dash;
 mod comment_less_than_sign;
@@ -238,6 +239,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::AfterAttributeValueQuoted => Ok(after_attribute_value_quoted::step(context)),
         State::SelfClosingStartTag => Ok(self_closing_start_tag::step(context)),
         State::BogusComment => Ok(bogus_comment::step(context)),
+        State::CommentEnd => Ok(comment_end::step(context)),
         State::CommentLessThanSign => Ok(comment_less_than_sign::step(context)),
         State::CommentLessThanSignBang => Ok(comment_less_than_sign_bang::step(context)),
         State::CommentLessThanSignBangDash => Ok(comment_less_than_sign_bang_dash::step(context)),

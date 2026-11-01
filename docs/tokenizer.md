@@ -12,6 +12,7 @@ After attribute name, Before attribute value, Attribute value
 After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Comment start](tokenizer-comment-start.md),
 [Comment start dash](tokenizer-comment-start-dash.md),
+[Comment end](tokenizer-comment-end.md),
 [Script data end tag open](tokenizer-script-data-end-tag-open.md),
 [Script data end tag name](tokenizer-script-data-end-tag-name.md),
 [Script data escape start](tokenizer-script-data-escape-start.md),
