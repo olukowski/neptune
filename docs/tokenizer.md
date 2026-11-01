@@ -28,7 +28,10 @@ After attribute value (quoted), Self-closing start tag, Bogus comment,
 [Script data double escaped dash dash](tokenizer-script-data-double-escaped-dash-dash.md),
 [Script data double escaped less-than sign](tokenizer-script-data-double-escaped-less-than-sign.md),
 [Script data double escape end](tokenizer-script-data-double-escape-end.md),
+[Comment start](tokenizer-comment-start.md),
+[Comment start dash](tokenizer-comment-start-dash.md),
 [Comment less-than sign](tokenizer-comment-less-than-sign.md),
+[Comment less-than sign bang](tokenizer-comment-less-than-sign-bang.md),
 [Comment less-than sign bang dash](tokenizer-comment-less-than-sign-bang-dash.md),
 [Comment end dash](tokenizer-comment-end-dash.md), and
 [Comment end bang](tokenizer-comment-end-bang.md) are implemented.

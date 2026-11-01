@@ -14,6 +14,7 @@ mod comment;
 mod comment_end_bang;
 mod comment_end_dash;
 mod comment_less_than_sign;
+mod comment_less_than_sign_bang;
 mod comment_less_than_sign_bang_dash;
 mod comment_start;
 mod comment_start_dash;
@@ -237,6 +238,7 @@ fn dispatch(state: State, context: &mut Context) -> Result<Progress, Unimplement
         State::SelfClosingStartTag => Ok(self_closing_start_tag::step(context)),
         State::BogusComment => Ok(bogus_comment::step(context)),
         State::CommentLessThanSign => Ok(comment_less_than_sign::step(context)),
+        State::CommentLessThanSignBang => Ok(comment_less_than_sign_bang::step(context)),
         State::CommentLessThanSignBangDash => Ok(comment_less_than_sign_bang_dash::step(context)),
         State::CommentStart => Ok(comment_start::step(context)),
         State::CommentEndDash => Ok(comment_end_dash::step(context)),
