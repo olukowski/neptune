@@ -65,11 +65,29 @@ trailing/consecutive CR, NUL, non-scalar and downstream-block cases, both at
 initial positions and after a consumed newline/hyphen prefix. Streaming stops at
 the first terminal block; no blocked execution is reconstructed.
 
+## Integration onto #47–51
+
+After initial independent review with no findings at
+`0dc2a7a52c3414eec82270ff9fa9b411effd9105`, rebase base is
+`fb249f0e4273ed1626ce2f28ddc9f9cd8218dc78`. Additive conflicts preserve
+all merged modules, dispatch, independent inventory and documentation.
+The authoritative implemented-state list includes all 47 dispatched states.
+
+The reviewed CommentStartDash algorithm and its seven isolated tests are
+unchanged. The already-merged CommentStart algorithm is also unchanged, but its
+tests now preserve the exact predecessor source assertions and then execute
+CommentStartDash rather than falsely expecting its stub. All four destination
+branches are independently asserted through actual predecessor entry, including
+empty/seeded data, open exhaustion vs EOF, exact normalized diagnostic locations,
+comment take semantics, Data continuation and EOF order, and genuine
+Comment/CommentEnd blocks. Predecessor chunk traces are expanded correspondingly.
+See [the predecessor integration evidence](tokenizer-comment-start.md#commentstartdash-integration-52).
+
 ## Entry and conformance limits
 
 `normal_data_comment_entry_is_still_terminally_blocked_before_comment_creation`
 checks actual Data entry stops at MarkupDeclarationOpen, before any comment
-creation or this state. Sibling states are deliberately not implemented.
+creation or this state. No sibling algorithm or gateway is added by this PR.
 No new Data-entry comment coverage or new upstream passing identity is claimed.
 
 The pinned upstream runner has no CommentStartDash initial-state name; focused
